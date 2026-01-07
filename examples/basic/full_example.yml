@@ -1,0 +1,85 @@
+# AID2E Full Example Configuration (DTLZ2 Toy Problem)
+# This example demonstrates a multi-objective optimization setup for the DTLZ2 benchmark.
+# Design parameters are loaded from an external file (design.params).
+
+problem:
+  name: "DTLZ2 Multi-Objective Optimization"
+  type: "toy"  # Toy benchmark problem
+
+  # Objectives for the optimization. Each objective has a name and direction.
+  objectives:
+    - name: "f1"
+      direction: "minimize"
+    - name: "f2"
+      direction: "minimize"
+
+  # Design parameters can be loaded from file (path) or defined inline.
+  # The loader will:
+  #   - If 'path' is provided: load from that file (must exist)
+  #   - If 'path' is not provided: use inline parameters directly
+  #   - If both are provided: raise an error
+  design_space:
+    path: "./examples/basic/design.params"
+
+  # Optional: Inline design parameters (toy example) for quick experiments.
+  # Uncomment to use inline parameters instead of a file.
+  # inline_design:
+  #   groups:
+  #     tracker:
+  #       parameters:
+  #         layer_thickness:
+  #           value: 0.35
+  #           bounds: [0.2, 0.6]
+  #         sensor_pitch:
+  #           value: 25
+  #           bounds: [10, 50]
+  #     magnet:
+  #       parameters:
+  #         field_strength:
+  #           value: 1.5
+  #           bounds: [1.0, 3.0]
+  #   constraints:
+  #     - name: "budget"
+  #       rule: "tracker.layer_thickness * 6 + magnet.field_strength < 8.0"
+
+optimizer:
+  # Choose optimization algorithm family: "BO" (Bayesian Optimization) or "EA" (Evolutionary Algorithm)
+  kind: "BO"
+  max_iterations: 100
+
+  # Configuration specific to Bayesian Optimization (used when kind == "BO")
+  bo:
+    surrogate_model:
+      name: "GaussianProcess"
+      kernel: "matern52"
+      noise_level: 1.0e-6
+      normalize_y: true
+
+    acquisition_function:
+      name: "qEHVI"  # Expected Hypervolume Improvement (batch)
+      parameters:
+        num_mc_samples: 128
+        objective_thresholds: [0.0, 0.0]
+
+    parameters:
+      initial_design: "lhs"  # Latin Hypercube Sampling
+      n_initial_samples: 24
+      batch_size: 4
+      parallel_evaluations: 4
+
+  # Alternative configuration for Evolutionary Algorithms (used when kind == "EA")
+  # Uncomment and set kind: "EA" to use this section instead of BO.
+  # ea:
+  #   population_size: 100
+  #   crossover_rate: 0.9
+  #   mutation_rate: 0.1
+  #   selection: "tournament"
+  #   elitism: 2
+  #   parameters:
+  #     max_generations: 80
+  #     parallel_evaluations: 8
+
+metadata:
+  project: "AID2E"
+  description: "AI assisted Detector Design for EIC"
+  version: "0.0.1"

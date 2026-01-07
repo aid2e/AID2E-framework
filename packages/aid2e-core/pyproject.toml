@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "aid2e-core"
 version = "0.0.1"
-description = "Core framework for AID2E - Autonomous Intelligent Design-to-Execution"
+description = "Core framework for AID2E - AI assisted Detector Design for EIC"
 readme = "README.md"
 requires-python = ">=3.8"
 license = {text = "MIT"}
@@ -24,7 +24,10 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
 ]
 
-dependencies = []
+dependencies = [
+    "aid2e-utilities @ file:../aid2e-utilities",
+    "click>=8.0",
+]
 
 [project.optional-dependencies]
 dev = [
@@ -34,6 +37,9 @@ dev = [
     "flake8>=3.9",
 ]
 docs = ["mkdocs>=1.2", "mkdocs-material>=7.1"]
+
+[project.scripts]
+aid2e = "core.aid2e_cli:cli"
 
 [project.urls]
 Homepage = "https://aid2e.github.io/aid2e"

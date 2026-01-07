@@ -136,3 +136,7 @@ Thumbs.db
 # Project specific
 *.egg-info/
 .qodo/
+*ignore*
+*output*
+*logs*
+*work*

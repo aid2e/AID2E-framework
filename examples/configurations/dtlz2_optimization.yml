@@ -1,0 +1,73 @@
+# Example Optimization Configuration for DTLZ2 Toy Problem
+# This demonstrates a basic multi-objective optimization setup
+
+problem:
+  name: "DTLZ2 Multi-Objective Optimization"
+  problem_type: "DTLZ2"
+  output_location: "./output/dtlz2"
+  work_location: "./work/dtlz2"
+  
+  design_config:
+    design_parameters:
+      DTLZ2_variables:
+        parameters:
+          x1:
+            value: 0.5
+            bounds: [0.0, 1.0]
+          x2:
+            value: 0.5
+            bounds: [0.0, 1.0]
+          x3:
+            value: 0.5
+            bounds: [0.0, 1.0]
+          x4:
+            value: 0.5
+            bounds: [0.0, 1.0]
+          x5:
+            value: 0.5
+            bounds: [0.0, 1.0]
+          x6:
+            value: 0.5
+            bounds: [0.0, 1.0]
+          x7:
+            value: 0.5
+            bounds: [0.0, 1.0]
+          x8:
+            value: 0.5
+            bounds: [0.0, 1.0]
+          x9:
+            value: 0.5
+            bounds: [0.0, 1.0]
+          x10:
+            value: 0.5
+            bounds: [0.0, 1.0]
+    
+    parameter_constraints:
+      - name: "x1_upper_bound"
+        description: "x1 must be less than 1.0"
+        rule: "DTLZ2_variables.x1 < 1.0"
+      - name: "sum_constraint"
+        description: "Sum of x1 and x2 must be less than 1.5"
+        rule: "DTLZ2_variables.x1 + DTLZ2_variables.x2 < 1.5"
+
+optimization:
+  name: "DTLZ2 MOBO Optimization"
+  description: "Multi-objective Bayesian optimization of DTLZ2 benchmark problem"
+  
+  optimizer:
+    name: "MOBO"
+    type: "Bayesian"
+    parameters:
+      acquisition_function: "EHVI"  # Expected Hypervolume Improvement
+      kernel: "matern52"
+      n_restarts_optimizer: 10
+  
+  objectives:
+    - "minimize:f1"
+    - "minimize:f2"
+  
+  constraints: []
+  
+  n_iterations: 100
+  n_initial_samples: 20
+  parallel_evaluations: 4

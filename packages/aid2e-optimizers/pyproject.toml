@@ -44,3 +44,6 @@ Repository = "https://github.com/aid2e/AID2E-framework.git"
 [tool.setuptools]
 packages = ["optimizers"]
 package-dir = {"" = "src"}
+
+[project.entry-points."aid2e.commands"]
+optimize = "optimizers.cli:optimize_cmd"

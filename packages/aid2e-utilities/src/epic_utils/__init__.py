@@ -7,7 +7,7 @@ from .epic_design_config import (
 	EpicDesignParameters,
 	EpicDesignConfigLoader,
 )
-from .epic_problem_config import EpicConfiguration
+from .epic_env_config import EpicConfiguration
 
 __version__ = "0.1.0"
 __all__ = [

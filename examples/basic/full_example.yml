@@ -7,11 +7,13 @@ problem:
   type: "toy"  # Toy benchmark problem
 
   # Objectives for the optimization. Each objective has a name and direction.
+  # The objectives returned will be a dictionary with these names as keys.
+  # example: {"f1": value1, "f2": value2}
   objectives:
     - name: "f1"
-      direction: "minimize"
+      minimize: true
     - name: "f2"
-      direction: "minimize"
+      minimize: true
 
   # Design parameters can be loaded from file (path) or defined inline.
   # The loader will:
@@ -20,28 +22,7 @@ problem:
   #   - If both are provided: raise an error
   design_space:
     path: "./examples/basic/design.params"
-
-  # Optional: Inline design parameters (toy example) for quick experiments.
-  # Uncomment to use inline parameters instead of a file.
-  # inline_design:
-  #   groups:
-  #     tracker:
-  #       parameters:
-  #         layer_thickness:
-  #           value: 0.35
-  #           bounds: [0.2, 0.6]
-  #         sensor_pitch:
-  #           value: 25
-  #           bounds: [10, 50]
-  #     magnet:
-  #       parameters:
-  #         field_strength:
-  #           value: 1.5
-  #           bounds: [1.0, 3.0]
-  #   constraints:
-  #     - name: "budget"
-  #       rule: "tracker.layer_thickness * 6 + magnet.field_strength < 8.0"
-
+    
 optimizer:
   # Choose optimization algorithm family: "BO" (Bayesian Optimization) or "EA" (Evolutionary Algorithm)
   kind: "BO"

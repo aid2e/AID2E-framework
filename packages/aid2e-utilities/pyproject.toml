@@ -1,0 +1,98 @@
+[build-system]
+requires = ["setuptools>=45", "wheel", "setuptools_scm[toml]>=6.2"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "aid2e-utilities"
+version = "0.0.1"
+description = "Utilities for AID2E Framework including configurations and ePIC-specific tools"
+readme = "README.md"
+requires-python = ">=3.8"
+license = {text = "MIT"}
+authors = [
+    {name = "AID2E Team", email = "ksuresh@wm.edu"}
+]
+keywords = [
+    "optimization",
+    "bayesian",
+    "evolutionary-algorithms",
+    "configuration",
+    "ePIC"
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: Scientific/Engineering",
+]
+
+dependencies = [
+    "pyyaml>=5.4",
+    "jsonschema>=3.2",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=6.0",
+    "pytest-cov>=2.12",
+    "black>=21.0",
+    "flake8>=3.9",
+    "isort>=5.9",
+    "mypy>=0.910",
+]
+docs = [
+    "mkdocs>=1.2",
+    "mkdocs-material>=7.1",
+    "mkdocstrings>=0.18",
+]
+
+[project.urls]
+Homepage = "https://aid2e.github.io/aid2e"
+Documentation = "https://aid2e.github.io/AID2E-framework"
+Repository = "https://github.com/aid2e/AID2E-framework.git"
+Issues = "https://github.com/aid2e/AID2E-framework/issues"
+
+[tool.setuptools]
+packages = ["configurations", "epic_utils"]
+package-dir = {"" = "src"}
+
+[tool.black]
+line-length = 88
+target-version = ['py38', 'py39', 'py310', 'py311']
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+  # directories
+  \.eggs
+  | \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | build
+  | dist
+)/
+'''
+
+[tool.isort]
+profile = "black"
+line_length = 88
+multi_line_mode = 3
+include_trailing_comma = true
+
+[tool.mypy]
+python_version = "3.8"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--cov=src --cov-report=html --cov-report=term-missing"

@@ -43,5 +43,8 @@ Homepage = "https://aid2e.github.io/aid2e"
 Repository = "https://github.com/aid2e/AID2E-framework.git"
 
 [tool.setuptools]
-packages = ["schedulers"]
+packages = ["aid2e.schedulers"]
 package-dir = {"" = "src"}
+
+[tool.setuptools.package-data]
+"aid2e.schedulers" = ["py.typed"]

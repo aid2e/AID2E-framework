@@ -39,12 +39,15 @@ dev = [
 docs = ["mkdocs>=1.2", "mkdocs-material>=7.1"]
 
 [project.scripts]
-aid2e = "core.aid2e_cli:cli"
+aid2e = "aid2e.core.aid2e_cli:cli"
 
 [project.urls]
 Homepage = "https://aid2e.github.io/aid2e"
 Repository = "https://github.com/aid2e/AID2E-framework.git"
 
 [tool.setuptools]
-packages = ["core"]
+packages = ["aid2e.core"]
 package-dir = {"" = "src"}
+
+[tool.setuptools.package-data]
+"aid2e.core" = ["py.typed"]

@@ -12,7 +12,7 @@ from typing import Optional
 import click
 import importlib.metadata
 
-from configurations import FullConfig, load_config
+from aid2e.configurations import FullConfig, load_config
 
 
 @click.group()

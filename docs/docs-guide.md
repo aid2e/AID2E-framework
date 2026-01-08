@@ -1,4 +1,4 @@
-# AID2E Documentation
+# AID2E Documentation Guide
 
 This guide explains how to generate, preview, and deploy the AID2E documentation site using MkDocs.
 
@@ -51,4 +51,3 @@ MkDocs is configured to use `mkdocstrings` for Python API docs. Ensure modules a
 - If `mkdocs` is not found, install docs extras: `pip install -e ".[docs]"`.
 - If API pages fail to render, verify import paths in `mkdocs.yml` `setup_commands` and that packages are installed in editable mode: `pip install -e .`.
 - GitHub Pages must be enabled in the repository settings to deploy with `gh-deploy`.
-

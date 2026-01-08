@@ -29,13 +29,15 @@ markdown_extensions:
       permalink: true
   - footnotes
   - def_list
+  - pymdownx.snippets
 
 nav:
-  - Home: README.md
+  - Home: index.md
+  - Docs Guide: docs-guide.md
   - User Guide:
-      - Overview: user-guide/overview.md
+    - Overview: user-guide/overview.md
   - API Reference:
-      - Core: api-reference/core.md
-      - Optimizers: api-reference/optimizers.md
-      - Schedulers: api-reference/schedulers.md
-      - Utilities: api-reference/utilities.md
+    - Core: api-reference/core.md
+    - Optimizers: api-reference/optimizers.md
+    - Schedulers: api-reference/schedulers.md
+    - Utilities: api-reference/utilities.md

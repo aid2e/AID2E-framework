@@ -16,12 +16,8 @@ plugins:
   - mkdocstrings:
       handlers:
         python:
-          setup_commands:
-            - import sys
-            - sys.path.append('packages/aid2e-core/src')
-            - sys.path.append('packages/aid2e-optimizers/src')
-            - sys.path.append('packages/aid2e-schedulers/src')
-            - sys.path.append('packages/aid2e-utilities/src')
+          paths:
+            - src
 
 markdown_extensions:
   - admonition

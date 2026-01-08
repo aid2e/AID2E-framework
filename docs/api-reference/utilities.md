@@ -1,5 +1,5 @@
 # Utilities API
 
-::: configurations
+::: aid2e.utilities.configurations
 
-::: epic_utils
+::: aid2e.utilities.epic_utils

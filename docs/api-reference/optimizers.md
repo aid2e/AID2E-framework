@@ -1,3 +1,3 @@
 # Optimizers API
 
-::: optimizers
+::: aid2e.optimizers

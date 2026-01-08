@@ -2,190 +2,283 @@
 
 ## Overview
 
-The AID2E Framework is now set up as a modular monorepo with a root meta-package that manages all subpackages. This allows for flexible installation options.
+The AID2E Framework is a modular project containing the CLI, optimizers, schedulers, and utilities for AI-assisted detector design for the EIC. All modules are organized within the `src/aid2e/` directory structure.
 
-## Installation Options
+## Installation
 
-### 1. Install Everything (Default)
+### Install with Core Dependencies
 
 ```bash
 pip install -e .
 ```
 
-This installs all packages:
-- `aid2e-core` → import as `core`
-- `aid2e-optimizers` → import as `optimizers`
-- `aid2e-schedulers` → import as `schedulers`
-- `aid2e-utilities` → import as `configurations` and `epic_utils`
+This installs the framework with core dependencies:
+- `pyyaml>=5.4` - YAML configuration parsing
+- `pydantic>=2.0` - Data validation
+- `click>=8.0` - CLI framework
 
-### 2. Install Specific Packages
+### Install with Development Tools
 
-#### Core Only
 ```bash
-pip install -e ".[core]"
+pip install -e ".[dev]"
 ```
-Installs: `core`
 
-#### Optimizers Only
+Installs development tools for testing and code quality:
+- `pytest>=6.0` - Testing framework
+- `pytest-cov>=2.12` - Code coverage
+- `black>=21.0` - Code formatter
+- `flake8>=3.9` - Linter
+- `isort>=5.9` - Import sorting
+- `mypy>=0.910` - Type checking
+
+### Install with Documentation Tools
+
 ```bash
-pip install -e ".[optimizers]"
-```
-Installs: `optimizers`
-
-#### Schedulers Only
-```bash
-pip install -e ".[schedulers]"
-```
-Installs: `schedulers`
-
-#### Utilities Only
-```bash
-pip install -e ".[utilities]"
-```
-Installs: `configurations` and `epic_utils`
-
-#### All Packages Explicitly
-```bash
-pip install -e ".[all]"
+pip install -e ".[docs]"
 ```
 
-## Package Structure
+Installs documentation generation tools:
+- `mkdocs>=1.2` - Documentation generator
+- `mkdocs-material>=7.1` - Material theme
+- `mkdocstrings>=0.18` - API documentation
+- `mkdocstrings-python>=1.0.0` - Python docstring support
 
-```
-AID2E-framework/
-├── pyproject.toml                 # Root meta-package
-│
-├── packages/
-│   ├── aid2e-core/
-│   │   ├── pyproject.toml
-│   │   ├── README.md
-│   │   └── src/
-│   │       └── core/
-│   │           └── __init__.py
-│   │
-│   ├── aid2e-optimizers/
-│   │   ├── pyproject.toml
-│   │   ├── README.md
-│   │   └── src/
-│   │       └── optimizers/
-│   │           └── __init__.py
-│   │
-│   ├── aid2e-schedulers/
-│   │   ├── pyproject.toml
-│   │   ├── README.md
-│   │   └── src/
-│   │       └── schedulers/
-│   │           └── __init__.py
-│   │
-│   └── aid2e-utilities/
-│       ├── pyproject.toml
-│       ├── README.md
-│       └── src/
-│           ├── configurations/
-│           │   └── __init__.py
-│           └── epic_utils/
-│               └── __init__.py
-│
-└── docs/                          # Root documentation
-    ├── index.md
-    ├── getting-started.md
-    ├── installation.md
-    ├── architecture.md
-    ├── development.md
-    ├── contributing.md
-    ├── changelog.md
-    ├── user-guide/
-    ├── api-reference/
-    ├── tutorials/
-    └── assets/
-```
-
-## Import Examples
-
-[Note] This is purely form GenAI and needs to updated
-
-### When All Packages are Installed
-
-```python
-# Core
-from core import Workflow
-
-# Optimizers
-from optimizers import BayesianOptimizer
-
-# Schedulers
-from schedulers import SlurmScheduler
-
-# Utilities
-from configurations import load_config
-from epic_utils import some_function
-```
-
-### When Only Core is Installed
-
-```python
-# This works
-from core import Workflow
-
-# These will raise ImportError
-from optimizers import BayesianOptimizer  # ImportError
-from configurations import load_config    # ImportError
-```
-
-## Development
-
-For development with all tools:
+### Install Everything
 
 ```bash
 pip install -e ".[dev,docs]"
 ```
 
-This installs:
-- pytest, pytest-cov (testing)
-- black, flake8, isort, mypy (code quality)
-- mkdocs, mkdocs-material (documentation)
+## Project Structure
 
-## Adding New Code
-
-Each package can now be developed independently while being managed through the root package.
-
-### Adding to a Subpackage
-
-1. Edit files in `packages/aid2e-<package>/src/`
-2. The changes are immediately available due to editable installation
-3. No need to reinstall unless you modify `pyproject.toml`
-
-### Creating a New Package
-
-1. Create `packages/aid2e-<newpackage>/`
-2. Add `pyproject.toml` with package metadata
-3. Create `src/` directory structure
-4. Update root `pyproject.toml` to reference the new package
-
-## Testing the Installation
-
-```python
-# Test 1: All packages
-python -c "
-import core
-import optimizers
-import schedulers
-import configurations
-print('All packages available!')
-"
-
-# Test 2: Specific package
-python -c "import core; print('Core available!')"
+```
+AID2E-framework/
+├── src/aid2e/                     # Main source package
+│   ├── __init__.py
+│   ├── cli/                       # Command-line interface
+│   │   ├── __init__.py
+│   │   └── aid2e_cli.py
+│   ├── optimizers/                # Optimization algorithms
+│   │   └── __init__.py
+│   ├── schedulers/                # Job schedulers
+│   │   └── __init__.py
+│   └── utilities/                 # Utility modules
+│       ├── __init__.py
+│       ├── configurations/        # Configuration loading
+│       │   ├── __init__.py
+│       │   ├── base_models.py
+│       │   ├── design_config.py
+│       │   ├── problem_config.py
+│       │   ├── optimization_config.py
+│       │   ├── optimization_registry.py
+│       │   └── full_config.py
+│       └── epic_utils/            # EIC physics utilities
+│           ├── __init__.py
+│           ├── epic_design_config.py
+│           ├── epic_env_config.py
+│           └── epic_problem_config.py
+│
+├── tests/                         # Test suite
+│   ├── __init__.py
+│   ├── conftest.py
+│   ├── test_integration.py
+│   ├── test_cli/
+│   │   ├── test_cli_module.py
+│   │   └── test_cli.py
+│   ├── test_optimizers/
+│   │   └── test_optimizers_module.py
+│   ├── test_schedulers/
+│   │   └── test_schedulers_module.py
+│   ├── test_utilities/
+│   │   ├── test_utilities_module.py
+│   │   ├── test_configurations/
+│   │   │   ├── test_config_file_loading.py
+│   │   │   └── test_configurations_module.py
+│   │   └── test_epic_utils/
+│   │       ├── test_epic_design_config.py
+│   │       └── test_epic_utils_module.py
+│   └── integration/
+│       └── test_integration_example.py
+│
+├── docs/                          # Documentation (MkDocs)
+│   ├── README.md
+│   ├── docs-guide.md
+│   ├── user-guide/
+│   │   └── overview.md
+│   └── api-reference/
+│       ├── cli.md
+│       ├── optimizers.md
+│       ├── schedulers.md
+│       └── utilities.md
+│
+├── examples/                      # Configuration examples
+│   ├── basic/
+│   │   ├── design.params
+│   │   ├── full_example.yml
+│   │   ├── optimizer.config
+│   │   ├── problem.config
+│   │   └── slurm.template
+│   └── configurations/
+│       ├── dtlz2_optimization.yml
+│       ├── epic_tracking_optimization.yml
+│       └── README.md
+│
+├── scripts/                       # Helper scripts
+│   ├── docs-build.sh
+│   ├── docs-deploy-ghpages.sh
+│   └── docs-serve.sh
+│
+├── .github/
+│   └── instructions/              # Project instructions
+│       └── project-def.instructions.md
+│
+├── pyproject.toml                 # Project configuration
+├── pytest.ini                     # Pytest configuration
+├── mkdocs.yml                     # Documentation configuration
+├── README.md                      # Project overview
+└── INSTALLATION.md                # This file
 ```
 
-## Next Steps
+## Using the AID2E CLI
 
-Now that the skeleton is set up and working:
+After installation, the `aid2e` command-line tool is available:
 
-1. **Add Core Code**: Start implementing actual functionality in each package
-2. **Write Tests**: Create test suites in each package
-3. **Documentation**: Fill in the documentation templates
-4. **Examples**: Add working examples demonstrating package usage
-5. **Dependencies**: Update `pyproject.toml` files with actual dependencies
+```bash
+# Display version
+aid2e --version
 
-All packages are ready for development!
+# Show available commands
+aid2e --help
+
+# Load and display configuration
+aid2e load examples/basic/full_example.yml
+
+# Show configuration details
+aid2e info examples/basic/full_example.yml
+```
+
+## Import Examples
+
+### Using Modules in Python
+
+```python
+# CLI module
+from aid2e.cli import cli
+
+# Optimizers module
+from aid2e.optimizers import SomeOptimizer
+
+# Schedulers module
+from aid2e.schedulers import SomeScheduler
+
+# Configuration utilities
+from aid2e.utilities.configurations import load_config, FullConfig
+from aid2e.utilities.epic_utils import some_function
+```
+
+### Loading Configurations
+
+```python
+from aid2e.utilities.configurations import load_config
+
+# Load a full configuration
+config = load_config('examples/basic/full_example.yml')
+
+# Access configuration components
+print(config.design)
+print(config.problem)
+print(config.optimization)
+```
+
+## Development Workflow
+
+### Setting Up for Development
+
+```bash
+# Clone the repository
+git clone https://github.com/aid2e/AID2E-framework.git
+cd AID2E-framework
+
+# Create a virtual environment
+python -m venv .venv
+source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+
+# Install with all development tools
+pip install -e ".[dev,docs]"
+```
+
+### Running Tests
+
+```bash
+# Run all tests
+pytest tests/
+
+# Run with verbose output
+pytest tests/ -v
+
+# Run with coverage report
+pytest tests/ --cov=src/aid2e --cov-report=html
+
+# Run specific test file
+pytest tests/test_cli/test_aid2e_cli.py
+```
+
+### Building Documentation Locally
+
+```bash
+# Build static site
+mkdocs build
+
+# Serve documentation locally (with live reload)
+mkdocs serve
+```
+
+The documentation will be available at `http://localhost:8000/`
+
+### Code Quality
+
+```bash
+# Format code with black
+black src/ tests/
+
+# Check code style with flake8
+flake8 src/ tests/
+
+# Sort imports with isort
+isort src/ tests/
+
+# Type checking with mypy
+mypy src/
+```
+
+### Making Changes
+
+1. **Create a branch** for your changes:
+   ```bash
+   git checkout -b feature/your-feature-name
+   ```
+
+2. **Make changes** to files in `src/aid2e/`
+
+3. **Write tests** in the corresponding `tests/` directory
+
+4. **Run tests** to ensure everything works:
+   ```bash
+   pytest tests/ -v
+   ```
+
+5. **Format and lint** your code:
+   ```bash
+   black src/ tests/
+   isort src/ tests/
+   flake8 src/ tests/
+   ```
+
+6. **Commit and push**:
+   ```bash
+   git add .
+   git commit -m "Description of changes"
+   git push origin feature/your-feature-name
+   ```
+
+7. **Open a Pull Request** on GitHub

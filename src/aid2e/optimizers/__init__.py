@@ -1,4 +1,6 @@
 """AID2E Optimizers module - MOBO and MOEA algorithms."""
 
-__version__ = "0.1.0"
+from aid2e import __MAIN_VERSION__
+
+__version__ = __MAIN_VERSION__
 __all__ = []

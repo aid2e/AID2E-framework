@@ -1,6 +1,8 @@
 """Configuration utilities for AID2E Framework."""
 
-__version__ = "0.1.0"
+from aid2e import __MAIN_VERSION__
+
+__version__ = __MAIN_VERSION__
 
 from .base_models import BaseParameter, RangeParameter, ChoiceParameter, Parameter, ContainerConfig
 from .design_config import DesignConfig, DesignParameters, ParameterGroup, ParameterConstraint, DesignConfigLoader

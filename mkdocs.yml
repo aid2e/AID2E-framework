@@ -32,7 +32,7 @@ markdown_extensions:
   - pymdownx.snippets
 
 nav:
-  - Home: index.md
+  - Home: README.md
   - Docs Guide: docs-guide.md
   - User Guide:
     - Overview: user-guide/overview.md

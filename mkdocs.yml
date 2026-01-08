@@ -1,0 +1,41 @@
+site_name: AID2E Framework
+site_url: https://aid2e.github.io/AID2E-framework
+repo_url: https://github.com/aid2e/AID2E-framework
+repo_name: aid2e/AID2E-framework
+
+docs_dir: docs
+
+theme:
+  name: material
+  features:
+    - navigation.instant
+    - content.code.copy
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          setup_commands:
+            - import sys
+            - sys.path.append('packages/aid2e-core/src')
+            - sys.path.append('packages/aid2e-optimizers/src')
+            - sys.path.append('packages/aid2e-schedulers/src')
+            - sys.path.append('packages/aid2e-utilities/src')
+
+markdown_extensions:
+  - admonition
+  - toc:
+      permalink: true
+  - footnotes
+  - def_list
+
+nav:
+  - Home: README.md
+  - User Guide:
+      - Overview: user-guide/overview.md
+  - API Reference:
+      - Core: api-reference/core.md
+      - Optimizers: api-reference/optimizers.md
+      - Schedulers: api-reference/schedulers.md
+      - Utilities: api-reference/utilities.md

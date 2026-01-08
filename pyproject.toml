@@ -34,24 +34,17 @@ classifiers = [
 ]
 
 dependencies = [
-    "aid2e-core @ file:./packages/aid2e-core",
-    "aid2e-optimizers @ file:./packages/aid2e-optimizers",
-    "aid2e-schedulers @ file:./packages/aid2e-schedulers",
-    "aid2e-utilities @ file:./packages/aid2e-utilities",
+    "pyyaml>=5.4",
+    "pydantic>=2.0",
+    "click>=8.0",
 ]
 
 [project.optional-dependencies]
-core = ["aid2e-core @ file:./packages/aid2e-core"]
-optimizers = ["aid2e-optimizers @ file:./packages/aid2e-optimizers"]
-schedulers = ["aid2e-schedulers @ file:./packages/aid2e-schedulers"]
-utilities = ["aid2e-utilities @ file:./packages/aid2e-utilities"]
-
-all = [
-    "aid2e-core @ file:./packages/aid2e-core",
-    "aid2e-optimizers @ file:./packages/aid2e-optimizers",
-    "aid2e-schedulers @ file:./packages/aid2e-schedulers",
-    "aid2e-utilities @ file:./packages/aid2e-utilities",
-]
+mobo = ["scikit-learn>=0.24"]
+moea = ["pymoo>=0.6"]
+joblib = ["joblib>=1.0"]
+slurm = ["pyclusters>=1.0"]
+panda = ["panda-client>=1.0"]
 
 dev = [
     "pytest>=6.0",
@@ -75,8 +68,19 @@ Documentation = "https://aid2e.github.io/AID2E-framework"
 Repository = "https://github.com/aid2e/AID2E-framework.git"
 Issues = "https://github.com/aid2e/AID2E-framework/issues"
 
+[project.scripts]
+aid2e = "aid2e.cli.aid2e_cli:cli"
+
 [tool.setuptools]
-packages = []
+packages = ["aid2e", "aid2e.cli", "aid2e.optimizers", "aid2e.schedulers", "aid2e.utilities", "aid2e.utilities.configurations", "aid2e.utilities.epic_utils"]
+package-dir = {"" = "src"}
+
+[tool.setuptools.package-data]
+"aid2e" = ["py.typed"]
+"aid2e.cli" = ["py.typed"]
+"aid2e.optimizers" = ["py.typed"]
+"aid2e.schedulers" = ["py.typed"]
+"aid2e.utilities" = ["py.typed"]
 
 [tool.black]
 line-length = 88

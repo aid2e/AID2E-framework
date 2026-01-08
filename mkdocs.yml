@@ -37,7 +37,7 @@ nav:
   - User Guide:
     - Overview: user-guide/overview.md
   - API Reference:
-    - Core: api-reference/core.md
+    - CLI: api-reference/cli.md
     - Optimizers: api-reference/optimizers.md
     - Schedulers: api-reference/schedulers.md
     - Utilities: api-reference/utilities.md

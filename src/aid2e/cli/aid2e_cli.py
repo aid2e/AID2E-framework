@@ -12,11 +12,12 @@ from typing import Optional
 import click
 import importlib.metadata
 
+from aid2e import __MAIN_VERSION__
 from aid2e.utilities.configurations import FullConfig, load_config
 
 
 @click.group()
-@click.version_option(version="0.0.1", prog_name="aid2e")
+@click.version_option(version=__MAIN_VERSION__, prog_name="aid2e")
 def cli():
     """
     AID2E - AI assisted Detector Design for EIC.
@@ -214,8 +215,55 @@ def info(config_file: str):
 @cli.command()
 def version():
     """Display version information."""
-    click.echo("AID2E Framework v0.0.1")
+    click.echo(f"AID2E Framework v{__MAIN_VERSION__}")
     click.echo("AI assisted Detector Design for EIC")
+
+
+@cli.command(name="optimize")
+@click.argument("config_file", type=click.Path(exists=True))
+@click.option("--validate-only", is_flag=True, help="Validate config but do not run")
+@click.option("-v", "--verbosity", count=True, help="Increase verbosity (can be used multiple times)")
+@click.option("--log", "log_file", type=click.Path(dir_okay=False), help="Path to log file")
+def optimize(config_file: str, validate_only: bool, verbosity: int, log_file: Optional[str]):
+    """
+    Run optimization based on configuration file.
+    
+    CONFIG_FILE: Path to the YAML configuration file.
+    
+    Example:
+        aid2e optimize optimization.yml
+        aid2e optimize optimization.yml --validate-only
+        aid2e optimize optimization.yml -vv --log output.log
+    """
+    try:
+        if verbosity > 0:
+            click.echo(f"Loading configuration from: {config_file}")
+        
+        config = load_config(config_file)
+        
+        if validate_only:
+            click.echo(click.style("✓ Configuration validated; skipping execution.", fg="green"))
+            return
+        
+        # Display optimization info
+        click.echo(click.style(f"Running optimization: {config.optimization.name}", fg="cyan", bold=True))
+        click.echo(f"  Algorithm: {config.optimization.optimizer.name} ({config.optimization.optimizer.type})")
+        click.echo(f"  Iterations: {config.optimization.n_iterations}")
+        click.echo(f"  Verbosity: {verbosity}")
+        if log_file:
+            click.echo(f"  Log file: {log_file}")
+        click.echo()
+        
+        # Placeholder for actual optimization execution
+        click.echo(click.style("Note: Optimizer execution not yet implemented.", fg="yellow"))
+        click.echo("The configuration has been validated and is ready for optimization.")
+        
+    except Exception as e:
+        click.echo(click.style(f"✗ Error: {e}", fg="red"), err=True)
+        if verbosity > 1:
+            import traceback
+            traceback.print_exc()
+        sys.exit(1)
 
 
 _load_plugin_commands(cli)

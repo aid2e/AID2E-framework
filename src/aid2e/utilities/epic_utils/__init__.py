@@ -1,5 +1,7 @@
 """ePIC-specific utilities for AID2E Framework."""
 
+from aid2e import __MAIN_VERSION__
+
 from .epic_design_config import (
 	EpicDesignConfig,
 	EpicParameter,
@@ -9,7 +11,7 @@ from .epic_design_config import (
 )
 from .epic_env_config import EpicConfiguration
 
-__version__ = "0.1.0"
+__version__ = __MAIN_VERSION__
 __all__ = [
 	"EpicDesignConfig",
 	"EpicParameter",

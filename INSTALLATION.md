@@ -2,7 +2,7 @@
 
 ## Overview
 
-The AID2E Framework is a modular monorepo containing the CLI, optimizers, schedulers, and utilities for AI-assisted detector design for the EIC. All modules are contained in a single `src/aid2e/` directory structure.
+The AID2E Framework is a modular project containing the CLI, optimizers, schedulers, and utilities for AI-assisted detector design for the EIC. All modules are organized within the `src/aid2e/` directory structure.
 
 ## Installation
 
@@ -53,7 +53,7 @@ pip install -e ".[dev,docs]"
 
 ```
 AID2E-framework/
-├── src/aid2e/                     # Main package
+├── src/aid2e/                     # Main source package
 │   ├── __init__.py
 │   ├── cli/                       # Command-line interface
 │   │   ├── __init__.py
@@ -63,39 +63,77 @@ AID2E-framework/
 │   ├── schedulers/                # Job schedulers
 │   │   └── __init__.py
 │   └── utilities/                 # Utility modules
+│       ├── __init__.py
 │       ├── configurations/        # Configuration loading
+│       │   ├── __init__.py
+│       │   ├── base_models.py
 │       │   ├── design_config.py
 │       │   ├── problem_config.py
 │       │   ├── optimization_config.py
-│       │   ├── full_config.py
-│       │   └── loaders.py
+│       │   ├── optimization_registry.py
+│       │   └── full_config.py
 │       └── epic_utils/            # EIC physics utilities
-│           └── __init__.py
+│           ├── __init__.py
+│           ├── epic_design_config.py
+│           ├── epic_env_config.py
+│           └── epic_problem_config.py
 │
 ├── tests/                         # Test suite
+│   ├── __init__.py
+│   ├── conftest.py
+│   ├── test_integration.py
 │   ├── test_cli/
+│   │   ├── test_cli_module.py
+│   │   └── test_cli.py
 │   ├── test_optimizers/
+│   │   └── test_optimizers_module.py
 │   ├── test_schedulers/
+│   │   └── test_schedulers_module.py
 │   ├── test_utilities/
-│   └── test_integration/
+│   │   ├── test_utilities_module.py
+│   │   ├── test_configurations/
+│   │   │   ├── test_config_file_loading.py
+│   │   │   └── test_configurations_module.py
+│   │   └── test_epic_utils/
+│   │       ├── test_epic_design_config.py
+│   │       └── test_epic_utils_module.py
+│   └── integration/
+│       └── test_integration_example.py
 │
 ├── docs/                          # Documentation (MkDocs)
 │   ├── README.md
 │   ├── docs-guide.md
 │   ├── user-guide/
-│   ├── api-reference/
-│   └── assets/
+│   │   └── overview.md
+│   └── api-reference/
+│       ├── cli.md
+│       ├── optimizers.md
+│       ├── schedulers.md
+│       └── utilities.md
 │
 ├── examples/                      # Configuration examples
-│   └── basic/
-│       └── full_example.yml
+│   ├── basic/
+│   │   ├── design.params
+│   │   ├── full_example.yml
+│   │   ├── optimizer.config
+│   │   ├── problem.config
+│   │   └── slurm.template
+│   └── configurations/
+│       ├── dtlz2_optimization.yml
+│       ├── epic_tracking_optimization.yml
+│       └── README.md
+│
+├── scripts/                       # Helper scripts
+│   ├── docs-build.sh
+│   ├── docs-deploy-ghpages.sh
+│   └── docs-serve.sh
 │
 ├── .github/
-│   └── workflows/
-│       ├── tests.yml              # CI/CD test pipeline
-│       └── docs-deploy.yml        # Documentation deployment
+│   └── instructions/              # Project instructions
+│       └── project-def.instructions.md
 │
 ├── pyproject.toml                 # Project configuration
+├── pytest.ini                     # Pytest configuration
 ├── mkdocs.yml                     # Documentation configuration
 ├── README.md                      # Project overview
 └── INSTALLATION.md                # This file

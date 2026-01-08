@@ -3,5 +3,7 @@
 Provides version metadata for the command-line interface entry point.
 """
 
-__version__ = "0.0.1"
+from aid2e import __MAIN_VERSION__
+
+__version__ = __MAIN_VERSION__
 __all__ = []

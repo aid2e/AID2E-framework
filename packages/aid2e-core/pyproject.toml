@@ -25,7 +25,7 @@ classifiers = [
 ]
 
 dependencies = [
-    "aid2e-utilities @ file:../aid2e-utilities",
+    "aid2e-utilities>=0.0.1",
     "click>=8.0",
 ]
 

@@ -1,3 +1,3 @@
 # Schedulers API
 
-::: schedulers
+::: aid2e.schedulers

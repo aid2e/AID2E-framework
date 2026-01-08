@@ -11,8 +11,8 @@ import yaml
 import os
 import re
 
-from configurations.base_models import BaseParameter
-from configurations.design_config import DesignConfig, ParameterConstraint
+from aid2e.utilities.configurations.base_models import BaseParameter
+from aid2e.utilities.configurations.design_config import DesignConfig, ParameterConstraint
 
 
 class EpicParameter(BaseParameter):

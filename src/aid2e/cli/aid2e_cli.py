@@ -12,7 +12,7 @@ from typing import Optional
 import click
 import importlib.metadata
 
-from configurations import FullConfig, load_config
+from aid2e.utilities.configurations import FullConfig, load_config
 
 
 @click.group()
@@ -41,10 +41,10 @@ def _load_plugin_commands(group: click.Group):
                 if isinstance(cmd, click.core.Command):
                     group.add_command(cmd)
             except Exception:
-                # Swallow plugin errors to keep core CLI functional
+                # Swallow plugin errors to keep the CLI functional
                 continue
     except Exception:
-        # If entry point discovery fails, keep core CLI functional
+        # If entry point discovery fails, keep the CLI functional
         pass
 
 

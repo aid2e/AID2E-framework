@@ -3,9 +3,9 @@
 from typing import Optional
 from pydantic import BaseModel
 
-from configurations.problem_config import ProblemConfiguration
-from epic_utils.epic_env_config import EpicConfiguration
-from epic_utils.epic_design_config import EpicDesignConfig
+from aid2e.utilities.configurations.problem_config import ProblemConfiguration
+from aid2e.utilities.epic_utils.epic_env_config import EpicConfiguration
+from aid2e.utilities.epic_utils.epic_design_config import EpicDesignConfig
 
 
 class EpicProblemConfiguration(ProblemConfiguration):

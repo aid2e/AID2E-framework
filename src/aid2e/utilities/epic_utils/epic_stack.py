@@ -24,7 +24,7 @@ class EpicSimLayer(StackLayer):
             if in_file.endswith(".py"):
                 formatted_inputs.append(f"--steeringFile {in_file}")
             if in_file.endswith(".hepmc3.root") or in_file.endswith(".hepmc"):
-                formatted_inputs.append(f"-I {in_file)")
+                formatted_inputs.append(f"-I {in_file}")
             if in_file.endswith(".mac"):
                 formatted_inputs.append(f"--macroFile {in_file}")
         return ' '.join(formatted_inputs)

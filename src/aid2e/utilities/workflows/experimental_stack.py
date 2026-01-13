@@ -83,7 +83,7 @@ class StackLayer(ABC):
         """
         pass
 
-    def _make_other_arg(self arguments: List[str]) -> str:
+    def _make_other_arg(self, arguments: List[str]) -> str:
         """Make other arguments
 
         By default, joins provided list of arguments into a space-separated

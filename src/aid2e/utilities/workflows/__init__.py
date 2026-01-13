@@ -1,6 +1,6 @@
 """Workflow utilities for AID2E Framework"""
 
-from adi2e import __MAIN_VERSION__
+from aid2e import __MAIN_VERSION__
 
 from .experimental_stack import (
 	AnaLayer,

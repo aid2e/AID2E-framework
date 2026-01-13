@@ -7,7 +7,7 @@ from .experimental_stack import (
 	StackLayer,
 )
 
-__version__ = __MAIN__VERSION__
+__version__ = __MAIN_VERSION__
 __all__ = [
 	"StackLayer",
 	"AnaLayer"

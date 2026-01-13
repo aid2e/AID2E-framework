@@ -155,6 +155,6 @@ class AnaLayer(StackLayer):
 
     # FIXME sould allow for users to specify how to
     # handle multiple outputs
-    def _make_output_arg(self, inputs: List[str]) -> str:
+    def _make_output_arg(self, outputs: List[str]) -> str:
         """Formats outputs for generic analysis layer"""
         return ' '.join(outputs)

@@ -80,7 +80,7 @@ class EpicRecLayer(StackLayer):
         Formats inputs for ePIC-specific reconstruction
         layer.
         """
-        in_arg = ' '.join(formatted_inputs)
+        in_arg = ' '.join(inputs)
         return in_arg
 
     def _make_output_arg(self, outputs: List[str]) -> str:

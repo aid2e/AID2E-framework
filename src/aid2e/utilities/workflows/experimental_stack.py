@@ -1,3 +1,6 @@
+"""
+TODO docstring goes here
+"""
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
@@ -16,14 +19,15 @@ class StackLayer(ABC):
         name: Unique name for the layer.
         command: Command to be run (e.g. npsim)
         rule: Recipe for combining the command and provided arguments
-              using keywords, e.g. 'command args outputs inputs'
+              using keywords, e.g. '{command} {arguments} {inputs} {outputs}'
 
     Example:
-        >>> layer = ExperimentLayer(
-        ...     name="sim",
-        ...     command="npsim",
-        ...     rule="exec args outputs"
-        ... )
+        >>> def ExperimentLayer(StackLayer):
+        ...     name="sim"
+        ...     command="npsim"
+        ...     rule='{command} {arguments} {inputs} {outputs}"
+        ...
+        ... layer = ExperimentLayer()
         ... run_layer = layer.make_command(
         ...     inputs,
         ...     outputs,
@@ -50,11 +54,6 @@ class StackLayer(ABC):
         """Recipe for combining command and arguments
         """
         pass
-
-    @property
-    @
-    command: str
-    rule: str
 
     @abstractmethod
     def _make_input_arg(self, inputs: List[str]) -> str:
@@ -111,16 +110,51 @@ class StackLayer(ABC):
         # format and sub in inputs/outputs
         in_arg = self._make_input_arg(inputs)
         out_arg = self._make_output_arg(outputs)
-        command = self.command.replace('inputs', in_arg)
-        command = command.replace('outputs', out_arg)
+        command = self.rule.replace('{command}', self.command)
+        command = command.replace('{inputs}', in_arg)
+        command = command.replace('{outputs}', out_arg)
 
         # if needed, sub in any other arguments
         if arguments != None:
             other_arg = self._make_other_arg(arguments)
-            command = command.replace('arguments', other_arg)
+            command = command.replace('{arguments}', other_arg)
         else:
-            command = command.replace('arguments', '')
+            command = command.replace('{arguments}', '')
 
         # return formatted command without any
         # stray double spaces
         return command.replace('  ', ' ')
+
+
+class AnaLayer(StackLayer):
+    """Represents a generic analysis layer of a software stack
+
+    Subclass derived from the abstract StackLayer to represent a generic
+    analysis layer of a software stack, in which users will run code they
+    provide.
+
+    Example:
+        >>> layer = AnaLayer()
+        ... layer.command="do_my_analysis.py"
+        ... layer.rule='{command} {arguments} -i {inputs} -o {outputs}'
+        ... run_layer = layer.make_command(
+        ...     inputs,
+        ...     outputs,
+        ...     arguments
+        ... )
+    """
+    name = "ana"
+    command = ""
+    rule = ''
+
+    # FIXME should allow for users to specify how to
+    # handle multiple inputs
+    def _make_input_arg(self, inputs: List[str]) -> str:
+        """Formats inputs for generic analysis layer"""
+        return ' '.join(inputs)
+
+    # FIXME sould allow for users to specify how to
+    # handle multiple outputs
+    def _make_output_arg(self, inputs: List[str]) -> str:
+        """Formats outputs for generic analysis layer"""
+        return ' '.join(outputs)

@@ -10,6 +10,11 @@ from .epic_design_config import (
 	EpicDesignConfigLoader,
 )
 from .epic_env_config import EpicConfiguration
+from .epic_stack import (
+	EpicSimLayer,
+	EpicRecLayer,
+	EpicAnaLayer
+)
 
 __version__ = __MAIN_VERSION__
 __all__ = [
@@ -19,4 +24,7 @@ __all__ = [
 	"EpicDesignParameters",
 	"EpicDesignConfigLoader",
 	"EpicConfiguration",
+	"EpicSimLayer",
+	"EpicRecLayer",
+	"EpicAnaLayer"
 ]

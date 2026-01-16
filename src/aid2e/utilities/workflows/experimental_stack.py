@@ -26,9 +26,8 @@ class StackLayer(ABC):
         ...     name="sim"
         ...     command="npsim"
         ...     rule='{command} {arguments} {inputs} {outputs}"
-        ...
-        ... layer = ExperimentLayer()
-        ... run_layer = layer.make_command(
+        >>> layer = ExperimentLayer()
+        >>> run_layer = layer.make_command(
         ...     inputs,
         ...     outputs,
         ...     arguments
@@ -135,9 +134,9 @@ class AnaLayer(StackLayer):
 
     Example:
         >>> layer = AnaLayer()
-        ... layer.command="do_my_analysis.py"
-        ... layer.rule='{command} {arguments} -i {inputs} -o {outputs}'
-        ... run_layer = layer.make_command(
+        >>> layer.command="do_my_analysis.py"
+        >>> layer.rule='{command} {arguments} -i {inputs} -o {outputs}'
+        >>> run_layer = layer.make_command(
         ...     inputs,
         ...     outputs,
         ...     arguments

@@ -13,7 +13,8 @@ from .epic_env_config import EpicConfiguration
 from .epic_stack import (
 	EpicSimLayer,
 	EpicRecLayer,
-	EpicAnaLayer
+	EpicAnaLayer,
+	EpicStack
 )
 
 __version__ = __MAIN_VERSION__
@@ -26,5 +27,6 @@ __all__ = [
 	"EpicConfiguration",
 	"EpicSimLayer",
 	"EpicRecLayer",
-	"EpicAnaLayer"
+	"EpicAnaLayer",
+	"EpicStack"
 ]

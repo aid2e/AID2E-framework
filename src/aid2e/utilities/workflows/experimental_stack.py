@@ -3,8 +3,8 @@ TODO docstring goes here
 """
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
-from typing import List
+from dataclasses import dataclass, fields, field
+from typing import Dict, List
 
 
 @dataclass
@@ -129,8 +129,8 @@ class AnaLayer(StackLayer):
     """Represents a generic analysis layer of a software stack
 
     Subclass derived from the abstract StackLayer to represent a generic
-    analysis layer of a software stack, in which users will run code they
-    provide.
+    analysis layer of an experimental software stack, in which users will
+    run code they provide.
 
     Example:
         >>> layer = AnaLayer()
@@ -157,3 +157,46 @@ class AnaLayer(StackLayer):
     def _make_output_arg(self, outputs: List[str]) -> str:
         """Formats outputs for generic analysis layer"""
         return ' '.join(outputs)
+
+
+@dataclass
+class ExperimentStack(ABC):
+    """Represents an experimental software stack
+
+    Abstract base class that represents an experimental software as a
+    dictionary of layers keyed on the layer names.
+
+    Properties:
+        layers: Dictionary of layers
+
+    Example:
+        >>> def MySimLayer(StackLayer):
+        ...     name="sim"
+        ...     command="dosim"
+        ...     rule='{command} {arguments} -I {inputs} -O {outputs}'
+        ... @dataclass
+        >>> def MyExperimentStack(StackLayer):
+        ...     sim: MySimLayer
+        >>> stack = MyExperimentStack()
+        >>> dosim = stack["sim"].make_command(
+        ...     inputs,
+        ...     outputs,
+        ...     arguments
+        ... )
+    """
+    layers: Dict[str, StackLayer] = field(init = False, repr = False)
+
+    def __post_init__(self):
+        """
+        Automatically adds fields that are StackLayer instances
+        and adds them to the dictionary.
+        """
+        self.layers = {
+            obj.name: obj
+            for f in fields(self)
+            if f.init and isinstance((obj := getattr(self, f.name)), StackLayer)
+        }
+
+    def __getitem__(self, key) -> StackLayer:
+        """Retrieve the layer identified by key"""
+        return self.layers[key]

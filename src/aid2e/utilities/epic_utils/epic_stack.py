@@ -2,9 +2,14 @@
 TODO docstring goes here
 """
 
+from dataclasses import dataclass, field
 from typing import List
 
-from aid2e.utilities.workflows.experimental_stack import AnaLayer, StackLayer
+from aid2e.utilities.workflows.experimental_stack import (
+    AnaLayer,
+    ExperimentStack,
+    StackLayer
+)
 
 
 class EpicSimLayer(StackLayer):
@@ -97,3 +102,11 @@ class EpicRecLayer(StackLayer):
 class EpicAnaLayer(AnaLayer):
     """Analysis layer of ePIC stack"""
     pass
+
+
+@dataclass
+class EpicStack(ExperimentStack):
+    """The ePIC software stack"""
+    sim: EpicSimLayer = field(default_factory = EpicSimLayer)
+    rec: EpicRecLayer = field(default_factory = EpicRecLayer)
+    ana: EpicAnaLayer = field(default_factory = EpicAnaLayer)

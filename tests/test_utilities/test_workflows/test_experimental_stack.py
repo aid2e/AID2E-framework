@@ -1,12 +1,15 @@
 """Tests for experimental stacks and layers."""
 
+from dataclasses import dataclass, field
 from aid2e.utilities.workflows import (
-    AnaLayer
+    AnaLayer,
+    ExperimentStack,
+    StackLayer
 )
 
 
 def _make_ana_layer_payload() -> dict:
-    """Build a dictionary of AnaLayer details, inputs, outputs, and arguments for test."""
+    """Build a dictionary of AnaLayer details, inputs, outputs, arguments for test."""
     return {
         "ana_details" : {
             "name"    : "test_ana",
@@ -22,6 +25,26 @@ def _make_ana_layer_payload() -> dict:
         "ana_args" : [
             "-P 22",
         ],
+    }
+
+
+def _make_experiment_stack_payload() -> dict:
+    """Build a dictionary of stack details, inputs, outputs for test"""
+    return {
+        "sim_details" : {
+            "name"    : "sim",
+            "command" : "dosim",
+            "rule"    : '{command} {arguments} -I {inputs} -O {outputs}'
+        },
+        "sim_input" : [
+            "sim_input.root",
+        ],
+        "sim_output" : [
+            "sim_output.root",
+        ],
+        "sim_args" : [
+            "--physicsList QBert.yaml",
+        ]
     }
 
 
@@ -42,3 +65,31 @@ def test_ana_layer():
         payload["ana_args"]
     )
     assert command == "python run_test_ana.py -P 22 -I ana_input.root -O ana_output.root"
+
+
+def test_experiment_stack():
+    """Validate ExperimentStack functionality"""
+    payload = _make_experiment_stack_payload()
+    class MySimLayer(StackLayer):
+        name    = payload["sim_details"]["name"]
+        command = payload["sim_details"]["command"]
+        rule    = payload["sim_details"]["rule"]
+        def _make_input_arg(self, inputs: List[str]) -> str:
+            return ' '.join(inputs)
+        def _make_output_arg(self, outputs: List[str]) -> str:
+            return ' '.join(outputs)
+
+    @dataclass
+    class MyExperimentStack(ExperimentStack):
+        sim: MySimLayer = field(default_factory = MySimLayer)
+
+    mystack = MyExperimentStack()
+    assert isinstance(mystack, MyExperimentStack)
+    assert isinstance(mystack[payload["sim_details"]["name"]], MySimLayer)
+
+    command = mystack[payload["sim_details"]["name"]].make_command(
+        payload["sim_input"],
+        payload["sim_output"],
+        payload["sim_args"]
+    )
+    assert command == "dosim --physicsList QBert.yaml -I sim_input.root -O sim_output.root"

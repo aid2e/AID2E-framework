@@ -175,8 +175,8 @@ class ExperimentStack(ABC):
         ...     command="dosim"
         ...     rule='{command} {arguments} -I {inputs} -O {outputs}'
         ... @dataclass
-        >>> def MyExperimentStack(StackLayer):
-        ...     sim: MySimLayer
+        >>> def MyExperimentStack(ExperimentStack):
+        ...     sim: MySimLayer = field(default_factory = MySimLayer)
         >>> stack = MyExperimentStack()
         >>> dosim = stack["sim"].make_command(
         ...     inputs,

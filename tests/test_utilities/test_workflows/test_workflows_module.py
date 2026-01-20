@@ -27,6 +27,12 @@ def test_ana_layer():
     assert AnaLayer is not None
 
 
+def test_experiment_stack():
+    """Test that workflows module has ExperimentStack class."""
+    from aid2e.utilities.workflows import ExperimentStack
+    assert ExperimentStack is not None
+
+
 def test_workflows_module_structure():
     """Test that workflows module has expected structure."""
     import aid2e.utilities.workflows as work

@@ -1,5 +1,7 @@
 """
-TODO docstring goes here
+ePIC software stack definitions. Define concrete classes inheriting
+from abstract base StackLayer and ExperimentStack from the workflows
+module.
 """
 
 from dataclasses import dataclass, field

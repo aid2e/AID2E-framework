@@ -1,5 +1,14 @@
-"""
-TODO docstring goes here
+"""Experimental software stack base classes
+
+This module defines a framework for interfacing with a generic experimental
+software stack. Components of the stack are represented as layers defined
+by a name, a command to be run, and a rule dictating how arguments are
+combined. These are layers are collected into a thin container, which
+represents the stack.
+
+Key Classes:
+    - StackLayer: Abstract base class representing a component of a stack
+    - ExperimentStack: Base container to hold layers representing the stack
 """
 
 from abc import ABC, abstractmethod

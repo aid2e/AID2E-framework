@@ -12,6 +12,52 @@ from aid2e.utilities.workflows.experimental_stack import (
 )
 
 
+class EpicGeoLayer(StackLayer):
+    """Geometry layer of ePIC stack"""
+    name = "geo"
+    command = "checkOverlaps"
+    rule = '{command} {inputs} {outputs}'
+
+    def _make_input_arg(self, inputs: List[str]) -> str:
+        """
+        Formats inputs for ePIC-specific geometry
+        layer. There should be exactly one input,
+        the geometry configuration file to run
+        overlap check on.
+        """
+        if len(inputs) != 1:
+            raise ValueError(f"EpicGeoLayer takes one input, got {len(inputs)}")
+        return inputs[0]
+
+    def _make_output_arg(self, outputs: List[str]) -> str:
+        """
+        Formats outputs for ePIC-specific geometry
+        layer. There should be exactly one output,
+        the log file to store the results of the
+        check.
+
+        Also adds shell code to check for overlaps/
+        extrusions and exit if any found.
+        """
+        if len(outputs) != 1:
+            raise ValueError(f"EpicGeoLayer takes one output, got {len(outputs)}")
+        output = outputs[0]
+
+        # get output and check, exit if there were any overlaps
+        checks = [
+          f' >& {output}',
+          f'grep -F "Number of illegal overlaps/extrusions : " {output} | while IFS= read -r line; do',
+          '  lastChar="${line: -1}"',
+          '  if [[ $lastChar =~ ^[0-9]$ ]]; then',
+          '    if (( lastChar > 0 )); then',
+          '      exit 9',
+          '    fi',
+          '  fi',
+          'done'
+        ]
+        return '\n'.join(checks)
+
+
 class EpicSimLayer(StackLayer):
     """Simulation layer of ePIC stack"""
     name = "sim"
@@ -41,37 +87,6 @@ class EpicSimLayer(StackLayer):
         """
         out_arg = ' '.join(outputs)
         return f"--outputFile {out_arg}"
-
-    def make_overlap_check_command(self) -> str:
-        """Make command to check overlaps
-
-        Makes command to run overlap check on
-        ePIC geometry specified by $DETECTOR_PATH/
-        $DETECTOR_CONFIG.xml. If overlaps are
-        detectored exit subprocess if an overlap is
-        found.
-        """
-
-        # command to do overlap check
-        # TODO how to handle logging overlap output?
-
-        # command(s) to exit if there were any overlaps
-        checks = [
-          f'grep -F "Number of illegal overlaps/extrusions : " {log} | while IFS= read -r line; do',
-          '  lastChar="${line: -1}"',
-          '  if [[ $lastChar =~ ^[0-9]$ ]]; then',
-          '    if (( lastChar > 0 )); then',
-          '      exit 9',
-          '    fi',
-          '  fi',
-          'done'
-        ]
-        check = ""
-        for line in checks:
-            check += line + "\n"
-
-        # return full command
-        return run + "\n" + check
 
 
 class EpicRecLayer(StackLayer):
@@ -107,6 +122,7 @@ class EpicAnaLayer(AnaLayer):
 @dataclass
 class EpicStack(ExperimentStack):
     """The ePIC software stack"""
+    geo: EpicGeoLayer = field(default_factory = EpicGeoLayer)
     sim: EpicSimLayer = field(default_factory = EpicSimLayer)
     rec: EpicRecLayer = field(default_factory = EpicRecLayer)
     ana: EpicAnaLayer = field(default_factory = EpicAnaLayer)

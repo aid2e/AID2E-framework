@@ -16,7 +16,7 @@ class EpicGeoLayer(StackLayer):
     """Geometry layer of ePIC stack"""
     name = "geo"
     command = "checkOverlaps"
-    rule = '{command} {inputs} {outputs}'
+    rule = '{command} {arguments} {inputs} {outputs}'
 
     def _make_input_arg(self, inputs: List[str]) -> str:
         """

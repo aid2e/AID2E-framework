@@ -29,7 +29,7 @@ def _make_ana_layer_payload() -> Dict[str, Any]:
     }
 
 
-def _make_experiment_stack_payload() -> :
+def _make_experiment_stack_payload() -> Dict[str, Any]:
     """Build a dictionary of stack details, inputs, outputs for test"""
     return {
         "sim_details" : {

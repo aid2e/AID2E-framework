@@ -33,3 +33,9 @@ def test_epic_problem_config_import():
     """Test that epic_problem_config can be imported."""
     from aid2e.utilities.epic_utils import epic_problem_config
     assert epic_problem_config is not None
+
+
+def test_epic_stack_import():
+    """Test that epic_stack can be imported."""
+    from aid2e.utilities.epic_utils import epic_stack
+    assert epic_stack is not None

@@ -1,0 +1,110 @@
+"""Tests for epic stack utilities."""
+
+from aid2e.utilities.epic_utils.epic_stack import (
+    EpicGeoLayer,
+    EpicSimLayer,
+    EpicRecLayer,
+    EpicAnaLayer,
+    EpicStack
+)
+
+
+def _make_epic_stack_payload() -> dict:
+    """Build a dictionary of epic stack layer inputs, outputs, and arguments for tests."""
+    return {
+        "geo_input" : [
+            "./epic/my_epic.xml",
+        ],
+        "geo_output" : [
+            "overlap_output.log",
+        ],
+        "geo_args" : [
+            "--tolerance 0.01",
+        ],
+        "sim_input" : [
+            "steering_input.py",
+            "hepmc_input.hepmc",
+            "hepmc_tree_input.hepmc3.root",
+            "macro_input.mac",
+        ],
+        "sim_output" : [
+            "sim_output.edm4hep.root",
+        ],
+        "sim_args" : [
+            "--numberOfEvents 100",
+            "--skipNEvents 10",
+        ],
+        "rec_output" : [
+            "rec_output.edm4eic.root",
+        ],
+        "rec_args" : [
+            "-Pnthreads=8",
+            "-Pjana:global_loglevel=debug",
+        ],
+    }
+
+
+def test_epic_geo_layer():
+    """EpicGeoLayer functionality"""
+    payload  = _make_epic_stack_payload()
+    geolayer = EpicGeoLayer()
+    command  = geolayer.make_command(
+        payload["geo_input"],
+        payload["geo_output"],
+        payload["geo_args"]
+    )
+    assert command == 'checkOverlaps --tolerance 0.01 ./epic/my_epic.xml >& overlap_output.log\ngrep -F "Number of illegal overlaps/extrusions : " overlap_output.log | while IFS= read -r line; do\n lastChar="${line: -1}"\n if [[ $lastChar =~ ^[0-9]$ ]]; then\n  if (( lastChar > 0 )); then\n   exit 9\n  fi\n fi\ndone'
+
+
+def test_epic_sim_layer():
+    """Validate EpicSimLayer functionality"""
+    payload  = _make_epic_stack_payload()
+    simlayer = EpicSimLayer()
+    command  = simlayer.make_command(
+        payload["sim_input"],
+        payload["sim_output"],
+        payload["sim_args"]
+    )
+    assert command == "npsim --numberOfEvents 100 --skipNEvents 10 --steeringFile steering_input.py -I hepmc_input.hepmc -I hepmc_tree_input.hepmc3.root --macroFile macro_input.mac --outputFile sim_output.edm4hep.root"
+
+
+def test_epic_rec_layer():
+    """Validate EpicRecLayer functionality"""
+    payload  = _make_epic_stack_payload()
+    reclayer = EpicRecLayer()
+    command  = reclayer.make_command(
+        payload["sim_output"],
+        payload["rec_output"],
+        payload["rec_args"]
+    )
+    assert command == "eicrecon -Pnthreads=8 -Pjana:global_loglevel=debug -Ppodio:output_file=rec_output.edm4eic.root sim_output.edm4hep.root"
+
+
+def test_epic_stack():
+    """Validate EpicStack functionality"""
+    payload = _make_epic_stack_payload()
+    epstack = EpicStack()
+    assert isinstance(epstack, EpicStack)
+    assert isinstance(epstack["geo"], EpicGeoLayer)
+    assert isinstance(epstack["sim"], EpicSimLayer)
+    assert isinstance(epstack["rec"], EpicRecLayer)
+    assert isinstance(epstack["ana"], EpicAnaLayer)
+
+    geocomm = epstack["geo"].make_command(
+        payload["geo_input"],
+        payload["geo_output"],
+        payload["geo_args"]
+    )
+    simcomm = epstack["sim"].make_command(
+        payload["sim_input"],
+        payload["sim_output"],
+        payload["sim_args"]
+    )
+    reccomm = epstack["rec"].make_command(
+        payload["sim_output"],
+        payload["rec_output"],
+        payload["rec_args"]
+    )
+    assert geocomm == 'checkOverlaps --tolerance 0.01 ./epic/my_epic.xml >& overlap_output.log\ngrep -F "Number of illegal overlaps/extrusions : " overlap_output.log | while IFS= read -r line; do\n lastChar="${line: -1}"\n if [[ $lastChar =~ ^[0-9]$ ]]; then\n  if (( lastChar > 0 )); then\n   exit 9\n  fi\n fi\ndone'
+    assert simcomm == "npsim --numberOfEvents 100 --skipNEvents 10 --steeringFile steering_input.py -I hepmc_input.hepmc -I hepmc_tree_input.hepmc3.root --macroFile macro_input.mac --outputFile sim_output.edm4hep.root"
+    assert reccomm == "eicrecon -Pnthreads=8 -Pjana:global_loglevel=debug -Ppodio:output_file=rec_output.edm4eic.root sim_output.edm4hep.root"

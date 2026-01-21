@@ -1,0 +1,35 @@
+{
+  "name": "DTLZ2 Multi-Objective Bayesian Optimization",
+  "description": "DTLZ2 benchmark problem with 10 variables and 2 objectives using Ax optimizer",
+  "optimizer": {
+    "name": "ax",
+    "type": "Bayesian",
+    "parameters": {
+      "initialization_strategy": "sobol",
+      "surrogate_model": "saasbo",
+      "acquisition_function": "qnehvi",
+      "n_initial_samples": 10,
+      "batch_size": 3,
+      "seed": 42
+    }
+  },
+  "objectives": [
+    "f1",
+    "f2"
+  ],
+  "n_iterations": 30,
+  "n_initial_samples": 10,
+  "parallel_evaluations": 3,
+  "parameters": {
+    "x1": {"bounds": [0.0, 1.0]},
+    "x2": {"bounds": [0.0, 1.0]},
+    "x3": {"bounds": [0.0, 1.0]},
+    "x4": {"bounds": [0.0, 1.0]},
+    "x5": {"bounds": [0.0, 1.0]},
+    "x6": {"bounds": [0.0, 1.0]},
+    "x7": {"bounds": [0.0, 1.0]},
+    "x8": {"bounds": [0.0, 1.0]},
+    "x9": {"bounds": [0.0, 1.0]},
+    "x10": {"bounds": [0.0, 1.0]}
+  }
+}

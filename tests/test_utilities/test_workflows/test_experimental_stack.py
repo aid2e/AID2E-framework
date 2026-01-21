@@ -1,6 +1,7 @@
 """Tests for experimental stacks and layers."""
 
 from dataclasses import dataclass, field
+from typing import Dict, Any, List 
 from aid2e.utilities.workflows import (
     AnaLayer,
     ExperimentStack,
@@ -8,27 +9,27 @@ from aid2e.utilities.workflows import (
 )
 
 
-def _make_ana_layer_payload() -> dict:
+def _make_ana_layer_payload() -> Dict[str, Any]:
     """Build a dictionary of AnaLayer details, inputs, outputs, arguments for test."""
     return {
-        "ana_details" : {
-            "name"    : "test_ana",
-            "command" : "python run_test_ana.py",
-            "rule"    : "{command} {arguments} -I {inputs} -O {outputs}"
+        "ana_details": {
+            "name": "test_ana",
+            "command": "python run_test_ana.py",
+            "rule": "{command} {arguments} -I {inputs} -O {outputs}",
         },
-        "ana_input" : [
+        "ana_input": [
             "ana_input.root",
         ],
-        "ana_output" : [
+        "ana_output": [
             "ana_output.root",
         ],
-        "ana_args" : [
+        "ana_args": [
             "-P 22",
         ],
     }
 
 
-def _make_experiment_stack_payload() -> dict:
+def _make_experiment_stack_payload() -> :
     """Build a dictionary of stack details, inputs, outputs for test"""
     return {
         "sim_details" : {

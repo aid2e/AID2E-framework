@@ -70,9 +70,6 @@ aid2e
 │   ├── version      # Display version
 │   ├── init         # Create configs from templates (planned)
 │   └── graph        # Visualize workflow (planned)
-└── [Legacy - Deprecated]
-  ├── load         # Use 'describe' or 'validate' instead
-  └── info         # Use 'inspect' instead
 ```
 
 ## Implemented Commands
@@ -479,7 +476,6 @@ optimization:
 | `config_commands.py` | ✅ Complete | ~170 | Config inspection commands |
 | `workflow_commands.py` | ✅ Complete | ~150 | Workflow execution (optimize placeholder) |
 | `utility_commands.py` | ✅ Complete | ~90 | Resource listing and version |
-| `legacy_commands.py` | ✅ Complete | ~210 | Deprecated commands with warnings |
 | `aid2e_cli.py` | ✅ Complete | ~100 | Main group and command registration |
 | `__init__.py` | ✅ Complete | ~20 | Package exports |
 
@@ -493,8 +489,6 @@ optimization:
 | `list` | utility_commands | ✅ Complete | Medium | Optimizers/templates/problems |
 | `version` | utility_commands | ✅ Complete | Low | Version display |
 | `optimize` | workflow_commands | ⚠️ Placeholder | High | Config loading works, execution pending |
-| `load` | legacy_commands | ⚠️ Deprecated | - | Shows deprecation warning |
-| `info` | legacy_commands | ⚠️ Deprecated | - | Shows deprecation warning |
 | `run` | workflow_commands | ⏳ Planned | High | Full workflow orchestration |
 | `resume` | workflow_commands | ⏳ Planned | High | Checkpoint restart |
 | `stop` | workflow_commands | ⏳ Planned | Medium | Graceful halt |
@@ -509,7 +503,7 @@ optimization:
 2. **Testability**: Commands can be unit tested independently
 3. **Extensibility**: New commands added to appropriate module
 4. **Clarity**: Functional grouping matches user mental model
-5. **Deprecation Path**: Legacy commands isolated for clean removal
+5. **Simplicity**: No legacy command surface to maintain
 
 ## Design Principles
 
@@ -528,7 +522,6 @@ optimization:
 - [x] Create `config_commands.py` (describe/inspect/validate)
 - [x] Create `workflow_commands.py` (optimize placeholder)
 - [x] Create `utility_commands.py` (list/version)
-- [x] Create `legacy_commands.py` (load/info with warnings)
 - [x] Refactor `aid2e_cli.py` to main group coordinator
 - [x] Update `__init__.py` for backward compatibility
 - [x] Update CLI_DESIGN.md documentation
@@ -538,13 +531,12 @@ optimization:
   - [ ] Test `config_commands` (describe/inspect/validate)
   - [ ] Test `workflow_commands` (optimize)
   - [ ] Test `utility_commands` (list/version)
-  - [ ] Test `legacy_commands` (deprecation warnings)
   - [ ] Test plugin discovery in `aid2e_cli`
 - [ ] Test all commands with example configs
   - [ ] Test with `examples/basic/full_example.yml`
   - [ ] Test with `examples/configurations/dtlz2_optimization.yml`
   - [ ] Test with `tests/test_utilities/fixtures/dtlz2/design.params`
-- [ ] Verify backward compatibility
+- [ ] Verify CLI entry point
   - [ ] Ensure existing tests still pass
   - [ ] Confirm entry point works: `aid2e --help`
   - [ ] Test both import patterns work
@@ -555,7 +547,6 @@ optimization:
 - [ ] Add `status` command for progress monitoring
 - [ ] Auto-register AxOptimizerConfig in registry
 - [ ] Create template system for `init` command
-- [ ] Remove `load` and `info` commands (after deprecation period)
 
 ### Future
 - [ ] Add `graph` command for visualization

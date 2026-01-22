@@ -110,4 +110,6 @@ def test_full_config_loader_combines_problem_and_optimization(tmp_path):
     assert config.problem.name == "DTLZ2 Multi-Objective Optimization"
     assert config.problem.design_config.get_parameter_bounds("DTLZ2_variables.x1") == (0.0, 1.0)
     assert config.optimization.optimizer.name == "MOBO"
-    assert config.optimization.objectives == ["minimize:f1", "minimize:f2"]
+    # Objectives are now ObjectiveDefinition instances, check their directives
+    assert len(config.optimization.objectives) == 2
+    assert [obj.to_directive() for obj in config.optimization.objectives] == ["minimize:f1", "minimize:f2"]

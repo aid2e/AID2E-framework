@@ -1,0 +1,75 @@
+# AID2E Full Example Configuration with SLURM HPC Scheduler
+# This example demonstrates using the SLURM runner for HPC cluster execution
+
+problem:
+  name: "DTLZ2 Multi-Objective Optimization on HPC"
+  type: "toy"
+
+  objectives:
+    - name: "f1"
+      direction: "minimize"
+      computation:
+        script:
+          path: "scripts/dtlz2_problem.py"
+          output_file: "objectives_{job_id}.json"
+          timeout_sec: 600
+      metrics_keys: ["f1"]
+    - name: "f2"
+      direction: "minimize"
+      computation:
+        script:
+          path: "scripts/dtlz2_problem.py"
+          output_file: "objectives_{job_id}.json"
+          timeout_sec: 600
+      metrics_keys: ["f2"]
+
+  design_space:
+    path: "design.params"
+
+optimizer:
+  kind: "BO"
+  max_iterations: 100
+
+  bo:
+    surrogate_model:
+      name: "GaussianProcess"
+      kernel: "matern52"
+      noise_level: 1.0e-6
+      normalize_y: true
+
+    acquisition_function:
+      name: "qEHVI"
+      parameters:
+        num_mc_samples: 128
+        objective_thresholds: [0.0, 0.0]
+
+    parameters:
+      initial_design: "lhs"
+      n_initial_samples: 24
+      batch_size: 4
+      parallel_evaluations: 4
+
+# Scheduler configuration for HPC execution using SLURM
+scheduler:
+  runner_type: "SlurmRunner"
+  slurm:
+    partition: "gpu"  # SLURM queue/partition name
+    ntasks: 1
+    cpus_per_task: 8  # Use 8 CPUs per task
+    mem_per_task: "32GB"  # Allocate 32 GB memory per task
+    time_limit: "12:00:00"  # 12 hour wall clock limit
+    gres: "gpu:1"  # Request 1 GPU per task
+    job_name: "aid2e_dtlz2"
+    output_dir: "./slurm_logs"
+    additional_params:
+      mail-type: "END"
+      mail-user: "user@example.com"
+      constraint: "gpu:v100"  # Specific GPU constraint
+  max_retries: 3
+  output_location: "./slurm_output"
+  monitor_interval: 60  # Check job status every 60 seconds
+
+metadata:
+  project: "AID2E"
+  description: "AI assisted Detector Design for EIC - HPC Execution"
+  version: "0.0.1"

@@ -6,7 +6,6 @@ Main CLI entry point that coordinates all command modules:
 - Config commands: describe, inspect, validate (config_commands.py)
 - Workflow commands: optimize, run (workflow_commands.py)
 - Utility commands: list, version (utility_commands.py)
-- Legacy commands: load, info (legacy_commands.py)
 """
 
 import click
@@ -18,7 +17,6 @@ from aid2e import __MAIN_VERSION__
 from .config_commands import describe, inspect, validate
 from .workflow_commands import optimize
 from .utility_commands import list_resources, version
-from .legacy_commands import load, info
 
 
 @click.group()
@@ -45,11 +43,6 @@ def cli():
     Utilities:
       list       - Show available optimizers/templates/problems
       version    - Display version information
-    
-    \b
-    Legacy (deprecated):
-      load       - Load and validate config (use 'describe' or 'validate')
-      info       - Display config details (use 'inspect')
     """
     pass
 
@@ -87,8 +80,6 @@ cli.add_command(validate)
 cli.add_command(optimize)
 cli.add_command(list_resources, name="list")
 cli.add_command(version)
-cli.add_command(load)
-cli.add_command(info)
 
 # Load plugin commands
 _load_plugin_commands(cli)

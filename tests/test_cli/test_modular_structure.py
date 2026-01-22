@@ -71,19 +71,12 @@ class TestCommandRegistration:
         assert "list" in commands
         assert "version" in commands
     
-    def test_legacy_commands_registered(self):
-        """Legacy commands should still be registered."""
-        commands = self.get_registered_commands()
-        assert "load" in commands
-        assert "info" in commands
-    
     def test_all_expected_commands_present(self):
         """All expected commands should be present."""
         expected = {
             "describe", "inspect", "validate",  # config
             "optimize",                          # workflow
-            "list", "version",                   # utility
-            "load", "info"                       # legacy
+            "list", "version"                    # utility
         }
         commands = set(self.get_registered_commands())
         assert expected.issubset(commands)
@@ -194,35 +187,6 @@ class TestUtilityCommands:
         assert result.exit_code == 0
         assert "AID2E" in result.output
 
-
-class TestLegacyCommands:
-    """Test legacy commands show deprecation warnings."""
-    
-    def setup_method(self):
-        """Set up test fixtures."""
-        self.runner = CliRunner()
-    
-    def test_load_command_shows_deprecation(self):
-        """Load command should show deprecation warning."""
-        result = self.runner.invoke(cli_direct, ["load", "--help"])
-        assert result.exit_code == 0
-        assert "DEPRECATED" in result.output or "deprecated" in result.output
-    
-    def test_info_command_shows_deprecation(self):
-        """Info command should show deprecation warning."""
-        result = self.runner.invoke(cli_direct, ["info", "--help"])
-        assert result.exit_code == 0
-        assert "DEPRECATED" in result.output or "deprecated" in result.output
-    
-    def test_load_suggests_alternatives(self):
-        """Load help should suggest describe/validate."""
-        result = self.runner.invoke(cli_direct, ["load", "--help"])
-        assert "describe" in result.output or "validate" in result.output
-    
-    def test_info_suggests_inspect(self):
-        """Info help should suggest inspect."""
-        result = self.runner.invoke(cli_direct, ["info", "--help"])
-        assert "inspect" in result.output
 
 
 class TestHelpOrganization:

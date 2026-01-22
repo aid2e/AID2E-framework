@@ -314,7 +314,11 @@ def inspect_full_config(config, section: str):
             click.echo()
             click.echo(f"  Objectives ({len(config.optimization.objectives)}):")
             for obj in config.optimization.objectives:
-                click.echo(f"    - {obj}")
+                try:
+                    directive = obj.to_directive()
+                except AttributeError:
+                    directive = str(obj)
+                click.echo(f"    - {directive}")
         
         if config.optimization.optimizer.parameters:
             click.echo()
@@ -338,7 +342,9 @@ def inspect_problem_config(config):
     click.echo(f"  Type: {config.problem_type}")
     click.echo(f"  Objectives: {len(config.objectives)}")
     for obj in config.objectives:
-        click.echo(f"    - {obj.name}: {'minimize' if obj.minimize else 'maximize'}")
+        direction = getattr(obj, "direction", None)
+        direction_str = direction.value if direction else "minimize" if getattr(obj, "minimize", True) else "maximize"
+        click.echo(f"    - {obj.name}: {direction_str}")
 
 
 def inspect_design_config(config):

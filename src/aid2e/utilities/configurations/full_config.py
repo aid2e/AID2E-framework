@@ -1,4 +1,4 @@
-"""Full configuration loader - combines problem and optimization payloads."""
+"""Full configuration loader - combines problem, optimization, and scheduler payloads."""
 
 from pathlib import Path
 from typing import Dict, Optional, Any
@@ -8,12 +8,14 @@ from pydantic import BaseModel
 
 from .problem_config import ProblemConfiguration, ProblemConfigLoader
 from .optimization_config import OptimizationConfiguration
+from .scheduler_config import SchedulerConfiguration
 
 
 class FullConfig(BaseModel):
-    """Complete configuration combining problem and optimization."""
+    """Complete configuration combining problem, optimization, and scheduler settings."""
     problem: ProblemConfiguration
     optimization: OptimizationConfiguration
+    scheduler: Optional[SchedulerConfiguration] = None
 
 
 def _normalize_full_config_data(data: Dict[str, Any], config_path: Path) -> Dict[str, Any]:
@@ -45,8 +47,8 @@ def _normalize_full_config_data(data: Dict[str, Any], config_path: Path) -> Dict
         opt_cfg = OptimizationConfiguration(**data["optimization"])
     else:
         optimizer_block = data.get("optimizer", {})
-        objectives_raw = problem_raw.get("objectives", [])
         bo_params = optimizer_block.get("bo", {}).get("parameters", {}) if isinstance(optimizer_block, dict) else {}
+        objectives_as_directives = [obj.to_directive() for obj in getattr(problem_cfg, "objectives", [])]
         opt_cfg = OptimizationConfiguration(
             name=data.get("metadata", {}).get("project", "optimization"),
             description=data.get("metadata", {}).get("description", ""),
@@ -55,18 +57,19 @@ def _normalize_full_config_data(data: Dict[str, Any], config_path: Path) -> Dict
                 "type": optimizer_block.get("kind", ""),
                 "parameters": bo_params,
             },
-            objectives=[
-                f"{'minimize' if obj.get('minimize', True) else 'maximize'}:{obj['name']}"
-                for obj in objectives_raw
-                if isinstance(obj, dict) and "name" in obj
-            ],
+            objectives=objectives_as_directives,
             constraints=[],
             n_iterations=optimizer_block.get("max_iterations", 0),
             n_initial_samples=bo_params.get("n_initial_samples", 0),
             parallel_evaluations=bo_params.get("parallel_evaluations", 1),
         )
 
-    return {"problem": problem_cfg, "optimization": opt_cfg}
+    # Load scheduler configuration if present
+    scheduler_cfg = None
+    if "scheduler" in data:
+        scheduler_cfg = SchedulerConfiguration(**data["scheduler"])
+
+    return {"problem": problem_cfg, "optimization": opt_cfg, "scheduler": scheduler_cfg}
 
 
 def load_config(config_file: str) -> FullConfig:

@@ -29,6 +29,7 @@ from aid2e.utilities.configurations.workflow_config import (
 	ParallelismPolicy,
 	ArtifactSpec,
 )
+from .execution_utils import build_objective_call
 
 __version__ = __MAIN_VERSION__
 __all__ = [
@@ -44,6 +45,8 @@ __all__ = [
 	"JobFactory",
 	"ParallelismPolicy",
 	"ArtifactSpec",
+	# Execution helpers
+	"build_objective_call",
 	# DAG structures and validation
 	"DagDefinition",
 	"DagNode",

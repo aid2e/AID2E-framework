@@ -24,7 +24,7 @@ from aid2e.schedulers import (
     list_registered_schedulers,
     is_scheduler_registered,
 )
-from aid2e.utilities.configurations.scheduler_config import JobLibRunnerConfig
+from aid2e.schedulers.JobLib import JobLibRunnerConfig
 
 
 class TestJobLibSchedulerBasics:

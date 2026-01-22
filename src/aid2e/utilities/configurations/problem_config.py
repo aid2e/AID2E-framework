@@ -25,9 +25,9 @@ from .design_config import DesignConfig, DesignConfigLoader
 class Objective(BaseModel):
     """Single optimization objective.
 
-    Args:
+    Attributes:
         name: Objective identifier (e.g., "f1").
-        minimize: Whether to minimize the objective; if False, maximization.
+        minimize: Whether to minimize the objective; if False, maximize.
     """
 
     name: str
@@ -100,17 +100,10 @@ class ProblemConfigLoader:
             - name: "f2"
               minimize: true
 
-    Args:
-        file_path: Path to the problem configuration file.
-
-    Returns:
-        ProblemConfiguration: Fully instantiated configuration with a loaded
-        `design_config` from the referenced design parameters file.
-
-    Raises:
-        FileNotFoundError: If the problem file or design parameters file does
-        not exist.
-        ValueError: If required keys are missing or invalid.
+    Notes:
+        Use `ProblemConfigLoader.load()` to load from a file path or
+        `ProblemConfigLoader.from_dict()` to construct from an in-memory
+        dictionary.
     """
 
     @staticmethod

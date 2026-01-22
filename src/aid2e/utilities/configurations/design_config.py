@@ -215,7 +215,7 @@ class DesignParameters(RootModel[Dict[str, ParameterGroup]]):
 
     @model_validator(mode="before")
     @classmethod
-    def inject_qualified_names(cls, values: Dict[str, dict]):
+    def inject_qualified_names(cls, values: Dict[str, dict]) -> Dict[str, dict]:
         """Inject fully qualified names into each parameter.
         
         Modifies parameter objects in-place to add 'name' attribute in the format
@@ -268,7 +268,7 @@ class DesignConfig(BaseModel):
     parameter_constraints: Optional[List[ParameterConstraint]] = Field(default_factory=list)
 
     @model_validator(mode='after')
-    def validate_constraints_syntax(self):
+    def validate_constraints_syntax(self) -> "DesignConfig":
         """Validate all constraint syntax and parameter references.
         
         Ensures all constraints:

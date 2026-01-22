@@ -30,8 +30,10 @@ markdown_extensions:
 nav:
   - Home: README.md
   - Docs Guide: docs-guide.md
+  - Optimizer Architecture: optimizer-architecture.md
   - User Guide:
     - Overview: user-guide/overview.md
+    - Constraint Handling: CONSTRAINT_HANDLING.md
   - API Reference:
     - CLI: api-reference/cli.md
     - Optimizers: api-reference/optimizers.md

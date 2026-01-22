@@ -26,7 +26,7 @@ def test_design_config_loader_with_fixture():
     assert "DTLZ2_variables.x1" in names
     assert len(names) == 10
 
-    is_valid, failures = config.validate_constraints({"DTLZ2_variables.x1": 0.5})
+    is_valid, failures = config.check_constraints({"DTLZ2_variables.x1": 0.5})
     assert is_valid
     assert failures == []
 

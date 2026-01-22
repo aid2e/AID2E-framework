@@ -426,7 +426,7 @@ else:
 
 ## See Also
 
-- [DesignConfig API Documentation](api-reference/utilities.md#design-config)
-- [SearchSpace API Documentation](api-reference/optimizers.md#search-space)
-- [AxOptimizer API Documentation](api-reference/optimizers.md#ax-optimizer)
-- [Test Suite](../tests/test_optimizers/test_constraint_integration.py)
+- [DesignConfig API Documentation](api-reference/utilities.md)
+- [SearchSpace API Documentation](api-reference/optimizers.md)
+- [AxOptimizer API Documentation](api-reference/optimizers.md)
+- [Test Suite](https://github.com/aid2e/AID2E-framework/blob/main/tests/test_optimizers/test_constraint_integration.py)

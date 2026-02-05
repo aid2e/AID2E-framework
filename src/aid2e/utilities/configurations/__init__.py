@@ -11,15 +11,20 @@ from .optimization_config import OptimizationConfiguration, OptimizerConfig
 from .objectives import (
     ObjectiveDirection,
     ObjectiveDefinition,
+    ObjectivePlanSpec,
     ObjectiveComputationSpec,
-	MultiStepComputationSpec,
-	MultiStepStage,
+    MultiStepPlanSpec,
+    MultiStepStage,
     ScriptObjective,
     InlineObjective,
     ObjectivesRegistry,
 )
 from .scheduler_config import (
     SchedulerConfiguration,
+)
+from .scheduler_cascade import (
+    resolve_scheduler_cascade,
+    create_scheduler_context,
 )
 from .scheduler_registry import register_runner_config, get_runner_config_model, list_registered_runners
 from .full_config import FullConfig, load_config
@@ -32,6 +37,8 @@ from .workflow_config import (
     JobFactory,
     ParallelismPolicy,
     ArtifactSpec,
+    CombinedObjectivePlan,
+    CombinedObjectiveMetric,
 )
 
 __all__ = [
@@ -57,14 +64,18 @@ __all__ = [
 	# Objectives (unified across problem/optimization/workflow)
 	"ObjectiveDirection",
 	"ObjectiveDefinition",
+	"ObjectivePlanSpec",
 	"ObjectiveComputationSpec",
-	"MultiStepComputationSpec",
+	"MultiStepPlanSpec",
 	"MultiStepStage",
 	"ScriptObjective",
 	"InlineObjective",
 	"ObjectivesRegistry",
 	# Scheduler/Runner configuration
 	"SchedulerConfiguration",
+	# Scheduler cascade utilities
+	"resolve_scheduler_cascade",
+	"create_scheduler_context",
 	# Scheduler registry
 	"register_runner_config",
 	"get_runner_config_model",
@@ -81,4 +92,6 @@ __all__ = [
 	"JobFactory",
 	"ParallelismPolicy",
 	"ArtifactSpec",
+    "CombinedObjectivePlan",
+    "CombinedObjectiveMetric",
 ]

@@ -30,6 +30,19 @@ from aid2e.utilities.configurations.workflow_config import (
 	ArtifactSpec,
 )
 from .execution_utils import build_objective_call
+from .execution_engine import (
+	BranchContext,
+	StageContext,
+	JobContext,
+	BaseExecutionEngine,
+	BashExecutionEngine,
+	PythonExecutionEngine,
+	ContainerExecutionEngine,
+)
+from .dag_executor import (
+	DAGExecutor,
+	create_executor_from_config,
+)
 
 __version__ = __MAIN_VERSION__
 __all__ = [
@@ -57,4 +70,21 @@ __all__ = [
 	"DagValidator",
 	"topological_sort",
 	"detect_cycles",
+	# ExecutionEngines and Contexts
+	"BranchContext",
+	"StageContext",
+	"JobContext",
+	"BaseExecutionEngine",
+	"BashExecutionEngine",
+	"PythonExecutionEngine",
+	"ContainerExecutionEngine",
+	# DAG Executor
+	"DAGExecutor",
+	"create_executor_from_config",
 ]
+
+# Backward compatibility aliases
+BaseEvaluator = BaseExecutionEngine
+BashEvaluator = BashExecutionEngine
+PythonEvaluator = PythonExecutionEngine
+ContainerEvaluator = ContainerExecutionEngine

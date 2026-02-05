@@ -394,22 +394,55 @@ class AxOptimizer(BaseOptimizer):
         Notes:
             Constraints are handled natively by Ax when present in search_space.
             Ax enforces constraints during candidate generation automatically.
+            
+            IMPLEMENTATION NOTE: This method generates n_candidates in a single
+            call to generation_strategy.gen(), but creates n separate trials
+            (one per candidate). While Ax supports batch trials natively, we use
+            individual trials for API simplicity - each evaluation gets its own
+            trial_index. This approach trades batch optimization benefits for
+            clearer sequential evaluation semantics that match the typical
+            optimization loop pattern.
+            
+            The GenerationStrategy still properly tracks progress: after
+            n_initial_samples individual trials complete (regardless of how
+            they were generated), it automatically switches from Sobol to BO.
         """
 
-        candidates: List[Dict[str, Any]] = []
-
+        # Generate n candidates using the generation strategy
+        # After n_initial_samples trials are completed (tracked in experiment),
+        # this will automatically switch from Sobol to SAASBO/GPEI
         generator_run = self.generation_strategy.gen(
             experiment=self.experiment,
             n=n_candidates,
         )
 
+        # Create individual trials for each arm
+        # This allows simple sequential evaluation: suggest() → evaluate() → update()
+        candidates = []
         for arm in generator_run.arms:
-            trial = self.experiment.new_trial(generator_run=None)
-            trial.add_arm(arm)
+            # For each arm, create a single-arm trial
+            # We create a minimal generator_run for this specific arm
+            from ax.core.generator_run import GeneratorRun
+            
+            single_arm_gr = GeneratorRun(
+                arms=[arm],
+                weights=[1.0],
+            )
+            # Copy over critical metadata from the original generator_run
+            single_arm_gr._model_key = generator_run._model_key
+            
+            trial = self.experiment.new_trial(generator_run=single_arm_gr)
             trial.mark_running(no_runner_required=True)
             candidates.append(dict(arm.parameters))
 
-        logger.debug("Generated %d candidates", n_candidates)
+        logger.debug(
+            "Generated %d candidates using %s (trials %d-%d, step=%d)",
+            n_candidates,
+            getattr(generator_run, '_model_key', 'unknown'),
+            len(self.experiment.trials) - n_candidates,
+            len(self.experiment.trials) - 1,
+            self.generation_strategy.current_step_index
+        )
         return candidates
     
     def update_with_results(

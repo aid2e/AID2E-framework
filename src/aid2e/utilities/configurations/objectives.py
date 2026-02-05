@@ -2,13 +2,13 @@
 
 This module defines the single source of truth for objectives across AID2E:
 - How objectives are specified in problems (name + direction)
-- How they're computed in workflows (script, inline, or multi-steps/DAG)
+- How they're executed in workflows (script, inline, or multi-steps/DAG)
 - How they're optimized by algorithms (directives like "minimize:f1")
 
 Key concepts:
     ObjectiveDirection: MINIMIZE or MAXIMIZE
-    ObjectiveComputationSpec: How to compute (script path or inline function)
-    ObjectiveDefinition: Complete spec (name + direction + computation)
+    ObjectivePlanSpec: How to compute (script path, inline function, or multi-step plan)
+    ObjectiveDefinition: Complete spec (name + direction + objective plan)
     ObjectivesRegistry: Runtime mapping of objective names to definitions
 
 Project: AID2E v0.0.0 - AI assisted Detector Design for EIC
@@ -19,6 +19,7 @@ Repository: https://github.com/aid2e/AID2E-framework.git
 from enum import Enum
 from typing import Optional, List, Union, Dict, Any
 from pydantic import BaseModel, Field, field_validator, model_validator, ConfigDict, ValidationInfo
+from aid2e.utilities.configurations.scheduler_config import SchedulerConfiguration
 
 
 class ObjectiveDirection(str, Enum):
@@ -93,16 +94,21 @@ class InlineObjective(BaseModel):
 
 
 class MultiStepStage(BaseModel):
-    """Single stage within a multi-step objective computation.
-    
-    Supports simple DAG-style sequencing for objective computation. Each stage
-    can reference upstream stages via ``depends_on`` and optionally flag itself
-    as the producing stage for the objective value.
-    
+    """Single stage within a multi-step objective plan.
+
+    Each stage executes either a script or an inline function, can declare
+    inputs/outputs/extra_args, and may depend on upstream stages. If a plan has
+    only one step, it is represented as a single-element multi-step list.
+
     Attributes:
         name: Unique stage identifier.
         description: Optional human-readable description of the stage intent.
-        jobs: Free-form job definitions (executor-specific payloads).
+        script: Script-based execution for this stage (mutually exclusive with inline).
+        inline: Inline Python callable for this stage (mutually exclusive with script).
+        inputs: Optional input bindings for this stage (free-form mapping).
+        outputs: Optional output bindings for this stage (free-form mapping).
+        extra_args: Additional args/metadata for the stage executor.
+        jobs: Free-form job definitions (legacy/executor-specific payloads).
         produces_objective: Whether this stage emits the objective value.
         depends_on: Names of upstream stages this stage depends on.
     """
@@ -111,9 +117,39 @@ class MultiStepStage(BaseModel):
 
     name: str = Field(..., description="Stage name (unique within multi-steps)")
     description: Optional[str] = Field(default=None, description="Stage description")
+    script: Optional[ScriptObjective] = Field(default=None, description="Script execution for this stage")
+    inline: Optional[InlineObjective] = Field(default=None, description="Inline callable for this stage")
+    inputs: Dict[str, Any] = Field(default_factory=dict, description="Input bindings for this stage")
+    outputs: Dict[str, Any] = Field(default_factory=dict, description="Output bindings for this stage")
+    extra_args: Dict[str, Any] = Field(default_factory=dict, description="Extra args/metadata for the stage executor")
     jobs: List[Dict[str, Any]] = Field(default_factory=list, description="Job definitions (executor-specific)")
     produces_objective: bool = Field(default=False, description="Whether this stage emits the objective value")
     depends_on: List[str] = Field(default_factory=list, description="Upstream stage dependencies")
+
+    @model_validator(mode="after")
+    def validate_action(self) -> "MultiStepStage":
+        """Ensure stage has a valid execution definition.
+        
+        A stage must have one of:
+        - script: Script-based execution
+        - inline: Inline Python callable
+        - jobs: Legacy job definitions (for backward compatibility)
+        
+        Only one of script/inline can be set. Jobs can coexist with either.
+        """
+        has_script = self.script is not None
+        has_inline = self.inline is not None
+        has_jobs = bool(self.jobs)
+        
+        # script and inline are mutually exclusive
+        if has_script and has_inline:
+            raise ValueError("Stage must choose exactly one of script or inline, not both")
+        
+        # At least one execution method must be defined
+        if not has_script and not has_inline and not has_jobs:
+            raise ValueError("Stage must define at least one of: script, inline, or jobs")
+        
+        return self
 
     @field_validator('depends_on')
     @classmethod
@@ -127,13 +163,13 @@ class MultiStepStage(BaseModel):
         return depends_on
 
 
-class MultiStepComputationSpec(BaseModel):
-    """DAG-style multi-step computation for an objective.
+class MultiStepPlanSpec(BaseModel):
+    """DAG-style multi-step plan for an objective.
 
     Replaces the earlier "branch" terminology with a clearer "multi-steps"
-    concept. A multi-step computation is a small DAG of stages where exactly
+    concept. A multi-step plan is a small DAG of stages where exactly
     one stage must produce the objective value.
-    
+
     Attributes:
         stages: Ordered list of stage definitions. Dependencies define the DAG.
         produces_from_stage: Optional explicit producing stage name. If omitted,
@@ -150,7 +186,7 @@ class MultiStepComputationSpec(BaseModel):
     )
 
     @model_validator(mode="after")
-    def validate_stages(self) -> "MultiStepComputationSpec":
+    def validate_stages(self) -> "MultiStepPlanSpec":
         """Ensure unique names, valid dependencies, and single producer."""
         names = [stage.name for stage in self.stages]
         if len(set(names)) != len(names):
@@ -183,107 +219,96 @@ class MultiStepComputationSpec(BaseModel):
         return self.produces_from_stage
 
 
-class ObjectiveComputationSpec(BaseModel):
-    """Union spec for how an objective is computed.
-    
-    Supports three mutually exclusive computation modes:
-    - ``script``: External script execution
-    - ``inline``: Inline Python callable
-    - ``multi-steps``: Small DAG of stages (formerly called "branch")
+class ObjectivePlanSpec(BaseModel):
+    """Plan for executing an objective (always modeled as multi-steps).
+
+    The canonical form is a multi-step plan with one or more stages. As a
+    convenience, users may supply a single script or inline definition; it will
+    be wrapped into a single-step multi-step plan automatically.
     """
 
     model_config = ConfigDict(populate_by_name=True)
 
-    script: Optional[ScriptObjective] = None
-    inline: Optional[InlineObjective] = None
-    multi_steps: Optional[MultiStepComputationSpec] = Field(
-        default=None,
+    multi_steps: MultiStepPlanSpec = Field(
+        ...,
         alias="multi-steps",
-        description="DAG-style multi-stage computation for the objective",
+        description="DAG-style multi-stage plan for the objective",
     )
-    
-    def __init__(self, **data):
-        """Initialize and validate mutual exclusivity."""
-        super().__init__(**data)
-        has_script = self.script is not None
-        has_inline = self.inline is not None
-        has_multi = self.multi_steps is not None
-        
-        provided = [flag for flag in (has_script, has_inline, has_multi) if flag]
-        if len(provided) == 0:
-            raise ValueError("Provide one of 'script', 'inline', or 'multi-steps' for objective computation")
-        if len(provided) > 1:
-            raise ValueError("Cannot provide multiple computation modes; choose exactly one of script, inline, or multi-steps")
-    
-    def is_script(self) -> bool:
-        """Check if this is script-based computation."""
-        return self.script is not None
-    
-    def is_inline(self) -> bool:
-        """Check if this is inline function computation."""
-        return self.inline is not None
+
+    @model_validator(mode="before")
+    def coerce_single_step(cls, values: Any) -> Any:
+        """Allow single script/inline definitions by wrapping into a one-step plan."""
+        if not isinstance(values, dict):
+            return values
+        if values.get("multi_steps") or values.get("multi-steps"):
+            return values
+
+        script = values.pop("script", None)
+        inline = values.pop("inline", None)
+
+        if script and inline:
+            raise ValueError("Provide either script or inline, not both, for objective_plan")
+        if not script and not inline:
+            return values  # will fail later because multi_steps missing
+
+        stage_payload: Dict[str, Any] = {
+            "name": "objective_step",
+            "produces_objective": True,
+        }
+        if script:
+            stage_payload["script"] = script
+        if inline:
+            stage_payload["inline"] = inline
+
+        values["multi_steps"] = {
+            "stages": [stage_payload],
+            "produces_from_stage": "objective_step",
+        }
+        return values
 
     def is_multi_steps(self) -> bool:
-        """Check if this is multi-step DAG computation."""
+        """Return True if this plan is a multi-step DAG (always true for canonical form)."""
         return self.multi_steps is not None
 
 
+# Compatibility aliases for in-flight refactors; prefer ObjectivePlanSpec.
+MultiStepComputationSpec = MultiStepPlanSpec
+ObjectiveComputationSpec = ObjectivePlanSpec
+
+
 class ObjectiveDefinition(BaseModel):
-    """Complete objective specification: name, direction, and computation.
-    
+    """Complete objective specification: name, direction, and objective plan.
+
     This is the unified model used across problem, optimization, and workflow layers.
-    It combines what to optimize (name + direction) with how to compute it
+    It combines what to optimize (name + direction) with how to execute it
     (script, inline function, or multi-step DAG).
-    
+
     Attributes:
         name: Unique objective identifier (e.g., "f1", "efficiency").
         direction: Optimization direction (minimize or maximize).
-        computation: How to compute (script, inline, or multi-steps).
-        metrics_keys: Optional keys to extract from computation output.
-            If computation produces a dict, use these keys to extract values.
-            Useful when one script produces multiple metrics.
-            Example: script outputs {"f1": 0.5, "f2": 0.3, "runtime": 10.2},
+        objective_plan: How to execute (script, inline, or multi-steps).
+        scheduler: Optional objective-level scheduler default (cascades to stages).
+        metrics_keys: Optional keys to extract from plan output when it returns a dict.
+            Useful when one plan produces multiple metrics.
+            Example: plan outputs {"f1": 0.5, "f2": 0.3, "runtime": 10.2},
                     metrics_keys=["f1"] extracts only f1.
-        
-    Example:
-        >>> # Script-based objective
-        >>> obj = ObjectiveDefinition(
-        ...     name="f1",
-        ...     direction=ObjectiveDirection.MINIMIZE,
-        ...     computation=ObjectiveComputationSpec(
-        ...         script=ScriptObjective(
-        ...             path="scripts/dtlz2.py",
-        ...             output_file="objectives_{job_id}.json"
-        ...         )
-        ...     ),
-        ...     metrics_keys=["f1"]
-        ... )
-        
-        >>> # Inline objective
-        >>> obj = ObjectiveDefinition(
-        ...     name="f2",
-        ...     direction=ObjectiveDirection.MINIMIZE,
-        ...     computation=ObjectiveComputationSpec(
-        ...         inline=InlineObjective(entrypoint="my_obj:compute_f2")
-        ...     )
-        ... )
-        
-    Notes:
-        - If metrics_keys is empty/None, entire output is assumed to be the value.
-        - For script output format, see ScriptObjective.output_file.
     """
     name: str = Field(..., description="Objective name (e.g., 'f1', 'efficiency')")
     direction: ObjectiveDirection = Field(
         ...,
         description="Optimization direction: minimize or maximize"
     )
-    computation: Optional[ObjectiveComputationSpec] = Field(
+    objective_plan: Optional[ObjectivePlanSpec] = Field(
         default=None,
-        description="How to compute the objective (script or inline)"
+        description="How to execute the objective (script, inline, or multi-steps)",
+    )
+    scheduler: Optional[SchedulerConfiguration] = Field(
+        default=None,
+        description="Default scheduler for this objective; cascades to its stages",
     )
     metrics_keys: List[str] = Field(
         default_factory=list,
-        description="Keys to extract from computation output (if dict)"
+        description="Keys to extract from plan output (if dict)",
     )
     
     def to_directive(self) -> str:
@@ -294,21 +319,25 @@ class ObjectiveDefinition(BaseModel):
             Useful for OptimizationConfiguration.objectives.
             
         Example:
-            >>> obj = ObjectiveDefinition(name="f1", direction=ObjectiveDirection.MINIMIZE, computation=None)
+            >>> obj = ObjectiveDefinition(name="f1", direction=ObjectiveDirection.MINIMIZE, objective_plan=None)
             >>> obj.to_directive()
             'minimize:f1'
         """
         return f"{self.direction.value}:{self.name}"
     
     @classmethod
-    def from_directive(cls, directive: str, computation: Optional[ObjectiveComputationSpec] = None) -> "ObjectiveDefinition":
+    def from_directive(
+        cls,
+        directive: str,
+        objective_plan: Optional[ObjectivePlanSpec] = None,
+    ) -> "ObjectiveDefinition":
         """Create ObjectiveDefinition from directive string.
         
         Parses strings like "minimize:f1" or "maximize:efficiency".
         
         Args:
             directive: String in format "minimize:name" or "maximize:name".
-            computation: Optional ObjectiveComputationSpec (script or inline).
+            objective_plan: Optional ObjectivePlanSpec (script, inline, or multi-steps).
             
         Returns:
             ObjectiveDefinition with parsed direction and name.
@@ -335,7 +364,7 @@ class ObjectiveDefinition(BaseModel):
         return cls(
             name=name.strip(),
             direction=direction,
-            computation=computation
+            objective_plan=objective_plan,
         )
 
 

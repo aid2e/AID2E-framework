@@ -17,8 +17,43 @@ Repository: https://github.com/aid2e/AID2E-framework.git
 
 from typing import List, Optional, Dict, Any, Union
 from pydantic import BaseModel, Field, field_validator
-from aid2e.utilities.configurations.objectives import ObjectiveDefinition
+from aid2e.utilities.configurations.objectives import ObjectiveDefinition, ObjectivePlanSpec, ObjectiveDirection
 from aid2e.utilities.configurations.scheduler_config import SchedulerConfiguration
+
+
+class CombinedObjectiveMetric(BaseModel):
+    """Metric emitted by a combined objective plan.
+
+    Attributes:
+        name: Objective name (e.g., "f1").
+        direction: Optimization direction for this metric.
+        metric_key: Key in the plan output to extract this metric.
+    """
+
+    name: str = Field(..., description="Objective metric name")
+    direction: ObjectiveDirection = Field(..., description="Direction for this metric")
+    metric_key: str = Field(..., description="Key in plan output for this metric")
+
+
+class CombinedObjectivePlan(BaseModel):
+    """Combined objective execution producing multiple metrics in one plan.
+
+    Attributes:
+        name: Identifier for the combined objective bundle.
+        objective_plan: Plan executed once to emit multiple metrics.
+        metrics: Metrics extracted from the plan output with their directions.
+        scheduler: Optional scheduler default for this combined plan.
+    """
+
+    name: str = Field(..., description="Combined objective bundle name")
+    objective_plan: ObjectivePlanSpec = Field(..., description="Plan producing multiple metrics")
+    metrics: list[CombinedObjectiveMetric] = Field(
+        ..., min_items=1, description="Metrics emitted by this plan"
+    )
+    scheduler: Optional[SchedulerConfiguration] = Field(
+        default=None,
+        description="Scheduler default for this combined plan",
+    )
 
 
 class ParallelismPolicy(BaseModel):
@@ -63,6 +98,9 @@ class JobDefinition(BaseModel):
         name: Job name (e.g., "simulate").
         command: Executable command (e.g., "python scripts/dtlz2_problem.py").
         payload: Command arguments/payload (free-form dict, supports template substitution).
+        rule: Optional template for constructing final command from payload.
+              Uses format: "{command} {payload[key1]} {payload[key2]}" etc.
+              If not specified, defaults to "{command}" (just execute command).
         resources: Resource requirements (free-form dict, e.g., {"memory": "4GB"}).
         outputs: Output artifacts this job produces.
         
@@ -70,20 +108,27 @@ class JobDefinition(BaseModel):
         >>> job = JobDefinition(
         ...     name="dtlz2_evaluate",
         ...     command="python scripts/dtlz2_problem.py",
+        ...     rule="{command} {payload[design_params_file]} {payload[output_dir]} {payload[job_id]}",
         ...     payload={
         ...         "design_params_file": "{input_design_params}",
-        ...         "output_file": "{output_dir}/objectives_{job_id}.json"
+        ...         "output_dir": "{output_dir}",
+        ...         "job_id": "{job_id}"
         ...     },
         ...     outputs=[ArtifactSpec(path="objectives_*.json", format="json")]
         ... )
         
     Notes:
         - Payload supports template substitution: {job_id}, {output_dir}, {stage_outputs[stage_name]}
+        - Rule template follows experimental_stack.py StackLayer pattern
         - Resources dict is executor-dependent (e.g., JobLibRunner ignores, SlurmRunner uses)
     """
     name: str = Field(..., description="Job name")
     command: str = Field(..., description="Executable command")
-    payload: Dict[str, Any] = Field(default_factory=dict, description="Command arguments")
+    payload: Dict[str, Any] = Field(default_factory=dict, description="Command arguments and metadata")
+    rule: Optional[str] = Field(
+        default=None,
+        description="Template rule for command construction (e.g., '{command} {payload[input]} {payload[output]}')"
+    )
     resources: Dict[str, Any] = Field(default_factory=dict, description="Resource requirements")
     outputs: List[ArtifactSpec] = Field(default_factory=list, description="Output artifacts")
 
@@ -164,6 +209,7 @@ class BranchDefinition(BaseModel):
     Attributes:
         name: Branch name (e.g., "main", "physics_sim", "surrogate").
         stages: List of stages in DAG order (assumes simple sequential order; extend with explicit DAG if needed).
+        scheduler: Optional branch-level scheduler default (used if stage not set).
         
     Example:
         >>> branch = BranchDefinition(
@@ -180,10 +226,14 @@ class BranchDefinition(BaseModel):
     """
     name: str = Field(..., description="Branch name")
     stages: List[StageDefinition] = Field(default_factory=list, description="Stages in execution order")
+    scheduler: Optional[SchedulerConfiguration] = Field(
+        default=None,
+        description="Branch-level scheduler default (overrides workflow, used if stage unset)",
+    )
 
 
 class WorkflowDefinition(BaseModel):
-    """Workflow definition with branches and objectives.
+    """Workflow definition with branches, objectives, and scheduler defaults.
     
     A workflow is an end-to-end evaluation unit (e.g., one design point evaluation).
     It consists of optional branches, each with multiple stages, and defines the
@@ -193,26 +243,9 @@ class WorkflowDefinition(BaseModel):
         name: Workflow name (e.g., "dtlz2_eval").
         description: Optional description.
         branches: Workflow branches (optional, defaults to single implicit branch if missing).
-        objectives: Objectives to compute (REUSES ObjectiveDefinition for unified spec).
-        
-    Example:
-        >>> workflow = WorkflowDefinition(
-        ...     name="dtlz2_eval",
-        ...     description="Evaluate design points using DTLZ2",
-        ...     branches=[
-        ...         BranchDefinition(
-        ...             name="main",
-        ...             stages=[
-        ...                 StageDefinition(name="evaluate", ...),
-        ...                 StageDefinition(name="aggregate", ...)
-        ...             ]
-        ...         )
-        ...     ],
-        ...     objectives=[
-        ...         ObjectiveDefinition(name="f1", direction="minimize", computation=...),
-        ...         ObjectiveDefinition(name="f2", direction="minimize", computation=...)
-        ...     ]
-        ... )
+        objectives: Objectives to compute (reuses ObjectiveDefinition).
+        combined_objectives: Optional combined plans emitting multiple metrics in one run.
+        scheduler: Workflow-level scheduler default (used if branch/stage unset).
         
     Notes:
         - If branches is empty, executor creates single implicit branch
@@ -224,6 +257,14 @@ class WorkflowDefinition(BaseModel):
     objectives: List[ObjectiveDefinition] = Field(
         default_factory=list,
         description="Objectives to compute (reuses ObjectiveDefinition)"
+    )
+    combined_objectives: List[CombinedObjectivePlan] = Field(
+        default_factory=list,
+        description="Combined objective plans emitting multiple metrics in one run",
+    )
+    scheduler: Optional[SchedulerConfiguration] = Field(
+        default=None,
+        description="Workflow-level scheduler default (overrides global, used if branch/stage unset)",
     )
     
     def get_implicit_branch(self) -> BranchDefinition:

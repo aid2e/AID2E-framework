@@ -198,6 +198,150 @@ class PanDAiDDSScheduler(BaseScheduler):
 			raise RuntimeError(f"Stage {stage_id} completed but no result is available")
 		return result
 
+	def check_status(self, job_id: str) -> JobStatus:
+		"""Check the status of a previously submitted job.
+
+		Args:
+			job_id: Unique job identifier.
+
+		Returns:
+			JobStatus with current state and metrics.
+		"""
+		# Extract stage_name from job_id (format: stage_name_job_name_index)
+		parts = job_id.split("_")
+		stage_name = parts[0] if parts else None
+
+		if not stage_name or stage_name not in self.running_funcs:
+			# Job not found in running funcs, check if it's completed
+			return JobStatus(
+				job_id=job_id,
+				status="unknown",
+				return_code=None,
+			)
+
+		stage_jobs = self.running_funcs.get(stage_name, {})
+		if job_id not in stage_jobs:
+			return JobStatus(
+				job_id=job_id,
+				status="completed",
+				return_code=0,
+			)
+
+		# Job is still running, return running status
+		return JobStatus(
+			job_id=job_id,
+			status="running",
+			return_code=None,
+		)
+
+	def cancel_job(self, job_id: str) -> bool:
+		"""Cancel a job if it is still running.
+
+		Args:
+			job_id: Unique job identifier.
+
+		Returns:
+			True if the job was cancelled, False otherwise.
+		"""
+		# Extract stage_name from job_id
+		parts = job_id.split("_")
+		stage_name = parts[0] if parts else None
+
+		if not stage_name or stage_name not in self.running_funcs:
+			self.logger.warning("Cannot cancel job %s: stage not found", job_id)
+			return False
+
+		entry = self.running_funcs[stage_name].get(job_id, {})
+		cancelled = False
+		for func_name, g in entry.get("funcs", {}).items():
+			work = g.get("work")
+			try:
+				if work and not work.is_terminated():
+					work.cancel()
+					cancelled = True
+			except Exception:
+				self.logger.exception("Failed to cancel work for job %s", job_id)
+
+		return cancelled
+
+	def submit_stage(
+		self,
+		stage_name: str,
+		job_definitions: List[Dict[str, Any]],
+		parallelism_policy: Optional[Dict[str, Any]] = None,
+		working_dir: Optional[str] = None,
+	) -> str:
+		"""Submit a stage for asynchronous execution and return a stage_id.
+
+		This schedules the full `run_stage` call in a background thread and
+		stores the `StageExecutionResult` in memory for later retrieval.
+		"""
+		stage_id = uuid.uuid4().hex
+		self.logger.info("Submitting stage '%s' as %s", stage_name, stage_id)
+
+		# state holder
+		state: Dict[str, Any] = {
+			"thread": None,
+			"status": "queued",
+			"result": None,
+			"submitted_at": time(),
+			"job_count": len(job_definitions),
+		}
+
+		def _target() -> None:
+			try:
+				state["status"] = "running"
+				result = self.run_stage(stage_name, job_definitions, parallelism_policy, working_dir)
+				state["result"] = result
+				state["status"] = "completed" if result.success else "failed"
+			except Exception as exc:  # pragma: no cover - background safety
+				self.logger.exception("Asynchronous stage execution failed: %s", exc)
+				state["result"] = StageExecutionResult(
+					stage_name=stage_name, job_statuses=[], artifacts={}, success=False, error_message=str(exc)
+				)
+				state["status"] = "failed"
+
+		thread = threading.Thread(target=_target, name=f"PanDAiDDS-stage-{stage_id}", daemon=True)
+		state["thread"] = thread
+		self.running_stages[stage_id] = state
+		thread.start()
+
+		return stage_id
+
+	def check_stage_status(self, stage_id: str):
+		"""Return a StageStatus summarizing progress for a submitted stage.
+
+		If the stage_id is unknown, raises KeyError.
+		"""
+		from aid2e.schedulers.base import StageStatus
+
+		if stage_id not in self.running_stages:
+			raise KeyError(f"Unknown stage_id: {stage_id}")
+
+		state = self.running_stages[stage_id]
+		status = state.get("status", "unknown")
+		result: Optional[StageExecutionResult] = state.get("result")
+		total = state.get("job_count")
+		completed_jobs = 0
+		job_statuses = None
+
+		if result is not None:
+			job_statuses = result.job_statuses
+			completed_jobs = len(job_statuses)
+
+		progress = None
+		if total and total > 0:
+			progress = float(completed_jobs) / float(total) if total else None
+
+		return StageStatus(
+			stage_id=stage_id,
+			status=status,
+			completed_jobs=completed_jobs,
+			total_jobs=total,
+			progress=progress,
+			job_statuses=job_statuses,
+		)
+
 	# --- IDDS / PanDA integration helpers (best-effort, optional) ---------
 	def submit_idds_workflow(self, stage_name: str):
 		"""Define and submit an iDDS workflow for a stage. Returns the workflow object.
@@ -397,42 +541,6 @@ class PanDAiDDSScheduler(BaseScheduler):
 			self.logger.info("Check job %s status", job.get("job_id"))
 		self.check_single_job_status(job)
 		self.num_checks += 1
-
-	def cancel_job(self, job: Dict[str, Any]) -> None:
-		"""Attempt to cancel a running job submitted via PanDA/iDDS.
-
-		If idds is not installed or cancel fails, this is best-effort and logs
-		the exception.
-		"""
-		job_id = job.get("job_id")
-		if not job_id:
-			return
-		
-		# Extract stage_name from job or search
-		stage_name = job.get("stage_name")
-		if not stage_name:
-			parts = job_id.split("_")
-			if len(parts) >= 1:
-				stage_name = parts[0]
-			else:
-				# Search all stages
-				for sname, stage_jobs in self.running_funcs.items():
-					if job_id in stage_jobs:
-						stage_name = sname
-						break
-		
-		if not stage_name or stage_name not in self.running_funcs:
-			self.logger.warning("Cannot cancel job %s: stage not found", job_id)
-			return
-			
-		entry = self.running_funcs[stage_name].get(job_id, {})
-		for func_name, g in entry.get("funcs", {}).items():
-			work = g.get("work")
-			try:
-				if work and not work.is_terminated():
-					work.cancel()
-			except Exception:
-				self.logger.exception("Failed to cancel work for job %s", job_id)
 
 	# convenience alias for upstream name
 	submit_workflow = submit_idds_workflow

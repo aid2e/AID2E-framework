@@ -47,6 +47,7 @@ slurm = [
     "pyclusters>=1.0",
 ]
 panda = [
+    "wheel",
     "idds-common>=2.0",
     "idds-workflow>=2.0",
     "panda-client>=1.5",

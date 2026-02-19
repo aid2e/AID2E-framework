@@ -202,6 +202,7 @@ def run_case_1_single_branch():
     
     # Configure PanDAiDDS scheduler
     panda_config = PanDAiDDSRunnerConfig(
+        name="user.example.dtlz2_ax_panda_case1",
         cloud="US",  # PanDA cloud
         queue="BNL_PanDA_1",  # PanDA queue
         max_walltime=3600,  # 1 hour
@@ -340,11 +341,14 @@ def run_case_2_separate_branches():
     
     # Configure PanDAiDDS scheduler
     panda_config = PanDAiDDSRunnerConfig(
+        name="user.example.dtlz2_ax_panda_case2",
         cloud="US",  # PanDA cloud
-        backend="loky",
-        timeout=300,
-        verbose=0,
-    )
+        queue="BNL_PanDA_1",  # PanDA queue
+        max_walltime=3600,  # 1 hour
+        core_count=1,  # CPU cores per job
+        total_memory=2000,  # MB per job
+        enable_separate_log=True,
+        job_dir=str(Path.cwd() / "panda_jobs" / "case2"),
     
     print(f"\n✓ Scheduler: PanDAiDDS")
     print(f"  Workers: {panda_config.core_count} ")

@@ -3,6 +3,7 @@
 import json
 import logging
 import os
+import pickle
 import subprocess
 from typing import Dict, Any, List, Optional
 
@@ -31,9 +32,36 @@ class JobLibScheduler(BaseScheduler):
         payload = job_def.get("payload", {})
         output_specs = job_def.get("outputs", [])
 
+        # Check if this is a Python callable job
+        python_callable = job_def.get("function")
+        if python_callable and callable(python_callable):
+            return self._execute_python_callable(job_def, python_callable, working_dir)
+
         try:
             env = os.environ.copy()
-            env["JOB_PAYLOAD"] = json.dumps(payload)
+            
+            # Try to serialize payload with pickle first (handles more types including functions)
+            try:
+                import base64
+                pickled_payload = pickle.dumps(payload)
+                env["JOB_PAYLOAD_PICKLE"] = base64.b64encode(pickled_payload).decode('ascii')
+                env["JOB_PAYLOAD_TYPE"] = "pickle"
+            except Exception as pickle_err:
+                self.logger.debug("Cannot pickle payload, falling back to JSON: %s", pickle_err)
+                # Fall back to JSON for simple payloads
+                serializable_payload = {}
+                for key, value in payload.items():
+                    if not callable(value):
+                        try:
+                            # Test if it's JSON serializable
+                            json.dumps(value)
+                            serializable_payload[key] = value
+                        except (TypeError, ValueError):
+                            # Skip non-serializable values
+                            self.logger.debug("Skipping non-serializable payload key: %s", key)
+                
+                env["JOB_PAYLOAD"] = json.dumps(serializable_payload)
+                env["JOB_PAYLOAD_TYPE"] = "json"
 
             cwd = working_dir or os.getcwd()
             self.logger.info("Executing job '%s': %s", job_name, command)
@@ -78,6 +106,53 @@ class JobLibScheduler(BaseScheduler):
             }
         except Exception as exc:  # pragma: no cover - catch-all safety
             self.logger.error("Job '%s' raised exception: %s", job_name, exc)
+            return {
+                "stdout": "",
+                "stderr": str(exc),
+                "return_code": -1,
+                "outputs": {},
+            }
+
+    def _execute_python_callable(
+        self, job_def: Dict[str, Any], python_callable, working_dir: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Execute a Python callable directly (for function-based jobs).
+        
+        Args:
+            job_def: Job definition dict.
+            python_callable: The Python function to call.
+            working_dir: Working directory (unused for Python callables).
+            
+        Returns:
+            Dict with execution results.
+        """
+        job_name = job_def.get("name", "unknown_job")
+        params = job_def.get("params", {})
+        
+        try:
+            self.logger.info("Executing Python callable for job '%s'", job_name)
+            
+            # Extract the context if provided
+            context = params.get("context")
+            if context:
+                # Call with context as first argument
+                result = python_callable(context, **{k: v for k, v in params.items() if k != "context"})
+            else:
+                # Call with just kwargs
+                result = python_callable(**params)
+            
+            # Convert result to string for stdout
+            result_str = str(result) if result is not None else ""
+            
+            return {
+                "stdout": result_str,
+                "stderr": "",
+                "return_code": 0,
+                "outputs": {"result": result},
+            }
+            
+        except Exception as exc:
+            self.logger.exception("Python callable '%s' raised exception", job_name)
             return {
                 "stdout": "",
                 "stderr": str(exc),

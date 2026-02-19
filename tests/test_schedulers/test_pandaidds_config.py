@@ -33,9 +33,10 @@ class TestPanDAiDDSRunnerConfig:
             PanDAiDDSRunnerConfig(name="invalid.name")
     
     def test_name_validation_empty_string(self):
-        """Test that empty string is rejected."""
-        with pytest.raises(ValueError, match="must start with 'user\\."):
-            PanDAiDDSRunnerConfig(name="")
+        """Test that empty string triggers auto-generation."""
+        config = PanDAiDDSRunnerConfig(name="")
+        assert config.name.startswith("user.")
+        assert ".aid2e_job" in config.name
     
     def test_name_with_multiple_dots(self):
         """Test that names with multiple dots are accepted if prefix is valid."""

@@ -14,10 +14,18 @@ from aid2e.schedulers.PanDAiDDS.config import PanDAiDDSRunnerConfig
 def test_auto_generation():
     """Test auto-generation of PanDA job name."""
     print("Test 1: Auto-generation from system username")
+    # Clear any existing PANDA_USERNAME env var for this test
+    saved_env = os.environ.pop("PANDA_USERNAME", None)
+    
     config1 = PanDAiDDSRunnerConfig()
     print(f"  Generated name: {config1.name}")
     assert config1.name.startswith("user."), f"Name should start with 'user.', got: {config1.name}"
+    assert ".aid2e_job" in config1.name, f"Name should end with '.aid2e_job', got: {config1.name}"
     print("  ✓ PASSED\n")
+    
+    # Restore env var if it existed
+    if saved_env:
+        os.environ["PANDA_USERNAME"] = saved_env
 
 
 def test_env_override():

@@ -24,6 +24,7 @@ Project: AID2E v0.0.0 - AI assisted Detector Design for EIC
 
 import numpy as np
 import json
+import logging
 from pathlib import Path
 from typing import Dict, Any, List
 
@@ -473,6 +474,13 @@ def run_case_2_separate_branches():
 # =============================================================================
 
 if __name__ == "__main__":
+    # Configure logging
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    )
+    
     print("\n" + "="*80)
     print("DTLZ2 Multi-Objective Bayesian Optimization with Ax + PanDAiDDS Scheduler")
     print("="*80)

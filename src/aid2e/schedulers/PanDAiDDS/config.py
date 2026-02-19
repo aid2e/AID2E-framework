@@ -35,7 +35,7 @@ class PanDAiDDSRunnerConfig(BaseModel):
     - job_dir: Optional[str]
     """
 
-    name: Optional[str] = Field(
+    name: str = Field(
         default=None,
         description=(
             "PanDA job name, must start with 'user.<username>'. "
@@ -48,7 +48,7 @@ class PanDAiDDSRunnerConfig(BaseModel):
         description="Initialization environment (callable, dict, or other) to prepare remote jobs",
     )
     
-    @field_validator("name")
+    @field_validator("name", mode='before')
     @classmethod
     def validate_and_generate_name(cls, v: Optional[str]) -> str:
         """Validate or generate PanDA job name.
@@ -66,7 +66,7 @@ class PanDAiDDSRunnerConfig(BaseModel):
             ValueError: If the provided name doesn't start with 'user.'.
         """
         # If name is provided, validate it
-        if v is not None:
+        if v is not None and v != "":
             if not v.startswith("user."):
                 raise ValueError(
                     f"PanDA job name must start with 'user.<username>', got: {v}"

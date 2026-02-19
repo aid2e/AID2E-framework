@@ -62,7 +62,8 @@ class TestPanDAiDDSRunnerConfig:
         assert config.init_env is None
         assert config.cloud is None
         assert config.queue is None
-        assert config.source_dir is None
+        assert config.source_dir is not None  # Auto-set to current directory
+        assert os.path.isabs(config.source_dir)  # Should be absolute path
         assert config.source_dir_parent_level == 1
         assert config.max_walltime is None
         assert config.core_count == 1
@@ -70,12 +71,53 @@ class TestPanDAiDDSRunnerConfig:
         assert config.enable_separate_log is True
         assert config.job_dir is None
     
+    def test_source_dir_auto_set_to_current_dir(self):
+        """Test that source_dir is auto-set to src/ directory or current working directory."""
+        import tempfile
+        import shutil
+        
+        # Test in a temporary directory without src/
+        with tempfile.TemporaryDirectory() as tmpdir:
+            orig_cwd = os.getcwd()
+            try:
+                os.chdir(tmpdir)
+                config = PanDAiDDSRunnerConfig()
+                # Should fall back to current directory when src/ doesn't exist
+                assert config.source_dir == tmpdir
+            finally:
+                os.chdir(orig_cwd)
+        
+        # Test in a directory with src/ subdirectory
+        with tempfile.TemporaryDirectory() as tmpdir:
+            src_dir = os.path.join(tmpdir, "src")
+            os.makedirs(src_dir)
+            orig_cwd = os.getcwd()
+            try:
+                os.chdir(tmpdir)
+                config = PanDAiDDSRunnerConfig()
+                # Should use src/ subdirectory when it exists
+                assert config.source_dir == src_dir
+            finally:
+                os.chdir(orig_cwd)
+    
+    def test_source_dir_from_env_variable(self):
+        """Test that PANDA_SOURCE_DIR env variable overrides auto-setting."""
+        with patch.dict(os.environ, {"PANDA_SOURCE_DIR": "/custom/source/dir"}):
+            config = PanDAiDDSRunnerConfig()
+            assert config.source_dir == "/custom/source/dir"
+    
+    def test_source_dir_explicit_override(self):
+        """Test that explicit source_dir overrides auto-setting."""
+        config = PanDAiDDSRunnerConfig(source_dir="/explicit/path")
+        assert config.source_dir == "/explicit/path"
+    
     def test_full_config_with_custom_name(self):
         """Test creating a full configuration with custom name."""
         config = PanDAiDDSRunnerConfig(
             name="user.scientist.epic_tracking",
             cloud="US",
             queue="BNL_PanDA_1",
+            source_dir="/custom/source",
             max_walltime=7200,
             core_count=4,
             total_memory=8000,
@@ -85,6 +127,7 @@ class TestPanDAiDDSRunnerConfig:
         assert config.name == "user.scientist.epic_tracking"
         assert config.cloud == "US"
         assert config.queue == "BNL_PanDA_1"
+        assert config.source_dir == "/custom/source"
         assert config.max_walltime == 7200
         assert config.core_count == 4
         assert config.total_memory == 8000

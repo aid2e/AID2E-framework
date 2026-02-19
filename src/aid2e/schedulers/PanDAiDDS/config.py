@@ -20,12 +20,18 @@ from aid2e.utilities.configurations.scheduler_registry import register as regist
 class PanDAiDDSRunnerConfig(BaseModel):
     """Configuration for the PanDAiDDS scheduler.
 
-    Example keys (from the upstream example):
-    - name: str
+    Auto-generation behavior:
+    - name: Auto-generates as 'user.<username>.aid2e_job' if not provided
+            Override username via PANDA_USERNAME environment variable
+    - source_dir: Auto-sets to 'src/' subdirectory if it exists, otherwise current directory
+                  Override via PANDA_SOURCE_DIR environment variable
+
+    Fields:
+    - name: str (auto-generated)
     - init_env: any (callable or dict describing environment setup)
     - cloud: str
     - queue: str
-    - source_dir: Optional[str]
+    - source_dir: str (auto-set to src/ or current dir)
     - source_dir_parent_level: int
     - exclude_source_files: List[str]
     - max_walltime: int (seconds)
@@ -49,30 +55,49 @@ class PanDAiDDSRunnerConfig(BaseModel):
     )
     
     @model_validator(mode='after')
-    def validate_and_generate_name(self) -> 'PanDAiDDSRunnerConfig':
-        """Validate or generate PanDA job name.
+    def validate_and_set_defaults(self) -> 'PanDAiDDSRunnerConfig':
+        """Validate or generate PanDA job name and set source_dir defaults.
         
         The name must start with 'user.<username>'. If not provided, it will be
         auto-generated using the system username (or PANDA_USERNAME env var).
         
+        The source_dir defaults to 'src/' subdirectory if it exists, otherwise
+        falls back to current directory. Can be overridden via PANDA_SOURCE_DIR
+        environment variable.
+        
         Returns:
-            Self with validated/generated name.
+            Self with validated/generated name and source_dir.
             
         Raises:
             ValueError: If the provided name doesn't start with 'user.'.
         """
-        # If name is provided and not empty, validate it
+        # Validate and generate name
         if self.name is not None and self.name != "":
             if not self.name.startswith("user."):
                 raise ValueError(
                     f"PanDA job name must start with 'user.<username>', got: {self.name}"
                 )
-            return self
+        else:
+            # Auto-generate name from username
+            # Check environment variable first, then fall back to system username
+            username = os.environ.get("PANDA_USERNAME") or getpass.getuser()
+            self.name = f"user.{username}.aid2e_job"
         
-        # Auto-generate name from username
-        # Check environment variable first, then fall back to system username
-        username = os.environ.get("PANDA_USERNAME") or getpass.getuser()
-        self.name = f"user.{username}.aid2e_job"
+        # Set source_dir to src/ directory if not provided
+        if self.source_dir is None:
+            # Check environment variable first, then default to src/ subdirectory
+            env_source = os.environ.get("PANDA_SOURCE_DIR")
+            if env_source:
+                self.source_dir = env_source
+            else:
+                # Default to project root's src/ directory
+                # Navigate from this config file: .../src/aid2e/schedulers/PanDAiDDS/config.py
+                # Go up to project root: ../../../.. from this file, then to src/
+                config_file_dir = os.path.dirname(os.path.abspath(__file__))
+                project_root = os.path.abspath(os.path.join(config_file_dir, "..", "..", "..", ".."))
+                src_dir = os.path.join(project_root, "src")
+                self.source_dir = src_dir if os.path.exists(src_dir) else os.getcwd()
+        
         return self
 
     cloud: Optional[str] = Field(
@@ -83,10 +108,12 @@ class PanDAiDDSRunnerConfig(BaseModel):
         default=None,
         description="PanDA queue name to submit jobs to",
     )
-    source_dir: Optional[str] = Field(
+    source_dir: str = Field(
         default=None,
         description=(
-            "Directory whose contents should be uploaded to PanDA for remote jobs. ``None`` means current dir"
+            "Directory whose contents should be uploaded to PanDA for remote jobs. "
+            "If not provided, defaults to 'src/' subdirectory if it exists, otherwise current directory. "
+            "Set PANDA_SOURCE_DIR environment variable to override."
         ),
     )
     source_dir_parent_level: int = Field(

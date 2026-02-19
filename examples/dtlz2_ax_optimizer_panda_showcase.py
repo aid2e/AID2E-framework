@@ -240,13 +240,16 @@ def run_case_1_single_branch():
     print(f"  Resources: {scheduler_config.core_count} cores, {scheduler_config.total_memory} MB")
     
     # Define search space
-    search_space = SearchSpace()
-    search_space.add_parameter("x1", "continuous", 0.0, 1.0)
-    search_space.add_parameter("x2", "continuous", 0.0, 1.0)
-    search_space.add_parameter("x3", "continuous", 0.0, 1.0)
+    search_space = SearchSpace(
+        parameters={
+            "x1": {"type": "range", "bounds": [0.0, 1.0]},
+            "x2": {"type": "range", "bounds": [0.0, 1.0]},
+            "x3": {"type": "range", "bounds": [0.0, 1.0]},
+        }
+    )
     print(f"\n✓ Search space: {len(search_space.parameters)} parameters")
-    for param in search_space.parameters:
-        print(f"  - {param['name']}: [{param['lower']}, {param['upper']}]")
+    for param_name, param_def in search_space.parameters.items():
+        print(f"  - {param_name}: {param_def['bounds']}")
     
     # Configure optimizer
     optimizer_config = AxOptimizerConfig(
@@ -355,13 +358,16 @@ def run_case_2_separate_branches():
     print(f"  Resources: {scheduler_config.core_count} cores, {scheduler_config.total_memory} MB")
     
     # Define search space
-    search_space = SearchSpace()
-    search_space.add_parameter("x1", "continuous", 0.0, 1.0)
-    search_space.add_parameter("x2", "continuous", 0.0, 1.0)
-    search_space.add_parameter("x3", "continuous", 0.0, 1.0)
+    search_space = SearchSpace(
+        parameters={
+            "x1": {"type": "range", "bounds": [0.0, 1.0]},
+            "x2": {"type": "range", "bounds": [0.0, 1.0]},
+            "x3": {"type": "range", "bounds": [0.0, 1.0]},
+        }
+    )
     print(f"\n✓ Search space: {len(search_space.parameters)} parameters")
-    for param in search_space.parameters:
-        print(f"  - {param['name']}: [{param['lower']}, {param['upper']}]")
+    for param_name, param_def in search_space.parameters.items():
+        print(f"  - {param_name}: {param_def['bounds']}")
     
     # Configure optimizer
     optimizer_config = AxOptimizerConfig(

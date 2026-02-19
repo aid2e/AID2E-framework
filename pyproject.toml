@@ -42,8 +42,15 @@ dependencies = [
 mobo = ["scikit-learn>=0.24"]
 moea = ["pymoo>=0.6"]
 joblib = ["joblib>=1.0"]
-slurm = ["pyclusters>=1.0"]
-panda = ["panda-client>=1.0"]
+slurm = [
+    "submitit>=1.4",
+    "pyclusters>=1.0",
+]
+panda = [
+    "idds-common>=2.0",
+    "idds-workflow>=2.0",
+    "panda-client>=1.5",
+]
 
 dev = [
     "pytest>=6.0",

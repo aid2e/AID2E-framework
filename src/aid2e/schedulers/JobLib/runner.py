@@ -144,11 +144,22 @@ class JobLibScheduler(BaseScheduler):
             # Convert result to string for stdout
             result_str = str(result) if result is not None else ""
             
+            # Extract xcom data from context (if context was provided)
+            outputs = {"result": result}
+            if context and hasattr(context, 'xcom'):
+                # Extract xcom entries pushed by the callable
+                # XCom keys are in format "job_id:key", extract just the key part
+                for xcom_key, xcom_value in context.xcom.items():
+                    # Extract the key after the job_id prefix
+                    if ':' in xcom_key:
+                        key = xcom_key.split(':', 1)[1]
+                        outputs[key] = xcom_value
+            
             return {
                 "stdout": result_str,
                 "stderr": "",
                 "return_code": 0,
-                "outputs": {"result": result},
+                "outputs": outputs,
             }
             
         except Exception as exc:

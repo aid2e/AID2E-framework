@@ -569,6 +569,16 @@ class DAGExecutor:
                 self.global_xcom[f"{job_id}:stdout"] = job_status.stdout
             if job_status.stderr:
                 self.global_xcom[f"{job_id}:stderr"] = job_status.stderr
+            
+            # Store outputs in XCom (objectives, metrics, etc.)
+            if job_status.outputs:
+                self.logger.log_info(
+                    f"Storing {len(job_status.outputs)} outputs from job {job_id}"
+                )
+                for output_key, output_value in job_status.outputs.items():
+                    xcom_key = f"{job_id}:{output_key}"
+                    self.global_xcom[xcom_key] = output_value
+                    self.logger.log_info(f"  XCom: {xcom_key} = {output_value}")
         
         # Store artifacts from scheduler in XCom
         if stage_result.artifacts:

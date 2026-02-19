@@ -211,7 +211,8 @@ def run_case_1_single_branch():
     scheduler_config = PanDAiDDSRunnerConfig(
         name="dtlz2_panda_single",
         cloud="US",  # Change to your PanDA cloud
-        queue="managed",  # Change to your queue
+        # "queue": "BNL_PanDA_1",  # BNL_OSG_PanDA_1, BNL_PanDA_1
+        queue="BNL_PanDA_1",  # Change to your queue
         source_dir=str(Path(__file__).parent.parent / "src"),
         source_dir_parent_level=1,
         exclude_source_files=[

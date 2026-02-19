@@ -22,6 +22,7 @@ class JobStatus(BaseModel):
         return_code: Exit code when completed or failed.
         stdout: Standard output from the job.
         stderr: Standard error from the job.
+        outputs: Optional output data (e.g., objectives, results from Python callables).
         metrics: Optional metrics (e.g., runtime, memory usage).
     """
 
@@ -30,6 +31,7 @@ class JobStatus(BaseModel):
     return_code: Optional[int] = None
     stdout: Optional[str] = None
     stderr: Optional[str] = None
+    outputs: Optional[Dict[str, Any]] = None
     metrics: Optional[Dict[str, Any]] = None
 
 

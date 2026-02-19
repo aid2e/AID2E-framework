@@ -151,7 +151,7 @@ class DAGExecutor:
         # Import scheduler dynamically based on runner_type
         try:
             if runner_type == "JobLibRunner":
-                from aid2e.schedulers.joblib.runner import JobLibScheduler
+                from aid2e.schedulers.JobLib.runner import JobLibScheduler
                 return JobLibScheduler(config=config)
             elif runner_type == "PanDAiDDSRunner":
                 from aid2e.schedulers.PanDAiDDS.runner import PanDAiDDSScheduler

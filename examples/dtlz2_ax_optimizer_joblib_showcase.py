@@ -38,7 +38,7 @@ from aid2e.utilities.configurations.objectives import (
 )
 from aid2e.optimizers.base import SearchSpace
 from aid2e.optimizers.ax import AxOptimizer, AxOptimizerConfig
-from aid2e.schedulers.joblib.config import JobLibRunnerConfig
+from aid2e.schedulers.JobLib.config import JobLibRunnerConfig
 
 
 # =============================================================================

@@ -349,7 +349,7 @@ def run_case_2_separate_branches():
         total_memory=2000,  # MB per job
         enable_separate_log=True,
         job_dir=str(Path.cwd() / "panda_jobs" / "case2"),
-    
+    )
     
     print(f"\n✓ Scheduler: PanDAiDDS")
     print(f"  Workers: {panda_config.core_count} ")

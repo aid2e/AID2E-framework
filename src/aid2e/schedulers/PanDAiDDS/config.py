@@ -9,8 +9,10 @@ The model is registered with the scheduler configuration registry so the
 framework can discover and validate PanDA runner configurations.
 """
 
+import os
+import getpass
 from typing import List, Optional, Any
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from aid2e.utilities.configurations.scheduler_registry import register as register_runner_config
 
@@ -35,12 +37,47 @@ class PanDAiDDSRunnerConfig(BaseModel):
 
     name: Optional[str] = Field(
         default=None,
-        description="PanDA job name, e.g. 'user.<username>.<experiment>'",
+        description=(
+            "PanDA job name, must start with 'user.<username>'. "
+            "If not provided, will be auto-generated from username. "
+            "Set PANDA_USERNAME environment variable to override system username."
+        ),
     )
     init_env: Optional[Any] = Field(
         default=None,
         description="Initialization environment (callable, dict, or other) to prepare remote jobs",
     )
+    
+    @field_validator("name")
+    @classmethod
+    def validate_and_generate_name(cls, v: Optional[str]) -> str:
+        """Validate or generate PanDA job name.
+        
+        The name must start with 'user.<username>'. If not provided, it will be
+        auto-generated using the system username (or PANDA_USERNAME env var).
+        
+        Args:
+            v: The name value to validate.
+            
+        Returns:
+            A valid PanDA job name starting with 'user.<username>'.
+            
+        Raises:
+            ValueError: If the provided name doesn't start with 'user.'.
+        """
+        # If name is provided, validate it
+        if v is not None:
+            if not v.startswith("user."):
+                raise ValueError(
+                    f"PanDA job name must start with 'user.<username>', got: {v}"
+                )
+            return v
+        
+        # Auto-generate name from username
+        # Check environment variable first, then fall back to system username
+        username = os.environ.get("PANDA_USERNAME") or getpass.getuser()
+        return f"user.{username}.aid2e_job"
+
     cloud: Optional[str] = Field(
         default=None,
         description="Cloud/region for the PanDA submission (e.g. 'US')",

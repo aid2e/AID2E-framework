@@ -4,17 +4,20 @@ This example demonstrates the DAG Executor with Ax optimizer and PanDAiDDS sched
 running the DTLZ2 problem in two different workflow configurations.
 
 Key Differences from Default Showcase:
-- Uses PanDAiDDS scheduler for parallel job execution
-- Configures number of parallel workers (n_jobs)
-- Demonstrates local multi-core parallelism
+- Uses PanDAiDDS scheduler for distributed grid job execution
+- Configures PanDA cloud, queue, and resource requirements
+- Job names auto-generated as 'user.<username>' (username from system or PANDA_USERNAME env)
 
 Configuration:
 - 10 Sobol initialization points
 - 10 Bayesian optimization iterations
 - Batch size of 3 (3 parallel evaluations per iteration)
 - Total evaluations: 10 + (10 * 3) = 40 points
-- PanDAiDDS backend: loky (default)
-- Parallel workers: -1 (all available CPUs)
+- PanDAiDDS cloud: US
+- PanDAiDDS queue: BNL_PanDA_1
+
+Environment Variables:
+- PANDA_USERNAME: Override system username for PanDA job names (optional)
 
 Project: AID2E v0.0.0 - AI assisted Detector Design for EIC
 """
@@ -201,8 +204,11 @@ def run_case_1_single_branch():
     print(f"  Objectives: {[obj.name for obj in workflow.objectives]}")
     
     # Configure PanDAiDDS scheduler
+    # Note: 'name' will be auto-generated as 'user.<username>.aid2e_job'
+    # You can override the username via PANDA_USERNAME environment variable
+    # Or provide a custom name (must start with 'user.')
     panda_config = PanDAiDDSRunnerConfig(
-        name="user.example.dtlz2_ax_panda_case1",
+        # name="user.wguan.dtlz2_ax_panda_case1",  # Or omit to auto-generate
         cloud="US",  # PanDA cloud
         queue="BNL_PanDA_1",  # PanDA queue
         max_walltime=3600,  # 1 hour
@@ -340,8 +346,11 @@ def run_case_2_separate_branches():
     print(f"  Objectives: {[obj.name for obj in workflow.objectives]}")
     
     # Configure PanDAiDDS scheduler
+    # Note: 'name' will be auto-generated as 'user.<username>.aid2e_job'
+    # You can override the username via PANDA_USERNAME environment variable
+    # Or provide a custom name (must start with 'user.')
     panda_config = PanDAiDDSRunnerConfig(
-        name="user.example.dtlz2_ax_panda_case2",
+        # name="user.wguan.dtlz2_ax_panda_case2",  # Or omit to auto-generate
         cloud="US",  # PanDA cloud
         queue="BNL_PanDA_1",  # PanDA queue
         max_walltime=3600,  # 1 hour

@@ -249,7 +249,7 @@ def run_case_1_single_branch():
     )
     print(f"\n✓ Search space: {len(search_space.parameters)} parameters")
     for param_name, param_def in search_space.parameters.items():
-        print(f"  - {param_name}: {param_def['bounds']}")
+        print(f"  - {param_name}: {param_def.bounds}")
     
     # Configure optimizer
     optimizer_config = AxOptimizerConfig(
@@ -367,7 +367,7 @@ def run_case_2_separate_branches():
     )
     print(f"\n✓ Search space: {len(search_space.parameters)} parameters")
     for param_name, param_def in search_space.parameters.items():
-        print(f"  - {param_name}: {param_def['bounds']}")
+        print(f"  - {param_name}: {param_def.bounds}")
     
     # Configure optimizer
     optimizer_config = AxOptimizerConfig(

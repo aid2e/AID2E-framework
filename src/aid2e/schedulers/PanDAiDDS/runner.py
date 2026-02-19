@@ -163,6 +163,7 @@ class PanDAiDDSScheduler(BaseScheduler):
 					return_code=return_code,
 					stdout=result.get("stdout", ""),
 					stderr=result.get("stderr", ""),
+				outputs=result.get("outputs"),
 				)
 			)
 

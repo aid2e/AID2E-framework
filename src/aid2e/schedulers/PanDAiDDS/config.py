@@ -33,6 +33,8 @@ class PanDAiDDSRunnerConfig(BaseModel):
     - init_env: any (auto-set to source setup script, or prepended if string)
     - cloud: str
     - queue: str
+    - working_group: str
+    - task_type: str
     - source_dir: str (auto-set to project root)
     - source_dir_parent_level: int
     - exclude_source_files: List[str] (includes .venv, venv, .git)
@@ -123,6 +125,14 @@ class PanDAiDDSRunnerConfig(BaseModel):
     queue: Optional[str] = Field(
         default=None,
         description="PanDA queue name to submit jobs to",
+    )
+    working_group: Optional[str] = Field(
+        default="AID2E",
+        description="Working group for the PanDA submission (e.g. 'wg_epic', 'AID2E')",
+    )
+    task_type: Optional[str] = Field(
+        default="AID2E",
+        description="Task type for PanDA job classification (e.g. 'test', 'prod', 'analysis', 'AID2E')",
     )
     source_dir: str = Field(
         default=None,

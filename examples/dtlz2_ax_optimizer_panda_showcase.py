@@ -476,7 +476,7 @@ def run_case_2_separate_branches():
 if __name__ == "__main__":
     # Configure logging
     logging.basicConfig(
-        level=logging.INFO,
+        level=logging.DEBUG,
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
         datefmt='%Y-%m-%d %H:%M:%S'
     )

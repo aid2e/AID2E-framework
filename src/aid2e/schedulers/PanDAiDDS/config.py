@@ -109,7 +109,7 @@ class PanDAiDDSRunnerConfig(BaseModel):
         
         # Set init_env to source setup_aid2e.sh, or append to existing
         if self.init_env is None:
-            self.init_env = "source setup_aid2e.sh"
+            self.init_env = "source setup_aid2e.sh; "
         else:
             # If init_env is already set, append the setup script after it
             if isinstance(self.init_env, str):

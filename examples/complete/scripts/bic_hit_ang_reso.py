@@ -15,6 +15,7 @@ import argparse as ap
 import numpy as np
 import sys
 from dataclasses import dataclass
+from typing import Dict
 
 import ROOT
 from podio.reading import get_reader
@@ -122,7 +123,7 @@ class Info:
 # Angular Resolution Calculation
 # ============================================================================= 
 
-def CalculateHitAngReso(opts: Options = DEFAULT_OPTS) -> float:
+def CalculateHitAngReso(opts: Options = DEFAULT_OPTS) -> Dict[str, float]:
     """Calculate angular resolution
 
     A function to calculate angular resolution for a 
@@ -145,7 +146,11 @@ def CalculateHitAngReso(opts: Options = DEFAULT_OPTS) -> float:
         opts: calculation options
 
     Returns:
-        calculated resolution
+        Dictionary of {key, value} where
+        - key: the name of the objective associated with this script,
+          in this case "resolution"
+        - value: the value of the objective, in this case the RMS of
+          the fit to the mc-reco differences
     """
 
     # sanitize coordinate input
@@ -288,7 +293,7 @@ def CalculateHitAngReso(opts: Options = DEFAULT_OPTS) -> float:
         out.Close()
 
     # and return fit width as resolution
-    return fdiff.GetParameter(2)
+    return {"resolution", fdiff.GetParameter(2)}
 
 
 # =============================================================================

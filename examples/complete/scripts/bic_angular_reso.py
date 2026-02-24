@@ -293,7 +293,7 @@ def CalculateHitAngReso(opts: Options = DEFAULT_OPTS) -> Dict[str, float]:
         out.Close()
 
     # and return fit width as resolution
-    return {"resolution", fdiff.GetParameter(2)}
+    return {f"{opts.angle}_resolution", fdiff.GetParameter(2)}
 
 
 # =============================================================================

@@ -458,8 +458,8 @@ class PanDAiDDSScheduler(BaseScheduler):
 		if not tf_id:
 			raise RuntimeError(f"Failed to submit {work_name} to PanDA")
 
-		# store mapping under stage_name
-		self.running_funcs[stage_name][job_id][func_name] = {"work": work, "tf_id": tf_id, "status": "New", "results": None}
+		# store mapping under stage_name -> job_id -> funcs -> func_name
+		self.running_funcs[stage_name][job_id]["funcs"][func_name] = {"work": work, "tf_id": tf_id, "status": "New", "results": None}
 		self.jobs[stage_name][job_id] = tf_id
 
 	def check_single_job_status(self, job: Dict[str, Any]) -> None:

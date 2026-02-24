@@ -1,0 +1,101 @@
+# ============================================================================
+# ePIC BIC Single-Objective Optimization
+# ============================================================================
+# This example shows:
+#   1. An ePIC workflow: sim → reco → ana 
+# ============================================================================
+
+# SECTION 1: PROBLEM DEFINITION
+# What to optimize (objectives) and design space
+# ============================================================================
+problem:
+  name: "BIC Single-Objective Optimization"
+  type: "EPIC_CALORIMETRY"
+  description: "Single-objective optimization of the BIC for angular resolution"
+
+  # TODO 
+  #   ADD epic_configuration HERE
+
+  # ===========================================================================
+  # PARAMETERS: Define what we're optimizing
+  # ===========================================================================
+  # Here, we want to find the optimal combination of AstroPix
+  # staves in the BIC. Staves can be enabled ("1") or disabled
+  # ("0") in their xml files.
+  design_space:
+    epic_design_parameters:
+      bic:
+        parameters:
+
+          enable_staves_2:
+            value: "0"
+            choices: ["0", "1"]
+            xml_path: ".//constant[@name='EcalBarrel_enable_staves_2']"
+
+          enable_staves_3:
+            value: "1"
+            choices: ["0", "1"]
+            xml_path: ".//constant[@name='EcalBarrel_enable_staves_3']"
+
+          enable_staves_4:
+            value: "1"
+            choices: ["0", "1"]
+            xml_path: ".//constant[@name='EcalBarrel_enable_staves_4']"
+
+          enable_staves_5:
+            value: "0"
+            choices: ["0", "1"]
+            xml_path: ".//constant[@name='EcalBarrel_enable_staves_5']"
+
+          enable_staves_6:
+            value: "1"
+            choices: ["0", "1"]
+            xml_path: ".//constant[@name='EcalBarrel_enable_staves_6']"
+
+  # ========================================================================
+  # OBJECTIVES: Define what we're optimizing for
+  # ========================================================================
+  # This a SINGLE objective: one run of the workflow
+  # will output the calculated eta resolution, which
+  # we want to minimize
+  objectives:
+    - name: "eta_resolution"
+      direction: "minimize"
+
+      # Objective-level scheduler (applies to this objective's execution)
+      scheduler:
+        runner_type: "JobLibRunner"
+        parameters:
+          n_jobs: -1        # Use all available cores
+          backend: "threading"
+      
+      # Objective plan: HOW to compute eta_resolution
+      # FIXME is this the analysis script? or a wrapper script?
+      objective_plan:
+        script:
+          path: "examples/complete/scripts/bic_angular_reso.py"
+          output_file: "eta_resolution.json"
+          timeout_sec: 1800  # should take no more than 30 min to run
+      
+      # Metrics to extract from the objective plan output
+      metrics_keys: ["eta_resolution"]
+
+# SECTION 2: SCHEDULER CONFIGURATION
+# Global scheduler defaults (can be overridden at workflow/branch/stage level)
+# ============================================================================
+scheduler:
+  runner_type: "JobLibRunner"
+  parameters:
+    n_jobs: 4          # Use 4 parallel jobs by default
+    backend: "loky"    # Use process-based parallelism (default)
+
+# SECTION 3: WORKFLOW EXECUTION
+# How to execute the optimization (stages, parallelism, etc.)
+# NOTE: When objectives are simple (single script call), workflows are optional
+# ============================================================================
+workflows:
+  - name: "eta_resolution_calc"
+    description: "Eta resolution calculation workflow"
+
+    # TODO
+    #   Add stages here

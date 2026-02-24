@@ -28,15 +28,15 @@ from podio.reading import get_reader
 class Options:
     """Options for calculation
 
-    Members:
-        ifiles:   list of input files
-        ofile:    output file
+    Attributes:
+        ifiles: list of input files
+        ofile: output file
         excludes: list of layer indices to exclude 
-        angle:    angular coordinate to use (theta, eta, ...)
-        pdg:      PDG code to use (optional)
-        hits:     input reco hit collection
-        pars:     input MC particle collection
-        assocs:   input cluster-particle associations
+        angle: angular coordinate to use (theta, eta, ...)
+        pdg: PDG code to use (optional)
+        hits: input reco hit collection
+        pars: input MC particle collection
+        assocs: input cluster-particle associations
     """
     ifiles: list[str]
     ofile: str
@@ -49,11 +49,11 @@ class Options:
 
     def set_opts_from_args(self, args):
         """Set optional members from CLI arguments"""
-        self.angle    = args.angle
-        self.pdg      = args.pdg
-        self.hits     = args.hits
-        self.pars     = args.pars
-        self.assocs   = args.assocs
+        self.angle  = args.angle
+        self.pdg    = args.pdg
+        self.hits   = args.hits
+        self.pars   = args.pars
+        self.assocs = args.assocs
 
 # default options
 DEFAULT_OPTS = Options(
@@ -70,12 +70,12 @@ class Info:
     Helper class to store key information
     on hits and particles
 
-    Members:
-      energy: energy of hit/particle
-      angle:  anglular coordinate (theta, eta, ...)
-      perp:   radial coordinate (r/pt) of hit/particle
-      layer:  most upstream layer with hits
-      vector: 3D position/momentum of hit/particle
+    Attributes:
+        energy: energy of hit/particle
+        angle: anglular coordinate (theta, eta, ...)
+        perp: radial coordinate (r/pt) of hit/particle
+        layer: most upstream layer with hits
+        vector: 3D position/momentum of hit/particle
     """
     energy: float = -999.0
     angle: float = -999.0
@@ -142,9 +142,10 @@ def CalculateHitAngReso(opts: Options = DEFAULT_OPTS) -> float:
         5. Return the RMS as the resolution
 
     Args:
-      opts: calculation options
+        opts: calculation options
+
     Returns:
-      calculated resolution
+        calculated resolution
     """
 
     # sanitize coordinate input

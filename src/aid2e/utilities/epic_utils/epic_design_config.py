@@ -4,30 +4,44 @@ ePIC-specific design configuration with XML modification support.
 Extends the base DesignConfig from the configurations module.
 """
 
-from typing import Dict, List, Optional, Tuple, Any
+from typing import Dict, List, Optional, Tuple, Union, Any
 from pydantic import BaseModel, Field, RootModel, model_validator
 from pathlib import Path
 import yaml
 import os
 import re
 
-from aid2e.utilities.configurations.base_models import BaseParameter
+from aid2e.utilities.configurations.base_models import BaseParameter, RangeParameter, ChoiceParameter
 from aid2e.utilities.configurations.design_config import DesignConfig, ParameterConstraint
 
 
-class EpicParameter(BaseParameter):
+class EpicRangeParameter(RangeParameter):
     """
     Parameter with XML modification capability for ePIC detector.
-    Extends BaseParameter with XML path, file path, and unit information.
+    Extends RangeParameter with XML path, file path, and unit information.
     """
-    value: float
-    bounds: Tuple[float, float]
     xml_path: str  # XPath to XML element, e.g., "//constant[@name='...']/@value"
     unit: Optional[str] = None  # e.g., "mm", "cm", "um"
-    
+
     @property
     def type(self) -> str:
         return "epic_range"
+
+class EpicChoiceParameter(ChoiceParameter):
+    """
+    Parameter with XML modification capability for ePIC detector.
+    Extends ChoiceParameter with XML path, file path, and unit information.
+    """
+    xml_path: str  # XPath to XML element, e.g., "//constant[@name='...']/@value"
+    unit: Optional[str] = None  # e.g., "mm", "cm", "um"
+
+    @property
+    def type(self) -> str:
+        return "epic_choice"
+
+
+# Generic ePIC parameter
+EpicParameter = Union[EpicRangeParameter, EpicChoiceParameter]
 
 
 class EpicParameterGroup(BaseModel):

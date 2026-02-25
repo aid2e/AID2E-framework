@@ -120,9 +120,13 @@ class PanDAiDDSScheduler(BaseScheduler):
 				local_job_results[job_id] = result
 
 		# Phase 2: Poll all submitted iDDS jobs until they finish
+		poll_count = 0
 		while submitted_job_ids:
 			_time.sleep(poll_interval)
-			self.logger.debug("Polling %d remaining jobs", len(submitted_job_ids))
+			poll_count += 1
+			# Only log polling message every 10th iteration to reduce noise
+			if poll_count % 60 == 1:
+				self.logger.info("Polling %d remaining jobs (poll #%d)", len(submitted_job_ids), poll_count)
 			
 			# check status of all remaining jobs
 			for job_id in list(submitted_job_ids):

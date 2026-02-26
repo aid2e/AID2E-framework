@@ -109,11 +109,11 @@ class PanDAiDDSRunnerConfig(BaseModel):
         
         # Set init_env to source setup_aid2e.sh, or append to existing
         if self.init_env is None:
-            self.init_env = "source setup_aid2e.sh; "
+            self.init_env = "source setup_aid2e.sh; bash install_aid2e_dependencies.sh; "
         else:
             # If init_env is already set, append the setup script after it
             if isinstance(self.init_env, str):
-                self.init_env = f"{self.init_env} && source setup_aid2e.sh"
+                self.init_env = f"source setup_aid2e.sh && bash install_aid2e_dependencies.sh && {self.init_env}"
             # Note: If init_env is a callable or other type, leave it as-is
         
         return self
@@ -169,6 +169,7 @@ class PanDAiDDSRunnerConfig(BaseModel):
             ".venv",
             "venv",
             ".git",
+            ".local",
         ],
         description="Filename patterns to exclude when packaging source_dir",
     )

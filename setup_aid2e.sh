@@ -14,13 +14,13 @@ else
     echo "Please create it with: python3 -m venv .venv"
 fi
 
-# Set up PYTHONPATH to include src, tests, examples, and current directory
+# Set up PYTHONPATH to include src, tests, examples, local deps, and current directory
 if [ -z "$PYTHONPATH" ]; then
     # PYTHONPATH is empty or unset, create new one
-    export PYTHONPATH="$current_dir/src:$current_dir/tests:$current_dir/examples:$current_dir"
+    export PYTHONPATH="$current_dir/src:$current_dir/tests:$current_dir/examples:$current_dir/.local/lib:$current_dir"
 else
     # PYTHONPATH exists, append to it
-    export PYTHONPATH="$current_dir/src:$current_dir/tests:$current_dir/examples:$current_dir:$PYTHONPATH"
+    export PYTHONPATH="$current_dir/src:$current_dir/tests:$current_dir/examples:$current_dir/.local/lib:$current_dir:$PYTHONPATH"
 fi
 
 echo "Environment setup complete!"

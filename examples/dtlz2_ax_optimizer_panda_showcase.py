@@ -36,6 +36,16 @@ from aid2e.utilities.workflows import (
     JobDefinition,
     JobContext,
 )
+
+# Import evaluator functions from examples.evaluators.dtlz2
+from examples.evaluators.dtlz2 import (
+    dtlz2_both_objectives,
+    dtlz2_f1_only,
+    dtlz2_f2_only,
+    evaluate_both_objectives_wrapper,
+    evaluate_f1_wrapper,
+    evaluate_f2_wrapper,
+)
 from aid2e.utilities.configurations.objectives import (
     ObjectiveDefinition,
     ObjectiveDirection,
@@ -49,66 +59,7 @@ from aid2e.schedulers.PanDAiDDS.config import PanDAiDDSRunnerConfig
 # DTLZ2 Problem Implementation
 # =============================================================================
 
-def dtlz2_both_objectives(x: List[float]) -> Dict[str, float]:
-    """Compute both DTLZ2 objectives in one function."""
-    x = np.array(x)
-    g = np.sum((x[1:] - 0.5) ** 2)
-    f1 = (1 + g) * np.cos(x[0] * np.pi / 2) * np.cos(x[1] * np.pi / 2)
-    f2 = (1 + g) * np.cos(x[0] * np.pi / 2) * np.sin(x[1] * np.pi / 2)
-    return {"f1": float(f1), "f2": float(f2)}
 
-
-def dtlz2_f1_only(x: List[float]) -> float:
-    """Compute only f1 objective of DTLZ2."""
-    x = np.array(x)
-    g = np.sum((x[1:] - 0.5) ** 2)
-    f1 = (1 + g) * np.cos(x[0] * np.pi / 2) * np.cos(x[1] * np.pi / 2)
-    return float(f1)
-
-
-def dtlz2_f2_only(x: List[float]) -> float:
-    """Compute only f2 objective of DTLZ2."""
-    x = np.array(x)
-    g = np.sum((x[1:] - 0.5) ** 2)
-    f2 = (1 + g) * np.cos(x[0] * np.pi / 2) * np.sin(x[1] * np.pi / 2)
-    return float(f2)
-
-
-# =============================================================================
-# Python Evaluator Wrappers
-# =============================================================================
-
-def evaluate_both_objectives_wrapper(context: JobContext) -> Dict[str, float]:
-    """Wrapper to evaluate both objectives from JobContext."""
-    design_point = context.design_point
-    x = [design_point['x1'], design_point['x2'], design_point['x3']]
-    objectives = dtlz2_both_objectives(x)
-    context.add_log(f"Design point: {x}")
-    context.add_log(f"Objectives: {objectives}")
-    context.xcom_push("objectives", objectives)
-    return objectives
-
-
-def evaluate_f1_wrapper(context: JobContext) -> float:
-    """Wrapper to evaluate f1 from JobContext."""
-    design_point = context.design_point
-    x = [design_point['x1'], design_point['x2'], design_point['x3']]
-    f1 = dtlz2_f1_only(x)
-    context.add_log(f"Design point: {x}")
-    context.add_log(f"f1 = {f1}")
-    context.xcom_push("f1", f1)
-    return f1
-
-
-def evaluate_f2_wrapper(context: JobContext) -> float:
-    """Wrapper to evaluate f2 from JobContext."""
-    design_point = context.design_point
-    x = [design_point['x1'], design_point['x2'], design_point['x3']]
-    f2 = dtlz2_f2_only(x)
-    context.add_log(f"Design point: {x}")
-    context.add_log(f"f2 = {f2}")
-    context.xcom_push("f2", f2)
-    return f2
 
 
 # =============================================================================
@@ -480,7 +431,8 @@ if __name__ == "__main__":
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
         datefmt='%Y-%m-%d %H:%M:%S'
     )
-    
+
+    # All main workflow logic is guarded here
     print("\n" + "="*80)
     print("DTLZ2 Multi-Objective Bayesian Optimization with Ax + PanDAiDDS Scheduler")
     print("="*80)
@@ -500,31 +452,31 @@ if __name__ == "__main__":
     print("  Variables: x1, x2, x3 in [0, 1]")
     print("  Objectives: f1, f2 (minimize both)")
     print("  Optimal Pareto front: x1 in [0, 1], x2 = x3 = 0.5")
-    
+
     try:
         # Run both cases
         optimizer1, executor1 = run_case_1_single_branch()
         optimizer2, executor2 = run_case_2_separate_branches()
-        
+
         # Summary
         print("\n" + "="*80)
         print("COMPARISON SUMMARY")
         print("="*80)
-        
+
         print("\nCase 1 (Single Branch):")
         print(f"  Workflow: {executor1.workflow.name}")
         print(f"  Branches: {len(executor1.workflow.branches)}")
         print(f"  Total evaluations: {len(optimizer1.get_trials())}")
         print(f"  Pareto front size: {len(optimizer1.get_pareto_front())}")
         print(f"  Output directory: {executor1.output_dir}")
-        
+
         print("\nCase 2 (Separate Branches):")
         print(f"  Workflow: {executor2.workflow.name}")
         print(f"  Branches: {len(executor2.workflow.branches)}")
         print(f"  Total evaluations: {len(optimizer2.get_trials())}")
         print(f"  Pareto front size: {len(optimizer2.get_pareto_front())}")
         print(f"  Output directory: {executor2.output_dir}")
-        
+
         print("\n" + "="*80)
         print("✅ Ax + PanDAiDDS Optimization Showcase Complete!")
         print("="*80)
@@ -535,7 +487,7 @@ if __name__ == "__main__":
         print("  • Batch optimization with 3 parallel evaluations per iteration")
         print("  • Sobol initialization ensures good space exploration")
         print("  • PanDAiDDS scheduler provides local multi-core parallelism")
-        
+
     except ImportError as e:
         print("\n" + "="*80)
         print("⚠️  ERROR: Missing Dependencies")

@@ -27,11 +27,14 @@ Environment Variables:
 Project: AID2E v0.0.0 – AI assisted Detector Design for EIC
 """
 
+
 import logging
 import time
-import numpy as np
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+# Import dtlz2_objectives from examples.evaluators.dtlz2
+from examples.evaluators.dtlz2 import dtlz2_both_objectives as dtlz2_objectives
 
 from aid2e.optimizers.base import SearchSpace
 from aid2e.optimizers.ax import AxOptimizer, AxOptimizerConfig
@@ -45,22 +48,6 @@ logger = logging.getLogger("dtlz2_panda_pool")
 # DTLZ2 Problem
 # =============================================================================
 
-def dtlz2_objectives(x1: float, x2: float, x3: float) -> Dict[str, float]:
-    """Compute both DTLZ2 objectives.
-
-    Args:
-        x1: First decision variable in [0, 1].
-        x2: Second decision variable in [0, 1].
-        x3: Third decision variable in [0, 1].
-
-    Returns:
-        Dictionary with keys ``f1`` and ``f2``.
-    """
-    x = np.array([x1, x2, x3])
-    g = np.sum((x[1:] - 0.5) ** 2)
-    f1 = (1 + g) * np.cos(x[0] * np.pi / 2) * np.cos(x[1] * np.pi / 2)
-    f2 = (1 + g) * np.cos(x[0] * np.pi / 2) * np.sin(x[1] * np.pi / 2)
-    return {"f1": float(f1), "f2": float(f2)}
 
 
 # =============================================================================

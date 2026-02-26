@@ -421,9 +421,21 @@ class PanDAiDDSScheduler(BaseScheduler):
 
 		job = job_definition
 		job_id = job.get("job_id") or uuid.uuid4().hex
+
 		func = job.get("function")
 		if func is None:
 			raise ValueError("Job dict must contain 'function' to submit to PanDA/iDDS")
+
+		# Check that the function is not from __main__
+		func_mod = getattr(func, "__module__", None)
+		if func_mod == "__main__":
+			raise RuntimeError(
+				f"Function '{getattr(func, '__name__', func)}' comes from module __main__. "
+				"Remote execution requires the function to be defined in a real importable module, not in __main__. "
+				"Otherwise, the remote environment will import the module __main__ which will execute the top-level code "
+				"and not find the function definition. "
+				"Please move the function to a proper module and reference it by its full module path."
+			)
 
 		func_name = getattr(func, "__name__", str(func))
 		work_name = f"{self.config.name or 'aid2e'}.{stage_name}.{job_id}.{func_name}"

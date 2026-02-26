@@ -33,7 +33,7 @@ fi
 
 # Install the project and its dependencies locally
 echo "Installing aid2e and core dependencies..."
-pip install --target "$LOCAL_LIB" "$SCRIPT_DIR" --no-deps 2>/dev/null || \
+pip install --target "$LOCAL_LIB" "$SCRIPT_DIR" --no-deps || \
     echo "Warning: pip install of aid2e package failed, continuing..."
 
 echo ""
@@ -44,21 +44,10 @@ pip install --target "$LOCAL_LIB" \
     "click>=8.0" \
     || echo "Warning: Some core dependencies could not be installed."
 
-# Install PanDA/iDDS optional dependencies
-# Not installing ax-platform by default since it can be large and may not be needed for all users; can be installed separately if desired
-echo ""
-echo "Installing PanDA/iDDS dependencies..."
-pip install --target "$LOCAL_LIB" \
-    "wheel" \
-    "idds-common>=2.0" \
-    "idds-workflow>=2.0" \
-    "panda-client>=1.5" \
-    2>/dev/null || echo "Warning: Some PanDA dependencies could not be installed (may already be available)."
-
 # Install joblib for local parallel execution
 echo ""
 echo "Installing joblib..."
-pip install --target "$LOCAL_LIB" "joblib>=1.0" 2>/dev/null || true
+pip install --target "$LOCAL_LIB" "joblib>=1.0" || true
 
 # Add local lib to PYTHONPATH if not already there
 if [[ ":$PYTHONPATH:" != *":$LOCAL_LIB:"* ]]; then

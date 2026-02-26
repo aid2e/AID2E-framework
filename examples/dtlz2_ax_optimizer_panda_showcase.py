@@ -167,6 +167,7 @@ def run_case_1_single_branch():
         core_count=1,  # CPU cores per job
         total_memory=2000,  # MB per job
         enable_separate_log=True,
+        init_env="source setup_aid2e.sh && bash install_aid2e_dependencies.sh && ls -R;",  # Ensure environment is set up on remote workers
         job_dir=str(Path.cwd() / "panda_jobs" / "case1"),
     )
     

@@ -45,6 +45,7 @@ pip install --target "$LOCAL_LIB" \
     || echo "Warning: Some core dependencies could not be installed."
 
 # Install PanDA/iDDS optional dependencies
+# Not installing ax-platform by default since it can be large and may not be needed for all users; can be installed separately if desired
 echo ""
 echo "Installing PanDA/iDDS dependencies..."
 pip install --target "$LOCAL_LIB" \

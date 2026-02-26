@@ -42,7 +42,6 @@ pip install --target "$LOCAL_LIB" \
     "pyyaml>=5.4" \
     "pydantic>=2.0" \
     "click>=8.0" \
-    "ax-platform>=0.3.7" \
     || echo "Warning: Some core dependencies could not be installed."
 
 # Install PanDA/iDDS optional dependencies

@@ -149,10 +149,10 @@ class PanDAiDDSRunnerConfig(BaseModel):
     exclude_source_files: List[str] = Field(
         default_factory=lambda: [
             r"(^|/)\.[^/]+",
-            "doc*",
-            "DTLZ2*",
-            ".*json",
-            ".*log",
+            r"^doc",
+            r"^DTLZ2",
+            r".*json$",
+            r".*log$",
             "work",
             "log",
             "OUTDIR",

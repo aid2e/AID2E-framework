@@ -42,7 +42,7 @@ pip install --target "$LOCAL_LIB" \
     "pyyaml>=5.4" \
     "pydantic>=2.0" \
     "click>=8.0" \
-    "ax-platform==1.0.0"
+    "ax-platform"
 
 # Install PanDA/iDDS optional dependencies
 echo ""

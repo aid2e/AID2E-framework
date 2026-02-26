@@ -162,7 +162,7 @@ def run_case_1_single_branch():
     panda_config = PanDAiDDSRunnerConfig(
         # name="user.wguan.dtlz2_ax_panda_case1",  # Or omit to auto-generate
         cloud="US",  # PanDA cloud
-        queue="BNL_PanDA_1",  # PanDA queue
+        queue="BNL_PanDA_1",  # PanDA queue # BNL_OSG_PanDA_1, BNL_PanDA_1
         max_walltime=3600,  # 1 hour
         core_count=1,  # CPU cores per job
         total_memory=2000,  # MB per job

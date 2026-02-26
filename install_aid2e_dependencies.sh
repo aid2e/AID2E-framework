@@ -9,7 +9,7 @@
 #
 # Project: AID2E v0.0.0 - AI assisted Detector Design for EIC
 
-set -e
+# Do not use set -e; we want to continue past non-critical failures
 
 # Get the directory where this script is located
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
@@ -33,8 +33,8 @@ fi
 
 # Install the project and its dependencies locally
 echo "Installing aid2e and core dependencies..."
-pip install --target "$LOCAL_LIB" -e "$SCRIPT_DIR" --no-deps 2>/dev/null || \
-    pip install --target "$LOCAL_LIB" "$SCRIPT_DIR"
+pip install --target "$LOCAL_LIB" "$SCRIPT_DIR" --no-deps 2>/dev/null || \
+    echo "Warning: pip install of aid2e package failed, continuing..."
 
 echo ""
 echo "Installing core dependencies..."
@@ -42,7 +42,8 @@ pip install --target "$LOCAL_LIB" \
     "pyyaml>=5.4" \
     "pydantic>=2.0" \
     "click>=8.0" \
-    "ax-platform"
+    "ax-platform>=0.3.7" \
+    || echo "Warning: Some core dependencies could not be installed."
 
 # Install PanDA/iDDS optional dependencies
 echo ""

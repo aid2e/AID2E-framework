@@ -35,7 +35,7 @@ dependencies = [
     "pyyaml>=5.4",
     "pydantic>=2.0",
     "click>=8.0",
-    "ax-platform==1.0.0",
+    "ax-platform>=0.3.7",
 ]
 
 [project.optional-dependencies]

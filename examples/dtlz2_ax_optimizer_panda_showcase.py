@@ -165,7 +165,7 @@ def run_case_1_single_branch():
         queue="BNL_PanDA_1",  # PanDA queue # BNL_OSG_PanDA_1, BNL_PanDA_1
         max_walltime=3600,  # 1 hour
         core_count=1,  # CPU cores per job
-        total_memory=2000,  # MB per job
+        total_memory=4000,  # MB per job
         enable_separate_log=True,
         init_env="source setup_aid2e.sh && bash install_aid2e_dependencies.sh && ls -R;",  # Ensure environment is set up on remote workers
         job_dir=str(Path.cwd() / "panda_jobs" / "case1"),

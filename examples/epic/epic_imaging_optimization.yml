@@ -70,12 +70,14 @@ problem:
           backend: "threading"
       
       # Objective plan: HOW to compute eta_resolution
-      # FIXME is this the analysis script? or a wrapper script?
+      # TODO this is the function to extract the objectives
+      #   -- should retrieve value from an output file (e.g. maybe a json file)
+      #      generated during workflow below
       objective_plan:
         script:
-          path: "examples/complete/scripts/bic_angular_reso.py"
+          path: "examples/epic/scripts/bic_angular_reso.py"
           output_file: "eta_resolution.json"
-          timeout_sec: 1800  # should take no more than 30 min to run
+          timeout_sec: 60  # should take no more than 1 min to extract
       
       # Metrics to extract from the objective plan output
       metrics_keys: ["eta_resolution"]
@@ -93,9 +95,98 @@ scheduler:
 # How to execute the optimization (stages, parallelism, etc.)
 # NOTE: When objectives are simple (single script call), workflows are optional
 # ============================================================================
+# Here, we have only one workflow: optimize the number of Astropix layers
+# in the BIC. Multiple optimizations can be run in parallel, where each
+# one would have a corresponding workflow.
 workflows:
-  - name: "eta_resolution_calc"
-    description: "Eta resolution calculation workflow"
+  - name: "imaging_optimization"
+    description: "Optimize the number of AstroPix layers in the BIC"
 
-    # TODO
-    #   Add stages here
+    # =========================================================================
+    # BRANCHES: parallel execution paths
+    # =========================================================================
+    # One optimization can have multiple branches which run in
+    # parallel. These should correspond to independent pipelines.
+    # For example, suppose we had 2 objectives,
+    #   1. one for single particle simulations and
+    #   2. another for an event generator.
+    # These could be run in parallel as separate branches.
+    branches:
+      -name: "electron_eta_resolution"
+       description: "Calculate eta resolution for single electrons"
+
+       # ======================================================================
+       # STAGES: groups of sequential computation steps
+       # ======================================================================
+       # TODO MORE DETAILS HERE
+       #  1. Run Gean4 simulation via npsim
+       #  2. Reconstruct output via eicrecon
+       #  3. Run analysis code over reconstructed output
+       stages:
+       # epic_stages?
+
+          # In the 1st stage, we'll run the simulation + reconstruction
+          # for 3 kinematic points. If using JobLibRunner, Slurm, or
+          # similar for scheduler, these will run in parallel.
+          - name: "sim_and_reco"
+            description: "Simulate and reconstruct single e-"
+            # layers:
+            #   - epic_geo:
+            #       outputs:
+            #         - log file with geo output
+            #   - epic_sim:
+            #       inputs:
+            #         - steering file {job_id}
+            #       outputs: # ==> TODO Make opt: if none provided, converts inputs + job ID into file name
+            #         - sim out file
+            #       arguments:
+            #         - "-- something"
+            #   - epic_rec:
+            #       inputs:
+            #         - sim out file
+            #       outputs: # ==> TODO Also make opt: handle same way
+            #         - rec out file
+            #       arguments:
+            #         " -- something"
+
+            # now we're going to create 3 copies of the jobs with job IDs
+            # 0, 1, 2. These correspond to the 3 kinematic points to run,
+            # each of which is defined by a DD4hep steering file:
+            #   - central_electrons_bin0.py
+            #   - central_electrons_bin1.py
+            #   - central_electrons_bin2.py
+            job_factory:
+              type: "range"
+              params:
+                n: 3
+
+            # here we specify how many copies we can run in parallel
+            parallelism:
+              max_concurrent: 3
+              retry_max: 2
+              timeout_sec: 3600 # should take no more than 30 min. per kinematic point to run
+
+            # TODO here we need to specify the reco output
+            # as a ROOT artifact
+
+          # And in the 2nd stage, we'll run two "analysis" steps:
+          #   1. Merge output from the 1st stage
+          #   2. Run on the analysis code on the merged output
+          - name: "merge_and_ana"
+            description: "Merge reconstruction output and run analysis on it"
+            # layers:
+            #   - epic_ana:
+            #       inputs:
+            #         - artifacts from "sim_and_reco" stage
+            #       outputs:
+            #         - some name w/ job ID
+            #       rule: "hadd {etc}"
+            #  - epic_ana:
+            #      inputs:
+            #        - merged output
+            #      outputs:
+            #        - some name w/ job ID
+            #      rule: "python scripts/resolution.py"
+
+            # TODO and here we specify the analysis output
+            # as a JSON (or otherwise) artifact

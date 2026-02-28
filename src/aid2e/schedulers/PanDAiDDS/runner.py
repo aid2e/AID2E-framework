@@ -539,6 +539,7 @@ class PanDAiDDSScheduler(BaseScheduler):
 				results = None
 				try:
 					results, _details = ret.get_result(name=work.name, key=info.get("job_key", work.name), verbose=True, with_details=True)
+					self.logger.debug(f"Extracted results for job {job_id}: {results}, details: {_details}")
 				except Exception:
 					results = ret
 				info["results"] = results

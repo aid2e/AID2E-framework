@@ -459,7 +459,7 @@ class PanDAiDDSScheduler(BaseScheduler):
 			map_results=True,
 			name=work_name,
 			job_key=work_name,
-			log_dataset_name=f"{work_name}.log/",
+			log_dataset_name=f"{work_name}.$WORKFLOWID.log/",
 		)
 		work = work_builder(**params)
 

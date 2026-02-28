@@ -9,12 +9,19 @@ represents the stack.
 Key Classes:
     - StackLayer: Abstract base class representing a component of a stack
     - ExperimentStack: Base container to hold layers representing the stack
+
+Project: AID2E v0.0.0 - AI assisted Detector Design for EIC
+Homepage: https://aid2e.github.io/aid2e-framework
+Repository: https://github.com/aid2e/AID2E-framework.git
 """
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, fields, field
-from typing import Dict, List
+from typing import Any, Dict, List
 
+from aid2e.utilities.configurations.experimental_stack_config import (
+    StackLayerConfiguration
+)
 
 @dataclass
 class StackLayer(ABC):
@@ -209,3 +216,26 @@ class ExperimentStack(ABC):
     def __getitem__(self, key) -> StackLayer:
         """Retrieve the layer identified by key"""
         return self.layers[key]
+
+    def _make_commands(self, payload: List[StackLayerConfig]) -> List[str]:
+        """
+        Makes list of commands to be run based on provided list
+        of stack layer configurations.
+        """
+        # TODO
+        return ["dummy"]
+
+    # MAKES SCRIPT
+    #   -- ARGS: list of layers, payload
+    #   -- STEPS:
+    #        1. make list of commands
+    #        2. write out script to run location
+    #   -- CAN BE MODIFIED IN DERIVED CLASSES
+    def make_driver_script(self, payload: List[StackLayerConfig]) -> List[str]:
+        """
+        Makes driver script to run a sequence of commands based on
+        provided list of layer configurations. Can be overwritten
+        for behavior unique to specific stacks.
+        """
+        commands = self._make_commands(payload)
+        return "dummy"

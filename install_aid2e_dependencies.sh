@@ -42,6 +42,7 @@ pip install --target "$LOCAL_LIB" \
     "pyyaml>=5.4" \
     "pydantic>=2.0" \
     "click>=8.0" \
+    "numpy" \
     || echo "Warning: Some core dependencies could not be installed."
 
 # Install joblib for local parallel execution

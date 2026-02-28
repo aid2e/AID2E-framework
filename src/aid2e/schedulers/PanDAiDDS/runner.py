@@ -386,6 +386,7 @@ class PanDAiDDSScheduler(BaseScheduler):
 			enable_separate_log=self.config.enable_separate_log,
 			local=True,
 			return_workflow=True,
+			post_script=self.config.post_script,
 		)
 
 		workflow = wf_builder()

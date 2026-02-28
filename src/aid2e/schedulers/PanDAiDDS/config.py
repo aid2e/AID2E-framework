@@ -61,6 +61,14 @@ class PanDAiDDSRunnerConfig(BaseModel):
             "If a string is provided, 'source setup_aid2e.sh' will be appended to it."
         ),
     )
+    post_script: Optional[Any] = Field(
+        default="rm -fr .local .venv src examples tests docs",
+        description=(
+            "Post-execution script (callable, dict, or other) to clean up after remote jobs. "
+            "If not provided, defaults to 'rm -fr .local .venv src examples tests docs'. "
+            "If a string is provided, it will be executed after the job completes."
+        ),
+    )
     
     @model_validator(mode='after')
     def validate_and_set_defaults(self) -> 'PanDAiDDSRunnerConfig':

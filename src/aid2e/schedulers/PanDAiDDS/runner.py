@@ -185,7 +185,7 @@ class PanDAiDDSScheduler(BaseScheduler):
 			success=all_success,
 			error_message=None if all_success else f"Some jobs failed in stage '{stage_name}'",
 		)
-		self.running_stages[stage_id]["result"] = result
+
 		return result
 
 	def get_stage_results(self, stage_id: str) -> StageExecutionResult:
@@ -541,6 +541,14 @@ class PanDAiDDSScheduler(BaseScheduler):
 				try:
 					results, _details = ret.get_result(name=work.name, key=info.get("job_key", work.name), verbose=True, with_details=True)
 					self.logger.debug(f"Extracted results for job {job_id}: {results}, details: {_details}")
+					
+					params = job.get("params", {})
+					context = params.get("context")
+					if context:
+						self.logger.debug("Job %s has context: %s", job_def.get("name", "unknown"), context)
+						# Optionally, you could store or use this context information as needed for your application
+						context.xcom_push(results)
+						context.xcom_push({"results_details": _details})
 				except Exception:
 					results = ret
 				info["results"] = results

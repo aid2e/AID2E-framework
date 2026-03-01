@@ -32,6 +32,11 @@ def evaluate_both_objectives_wrapper(context: JobContext) -> Dict[str, float]:
     context.add_log(f"Design point: {x}")
     context.add_log(f"Objectives: {objectives}")
     context.xcom_push("objectives", objectives)
+    # Ensure both objectives are present
+    required_keys = {"f1", "f2"}
+    missing = required_keys - objectives.keys()
+    if missing:
+        raise ValueError(f"evaluate_both_objectives_wrapper: Missing objectives {missing} in result dict. Got: {objectives}")
     return objectives
 
 def evaluate_f1_wrapper(context: JobContext) -> float:

@@ -81,6 +81,9 @@ class PanDAiDDSScheduler(BaseScheduler):
 		all_artifacts: Dict[str, Any] = {}
 		all_success = True
 
+        # Map job_id to job_def for easy lookup during polling
+		job_id_to_job_def: Dict[str, Dict[str, Any]] = {}
+
 		# Create a simple stage id for bookkeeping
 		stage_id = uuid.uuid4().hex
 		self.running_stages[stage_id] = {"status": "running", "jobs": [], "result": None}
@@ -92,6 +95,7 @@ class PanDAiDDSScheduler(BaseScheduler):
 		for index, job_def in enumerate(job_definitions):
 			job_name = job_def.get("name", f"job_{index}")
 			job_id = f"{stage_name}_{job_name}_{index}"
+			job_id_to_job_def[job_id] = job_def
 
 			# If the job provides a function object, try to submit to iDDS.
 			if job_def.get("function") is not None:
@@ -131,7 +135,10 @@ class PanDAiDDSScheduler(BaseScheduler):
 			# check status of all remaining jobs
 			for job_id in list(submitted_job_ids):
 				try:
-					self.check_single_job_status({"job_id": job_id, "stage_name": stage_name})
+					# Find job_def for this job_id to extract job_context
+					job_def = job_id_to_job_def.get(job_id, None)
+					job_context = job_def.get("job_context") if job_def else None
+					self.check_single_job_status({"job_id": job_id, "stage_name": stage_name}, job_context)
 				except Exception as exc:
 					# if job still running, check_single_job_status may raise until finished
 					self.logger.debug("Job %s not finished yet: %s", job_id, exc)
@@ -479,11 +486,12 @@ class PanDAiDDSScheduler(BaseScheduler):
 		self.running_funcs[stage_name][job_id]["funcs"][func_name] = {"work": work, "tf_id": tf_id, "status": "New", "results": None}
 		self.jobs[stage_name][job_id] = tf_id
 
-	def check_single_job_status(self, job: Dict[str, Any]) -> None:
+	def check_single_job_status(self, job: Dict[str, Any], job_context: Any = None) -> None:
 		"""Check status of a single submitted job and update running_funcs state.
 
 		Expects job dict with 'job_id' and optionally 'stage_name'. 
 		If stage_name is not provided, searches all stages.
+		Optionally accepts job_context for passing execution context.
 		Raises on irrecoverable errors.
 		"""
 		job_id = job.get("job_id")
@@ -542,13 +550,11 @@ class PanDAiDDSScheduler(BaseScheduler):
 					results, _details = ret.get_result(name=work.name, key=info.get("job_key", work.name), verbose=True, with_details=True)
 					self.logger.debug(f"Extracted results for job {job_id}: {results}, details: {_details}")
 					
-					params = job.get("params", {})
-					context = params.get("context")
-					if context:
-						self.logger.debug("Job %s has context: %s", job_def.get("name", "unknown"), context)
+					if job:
+						self.logger.debug("Job %s has context: %s", job_id, job_context)
 						# Optionally, you could store or use this context information as needed for your application
-						context.xcom_push(results)
-						context.xcom_push({"results_details": _details})
+						job_context.xcom_push("objectives", results)
+						job_context.xcom_push({"results_details": _details})
 				except Exception:
 					results = ret
 				info["results"] = results
@@ -566,7 +572,7 @@ class PanDAiDDSScheduler(BaseScheduler):
 		"""Wrapper around check_single_job_status that throttles verbose logs."""
 		if self.num_checks % 60 == 0:
 			self.logger.info("Check job %s status", job.get("job_id"))
-		self.check_single_job_status(job)
+		self.check_single_job_status(job, job.get("job_context"))
 		self.num_checks += 1
 
 	# convenience alias for upstream name

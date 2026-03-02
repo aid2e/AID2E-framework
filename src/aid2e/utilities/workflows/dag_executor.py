@@ -495,6 +495,7 @@ class DAGExecutor:
             "command": job.command,
             "payload": {**job.payload},
             "outputs": job.outputs or [],
+            "job_context": job_context,  # Pass context for potential XCom access in scheduler
         }
         
         # For Python evaluators, add function reference to payload

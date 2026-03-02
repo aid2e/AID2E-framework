@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "aid2e"
-version = "0.0.0"
+version = "0.0.1"
 description = "AID2E Framework: AI assisted Detector Design for EIC"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -35,8 +35,6 @@ dependencies = [
     "pyyaml>=5.4",
     "pydantic>=2.0",
     "click>=8.0",
-    "numpy>=1.21",
-    "joblib>=1.0",
     "ax-platform>=0.3.7",
 ]
 

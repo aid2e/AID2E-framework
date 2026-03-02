@@ -25,6 +25,7 @@ Project: AID2E v0.0.0 - AI assisted Detector Design for EIC
 import numpy as np
 import json
 import logging
+import time as _time
 from pathlib import Path
 from typing import Dict, Any, List, Optional
 

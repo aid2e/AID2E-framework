@@ -18,6 +18,7 @@ Repository: https://github.com/aid2e/AID2E-framework.git
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, fields, field
 from typing import Any, Dict, List
+import pathlib
 
 from aid2e.utilities.configurations.experimental_stack_config import (
     StackLayerConfiguration
@@ -140,7 +141,6 @@ class StackLayer(ABC):
         # stray double spaces
         return command.replace('  ', ' ')
 
-
 class AnaLayer(StackLayer):
     """Represents a generic analysis layer of a software stack
 
@@ -217,25 +217,63 @@ class ExperimentStack(ABC):
         """Retrieve the layer identified by key"""
         return self.layers[key]
 
-    def _make_commands(self, payload: List[StackLayerConfig]) -> List[str]:
+    def _determine_shebang(self, script):
+        """
+        Determine appropriate shebang based on extension
+        of provided script name.
+
+        Args:
+            script: script name
+        Returns:
+            appropriate shebang (e.g. '#!/bin/bash')
+        """
+        extension = pathlib.Path(script).suffix
+        shebang   = ''
+        match extension:
+            case ".csh":
+                shebang = '#!/bin/csh'
+            case ".py":
+                shebang = '#!/usr/bin/env python'
+            case ".sh":
+                shebang = '#!/bin/bash'
+            case _:
+                shebang = '#!/bin/sh'
+        return shebang
+
+    def _make_commands(self, configs: List[StackLayerConfig]) -> List[str]:
         """
         Makes list of commands to be run based on provided list
         of stack layer configurations.
         """
-        # TODO
-        return ["dummy"]
+        commands = []
+        for config in configs:
+             layer = self[config.name]
+             if config.command is not None:
+                 layer.command = config.command
+             if config.rule is not None:
+                 layer.rule = config.rule
+             commands.append(
+                 layer.make_command(
+                     config.inputs, config.outputs, config.arguments
+                  )
+             )
+        return commands
 
-    # MAKES SCRIPT
-    #   -- ARGS: list of layers, payload
-    #   -- STEPS:
-    #        1. make list of commands
-    #        2. write out script to run location
-    #   -- CAN BE MODIFIED IN DERIVED CLASSES
-    def make_driver_script(self, payload: List[StackLayerConfig]) -> List[str]:
+    def make_driver_script(self, script: str, configs: List[StackLayerConfig], metadata: Dict[str, Any] = None) -> None:
+        """Make driver script
+
+        Writes driver script at specified path to run a sequence of
+        commands based on provided list of layer configurations. Can
+        be overwritten for behavior unique to specific stacks.
+
+        Args:
+            script: full path of driver script
+            configs: list of layer configurations
+            metadata: dictionary of metadata about trial (e.g. 'job_id')
         """
-        Makes driver script to run a sequence of commands based on
-        provided list of layer configurations. Can be overwritten
-        for behavior unique to specific stacks.
-        """
-        commands = self._make_commands(payload)
-        return "dummy"
+        commands = self._make_commands(configs)
+        commands.insert(0, self._determine_shebang(script))
+
+        text = "\n\n".join(commands)
+        with open(script, 'w') as driver:
+            driver.write(text)

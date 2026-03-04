@@ -5,8 +5,11 @@ module.
 """
 
 from dataclasses import dataclass, field
-from typing import List
+from typing import Any, Dict, List
 
+from aid2e.utilities.configurations.experimental_stack_config import (
+    StackLayerConfiguration
+)
 from aid2e.utilities.workflows.experimental_stack import (
     AnaLayer,
     ExperimentStack,
@@ -128,3 +131,18 @@ class EpicStack(ExperimentStack):
     sim: EpicSimLayer = field(default_factory = EpicSimLayer)
     rec: EpicRecLayer = field(default_factory = EpicRecLayer)
     ana: EpicAnaLayer = field(default_factory = EpicAnaLayer)
+
+    def make_driver_script(self, script: str, configs: List[StackLayerConfig], metadata: Dict[str, Any] = None) -> None:
+        """
+        Create a driver script to run ePIC layers.
+        """
+        commands = self._make_commands(configs)
+        commands.insert(0, self._determine_shebang(script))
+        if metadata != None:
+            detector = f"source {metadata['det_path']}/install/bin/thisepic.sh\n" \
+                       f"export DETECTOR_CONFIG={metadata['det_config']}"
+            commands.insert(1, detector)
+
+        text = "\n\n".join(commands)
+        with open(script, 'w') as driver:
+            driver.write(text)

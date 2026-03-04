@@ -1,9 +1,9 @@
 """Problem configuration models and loader.
 
 Defines generic problem models and a YAML-based loader that parses files like
-`examples/basic/problem.config`. The schema focuses on objectives and the
-design space reference while keeping environment and workflow management
-outside of the problem scope.
+`examples/basic/problem.config`. The schema focuses on objectives (direction
+plus optional computation spec), and the design space reference, while keeping
+environment and workflow management outside of the problem scope.
 
 Notes:
         - This module intentionally avoids importing ePIC-specific utilities to
@@ -12,26 +12,49 @@ Notes:
         - The loader is designed to be modular and future-proof: new keys under
             the top-level `problem` block can be added without breaking existing
             behavior.
+        - Objectives now normalize to the unified
+            `objectives.ObjectiveDefinition` model with support for script,
+            inline, or multi-steps computation.
 """
 
 from typing import Optional, List, Dict, Any
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, model_validator, field_validator
 from pathlib import Path
 import yaml
 
 from .design_config import DesignConfig, DesignConfigLoader
+from .objectives import (
+    ObjectiveDirection,
+    ObjectiveDefinition,
+    ObjectiveComputationSpec,
+)
 
 
 class Objective(BaseModel):
-    """Single optimization objective.
+    """Backward-compatible minimal objective specification.
 
-    Args:
-        name: Objective identifier (e.g., "f1").
-        minimize: Whether to minimize the objective; if False, maximization.
+    This class preserves the legacy shape (name + minimize) while allowing
+    optional computation details. Use ``to_definition`` to obtain the unified
+    :class:`ObjectiveDefinition` model.
     """
 
     name: str
     minimize: bool = True
+    computation: Optional[ObjectiveComputationSpec] = None
+    metrics_keys: List[str] = Field(default_factory=list)
+
+    def to_objective_direction(self) -> ObjectiveDirection:
+        """Convert to ObjectiveDirection enum."""
+        return ObjectiveDirection.MINIMIZE if self.minimize else ObjectiveDirection.MAXIMIZE
+
+    def to_definition(self) -> ObjectiveDefinition:
+        """Convert to unified ObjectiveDefinition."""
+        return ObjectiveDefinition(
+            name=self.name,
+            direction=self.to_objective_direction(),
+            computation=self.computation,
+            metrics_keys=self.metrics_keys,
+        )
 
 
 class ProblemConfiguration(BaseModel):
@@ -52,8 +75,34 @@ class ProblemConfiguration(BaseModel):
 
     # Accept any subclass of DesignConfig, including EpicDesignConfig
     design_config: DesignConfig
-    objectives: List[Objective]
+    objectives: List[ObjectiveDefinition]
     observations: Optional[List[Dict[str, Any]]] = Field(default=None)
+
+    @field_validator("objectives", mode="before")
+    @classmethod
+    def normalize_objectives(cls, raw_objectives: Any) -> List[ObjectiveDefinition]:
+        """Normalize various objective payload shapes into ObjectiveDefinition."""
+        if not isinstance(raw_objectives, list) or not raw_objectives:
+            raise ValueError("'objectives' must be a non-empty list")
+
+        normalized: List[ObjectiveDefinition] = []
+
+        for entry in raw_objectives:
+            if isinstance(entry, ObjectiveDefinition):
+                normalized.append(entry)
+                continue
+
+            if isinstance(entry, Objective):
+                normalized.append(entry.to_definition())
+                continue
+
+            if isinstance(entry, dict):
+                normalized.append(cls._objective_from_dict(entry))
+                continue
+
+            raise ValueError(f"Unsupported objective entry type: {type(entry)}")
+
+        return normalized
 
     @model_validator(mode="after")
     def validate_paths(self) -> "ProblemConfiguration":
@@ -82,35 +131,78 @@ class ProblemConfiguration(BaseModel):
 
         return self
 
+    @staticmethod
+    def _parse_computation(computation: Any) -> Optional[ObjectiveComputationSpec]:
+        """Convert computation payload to ObjectiveComputationSpec."""
+        if computation is None:
+            return None
+        if isinstance(computation, ObjectiveComputationSpec):
+            return computation
+        if isinstance(computation, dict):
+            payload = dict(computation)
+            if "multi-steps" in payload and "multi_steps" not in payload:
+                payload["multi_steps"] = payload.pop("multi-steps")
+            return ObjectiveComputationSpec(**payload)
+        raise ValueError("Invalid computation block for objective; expected mapping or ObjectiveComputationSpec")
+
+    @classmethod
+    def _objective_from_dict(cls, payload: Dict[str, Any]) -> ObjectiveDefinition:
+        """Build ObjectiveDefinition from a mapping payload."""
+        if not isinstance(payload, dict):
+            raise ValueError("Objective entry must be a mapping")
+
+        if "name" not in payload:
+            raise ValueError("Objective entry missing required field 'name'")
+
+        name = payload["name"]
+
+        if "direction" in payload:
+            direction_raw = payload["direction"]
+            if isinstance(direction_raw, ObjectiveDirection):
+                direction = direction_raw
+            else:
+                direction = ObjectiveDirection(str(direction_raw).lower())
+        else:
+            minimize = payload.get("minimize", True)
+            direction = ObjectiveDirection.MINIMIZE if minimize else ObjectiveDirection.MAXIMIZE
+
+        computation = cls._parse_computation(payload.get("computation"))
+        metrics_keys = payload.get("metrics_keys", []) or []
+
+        return ObjectiveDefinition(
+            name=name,
+            direction=direction,
+            computation=computation,
+            metrics_keys=metrics_keys,
+        )
+
 
 class ProblemConfigLoader:
     """Loader for problem YAML/CONFIG files.
 
     Parses files following the schema used by `examples/basic/problem.config`:
 
-        problem:
-          name: "..."
-          type: "..."
-          output_location: "..."
-          work_location: "..."
-          design_parameters_file: "./path/to/design.params"
-          objectives:
-            - name: "f1"
-              minimize: true
-            - name: "f2"
-              minimize: true
+                problem:
+                    name: "..."
+                    type: "..."
+                    output_location: "..."
+                    work_location: "..."
+                    design_parameters_file: "./path/to/design.params"
+                    objectives:
+                        - name: "f1"
+                            direction: "minimize"
+                            computation:
+                                script:
+                                    path: "scripts/dtlz2_problem.py"
+                                    output_file: "objectives_{job_id}.json"
+                            metrics_keys: ["f1"]
+                        - name: "f2"
+                            direction: "minimize"
 
-    Args:
-        file_path: Path to the problem configuration file.
-
-    Returns:
-        ProblemConfiguration: Fully instantiated configuration with a loaded
-        `design_config` from the referenced design parameters file.
-
-    Raises:
-        FileNotFoundError: If the problem file or design parameters file does
-        not exist.
-        ValueError: If required keys are missing or invalid.
+    Notes:
+        Use `ProblemConfigLoader.load()` to load from a file path or
+        `ProblemConfigLoader.from_dict()` to construct from an in-memory
+        dictionary.
     """
 
     @staticmethod
@@ -136,7 +228,6 @@ class ProblemConfigLoader:
         objectives_raw = problem.get("objectives", [])
         if not isinstance(objectives_raw, list) or not objectives_raw:
             raise ValueError("'objectives' must be a non-empty list")
-        objectives = [Objective(**obj) for obj in objectives_raw]
 
         # Design source mutual exclusivity
         has_path = "design_parameters_file" in problem
@@ -174,7 +265,7 @@ class ProblemConfigLoader:
             output_location=problem["output_location"],
             work_location=problem["work_location"],
             design_config=design_config,
-            objectives=objectives,
+            objectives=objectives_raw,
             observations=problem.get("observations"),
         )
 

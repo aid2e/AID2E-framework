@@ -1,0 +1,75 @@
+# AID2E Full Example Configuration with PanDA iDDS Distributed Scheduler
+# This example demonstrates using the PanDA iDDS runner for distributed execution across sites
+
+problem:
+  name: "DTLZ2 Multi-Objective Optimization with PanDA iDDS"
+  type: "toy"
+
+  objectives:
+    - name: "f1"
+      direction: "minimize"
+      computation:
+        script:
+          path: "scripts/dtlz2_problem.py"
+          output_file: "objectives_{job_id}.json"
+          timeout_sec: 600
+      metrics_keys: ["f1"]
+    - name: "f2"
+      direction: "minimize"
+      computation:
+        script:
+          path: "scripts/dtlz2_problem.py"
+          output_file: "objectives_{job_id}.json"
+          timeout_sec: 600
+      metrics_keys: ["f2"]
+
+  design_space:
+    path: "design.params"
+
+optimizer:
+  kind: "BO"
+  max_iterations: 100
+
+  bo:
+    surrogate_model:
+      name: "GaussianProcess"
+      kernel: "matern52"
+      noise_level: 1.0e-6
+      normalize_y: true
+
+    acquisition_function:
+      name: "qEHVI"
+      parameters:
+        num_mc_samples: 128
+        objective_thresholds: [0.0, 0.0]
+
+    parameters:
+      initial_design: "lhs"
+      n_initial_samples: 24
+      batch_size: 4
+      parallel_evaluations: 4
+
+# Scheduler configuration for distributed execution using PanDA iDDS
+scheduler:
+  runner_type: "PanDAiDDSRunner"
+  panda:
+    campaign_name: "aid2e_dtlz2_distributed"
+    processing_type: "optimization"
+    vo: "atlas"  # Virtual organization
+    cloud: null  # null means auto-select best available site
+    n_workers: 20  # Number of worker processes
+    max_concurrent_tasks: 50  # Maximum concurrent tasks across sites
+    timeout_per_task: 7200  # 2 hour timeout per task
+    retry_policy: "exponential"  # Exponential backoff on retries
+    max_retries: 5
+    additional_params:
+      enable_tracing: true
+      notification_email: "user@example.com"
+  max_retries: 5
+  output_location: "./panda_output"
+  monitor_interval: 120  # Check distributed job status every 120 seconds
+
+metadata:
+  project: "AID2E"
+  description: "AI assisted Detector Design for EIC - Distributed Execution"
+  version: "0.0.1"

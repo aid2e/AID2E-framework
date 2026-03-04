@@ -11,9 +11,29 @@ problem:
   # example: {"f1": value1, "f2": value2}
   objectives:
     - name: "f1"
-      minimize: true
+      direction: "minimize"
+      computation:
+        script:
+          path: "./examples/basic/scripts/dtlz2_problem.py"
+          output_file: "objectives_{job_id}.json"
+          timeout_sec: 300
+      metrics_keys: ["f1"]
     - name: "f2"
-      minimize: true
+      direction: "minimize"
+      computation:
+        multi-steps:
+          stages:
+            - name: "prepare"
+              jobs:
+                - name: "prepare_inputs"
+                  command: "python scripts/prepare_inputs.py"
+            - name: "evaluate"
+              depends_on: ["prepare"]
+              jobs:
+                - name: "run_sim"
+                  command: "python ./examples/basic/scripts/dtlz2_problem.py"
+              produces_objective: true
+      metrics_keys: ["f2"]
 
   # Design parameters can be loaded from file (path) or defined inline.
   # The loader will:
@@ -21,7 +41,7 @@ problem:
   #   - If 'path' is not provided: use inline parameters directly
   #   - If both are provided: raise an error
   design_space:
-    path: "./examples/basic/design.params"
+    path: "./design.params"
     
 optimizer:
   # Choose optimization algorithm family: "BO" (Bayesian Optimization) or "EA" (Evolutionary Algorithm)

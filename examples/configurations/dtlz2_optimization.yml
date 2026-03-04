@@ -49,6 +49,10 @@ problem:
       - name: "sum_constraint"
         description: "Sum of x1 and x2 must be less than 1.5"
         rule: "DTLZ2_variables.x1 + DTLZ2_variables.x2 < 1.5"
+      
+  objectives:
+  - "minimize:f1"
+  - "minimize:f2"
 
 optimization:
   name: "DTLZ2 MOBO Optimization"
@@ -62,9 +66,9 @@ optimization:
       kernel: "matern52"
       n_restarts_optimizer: 10
   
-  objectives:
-    - "minimize:f1"
-    - "minimize:f2"
+  # objectives:
+  #   - "minimize:f1"
+  #   - "minimize:f2"
   
   constraints: []
   

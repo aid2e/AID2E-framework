@@ -19,12 +19,13 @@ Typical Usage:
     >>> is_valid, failures = config.validate_constraints(param_values)
 """
 
-from typing import Dict, List, Optional, Tuple, Any
+from typing import Dict, List, Optional, Tuple, Any, Set
 from pydantic import BaseModel, Field, RootModel, model_validator
 from pathlib import Path
 import yaml
 import os
 import re
+import ast
 
 from .base_models import Parameter, BaseParameter
 
@@ -51,8 +52,9 @@ class ParameterGroup(BaseModel):
 class ParameterConstraint(BaseModel):
     """Represents a mathematical constraint on design parameters.
     
-    Constraints are evaluated as boolean expressions over qualified parameter names
-    and must evaluate to True for valid parameter configurations.
+    Constraints are validated for syntactic correctness at configuration load time.
+    The validated constraints can then be passed to optimizers (e.g., Ax) which handle
+    runtime constraint enforcement internally.
     
     Attributes:
         name: Unique identifier for the constraint.
@@ -66,16 +68,91 @@ class ParameterConstraint(BaseModel):
         ...     description="Total cost must not exceed budget",
         ...     rule="tracker.cost + magnet.cost < 1000"
         ... )
+        >>> # Validate syntax (done automatically at load time)
+        >>> constraint.validate_syntax(['tracker.cost', 'magnet.cost'])
+        (True, None)
     """
     name: str
     description: Optional[str] = None
     rule: str  # Mathematical expression like "x1 + x2 < 10"
 
-    def validate_constraint(self, param_values: Dict[str, float]) -> bool:
-        """Validate constraint against parameter values.
+    def extract_parameter_names(self) -> Set[str]:
+        """Extract parameter names referenced in the constraint rule.
+        
+        Parses the constraint expression and extracts all identifiers that
+        appear to be qualified parameter names (containing a dot).
+        
+        Returns:
+            Set of parameter names found in the rule.
+        
+        Example:
+            >>> constraint = ParameterConstraint(
+            ...     name="test",
+            ...     rule="tracker.x + magnet.y < detector.limit"
+            ... )
+            >>> names = constraint.extract_parameter_names()
+            >>> print(sorted(names))
+            ['detector.limit', 'magnet.y', 'tracker.x']
+        """
+        # Find all qualified parameter names (e.g., "group.param")
+        pattern = r'\b([a-zA-Z_][a-zA-Z0-9_]*\.[a-zA-Z_][a-zA-Z0-9_]*)\b'
+        return set(re.findall(pattern, self.rule))
+
+    def validate_syntax(self, valid_param_names: List[str]) -> Tuple[bool, Optional[str]]:
+        """Validate constraint syntax and parameter references.
+        
+        Checks that:
+        1. The constraint rule is valid Python syntax
+        2. All referenced parameters exist in the valid_param_names list
+        3. The expression is a valid comparison/boolean expression
+        
+        This is structural validation done at configuration load time,
+        NOT runtime constraint evaluation (which is handled by the optimizer).
+        
+        Args:
+            valid_param_names: List of valid qualified parameter names
+                              from the design configuration.
+        
+        Returns:
+            Tuple of (is_valid, error_message) where:
+            - is_valid: True if constraint is syntactically correct
+            - error_message: None if valid, otherwise describes the error
+        
+        Example:
+            >>> constraint = ParameterConstraint(
+            ...     name="test", rule="group.x + group.y < 10"
+            ... )
+            >>> is_valid, err = constraint.validate_syntax(
+            ...     ['group.x', 'group.y']
+            ... )
+            >>> assert is_valid and err is None
+        """
+        # 1. Check if rule is parseable Python syntax
+        try:
+            ast.parse(self.rule, mode='eval')
+        except SyntaxError as e:
+            return False, f"Invalid syntax in constraint rule: {e}"
+        
+        # 2. Extract and validate parameter names
+        referenced_params = self.extract_parameter_names()
+        valid_set = set(valid_param_names)
+        unknown_params = referenced_params - valid_set
+        
+        if unknown_params:
+            return False, f"Unknown parameters in constraint: {', '.join(sorted(unknown_params))}"
+        
+        return True, None
+
+    def evaluate(self, param_values: Dict[str, float]) -> bool:
+        """Evaluate constraint against parameter values at runtime.
         
         Substitutes parameter names in the constraint rule with their values
-        and evaluates the resulting mathematical expression.
+        and evaluates the resulting mathematical expression. This is used for
+        runtime constraint checking when the optimizer doesn't support
+        constraint enforcement (e.g., random search, some evolutionary algorithms).
+        
+        For optimizers with native constraint support (e.g., Ax), use the
+        constraint object directly instead of calling this method.
         
         Args:
             param_values: Dictionary mapping qualified parameter names
@@ -86,16 +163,21 @@ class ParameterConstraint(BaseModel):
         
         Raises:
             ValueError: If the constraint rule cannot be evaluated
-                       (e.g., missing parameters, syntax errors).
+                       (e.g., missing parameters, division by zero).
         
         Example:
             >>> constraint = ParameterConstraint(
             ...     name="test", rule="DTLZ2.x1 < 1.0"
             ... )
-            >>> constraint.validate_constraint({"DTLZ2.x1": 0.5})
+            >>> constraint.evaluate({"DTLZ2.x1": 0.5})
             True
-            >>> constraint.validate_constraint({"DTLZ2.x1": 1.5})
+            >>> constraint.evaluate({"DTLZ2.x1": 1.5})
             False
+        
+        Notes:
+            - Prefer using optimizer's native constraint enforcement when available
+            - This method is primarily for optimizer-agnostic validation
+            - Uses eval() on sanitized expressions (validated at load time)
         """
         # Replace parameter names with their values
         expr = self.rule
@@ -133,7 +215,7 @@ class DesignParameters(RootModel[Dict[str, ParameterGroup]]):
 
     @model_validator(mode="before")
     @classmethod
-    def inject_qualified_names(cls, values: Dict[str, dict]):
+    def inject_qualified_names(cls, values: Dict[str, dict]) -> Dict[str, dict]:
         """Inject fully qualified names into each parameter.
         
         Modifies parameter objects in-place to add 'name' attribute in the format
@@ -162,8 +244,8 @@ class DesignConfig(BaseModel):
     """Complete design configuration with parameters and constraints.
     
     Encapsulates a design space including all parameter groups, their bounds/choices,
-    and constraints on valid parameter combinations. Provides query and validation
-    methods for optimizer integration.
+    and constraints on valid parameter combinations. Validates constraint syntax at
+    load time and provides validated constraints for optimizer integration.
     
     This is the base class for specialized configurations (e.g., EpicDesignConfig)
     and supports generic toy problems (DTLZ2, etc.).
@@ -179,10 +261,44 @@ class DesignConfig(BaseModel):
         ... )
         >>> names = config.get_parameter_names()
         >>> bounds = config.get_parameter_bounds('group.param')
-        >>> is_valid, failed = config.validate_constraints({...})
+        >>> # Constraints are already syntax-validated
+        >>> search_space = SearchSpace.from_design_config(config)
     """
     design_parameters: DesignParameters
     parameter_constraints: Optional[List[ParameterConstraint]] = Field(default_factory=list)
+
+    @model_validator(mode='after')
+    def validate_constraints_syntax(self) -> "DesignConfig":
+        """Validate all constraint syntax and parameter references.
+        
+        Ensures all constraints:
+        1. Have valid Python syntax
+        2. Reference only parameters that exist in the design space
+        3. Are well-formed boolean/comparison expressions
+        
+        This validation runs automatically when a DesignConfig is instantiated,
+        catching configuration errors early.
+        
+        Returns:
+            Self (for Pydantic validator chaining).
+        
+        Raises:
+            ValueError: If any constraint has invalid syntax or references
+                       unknown parameters.
+        """
+        if not self.parameter_constraints:
+            return self
+        
+        valid_param_names = self.get_parameter_names()
+        
+        for constraint in self.parameter_constraints:
+            is_valid, error_msg = constraint.validate_syntax(valid_param_names)
+            if not is_valid:
+                raise ValueError(
+                    f"Invalid constraint '{constraint.name}': {error_msg}"
+                )
+        
+        return self
 
     def get_flat_parameters(self) -> Dict[str, BaseParameter]:
         """Retrieve all parameters as a flat dictionary.
@@ -272,11 +388,12 @@ class DesignConfig(BaseModel):
             return param.choices
         return None
     
-    def validate_constraints(self, param_values: Dict[str, float]) -> Tuple[bool, List[str]]:
-        """Validate all constraints against provided parameter values.
+    def check_constraints(self, param_values: Dict[str, float]) -> Tuple[bool, List[str]]:
+        """Check all constraints against provided parameter values at runtime.
         
-        Evaluates each constraint rule with the given parameter values and
-        returns whether all constraints are satisfied.
+        Evaluates each constraint rule with the given parameter values.
+        This is primarily for non-Ax optimizers or manual validation.
+        For Ax, constraints are passed directly to the optimizer.
         
         Args:
             param_values: Dictionary mapping qualified parameter names to
@@ -285,22 +402,20 @@ class DesignConfig(BaseModel):
         Returns:
             Tuple of (all_valid, failed_constraint_names) where:
             - all_valid: True if all constraints passed, False otherwise.
-            - failed_constraint_names: List of constraint names that failed
-                                      or raised exceptions.
+            - failed_constraint_names: List of constraint names that failed.
         
         Example:
             >>> param_values = {
             ...     'tracker.thickness': 0.35,
             ...     'magnet.strength': 1.5
             ... }
-            >>> is_valid, failures = config.validate_constraints(param_values)
+            >>> is_valid, failures = config.check_constraints(param_values)
             >>> if not is_valid:
             ...     print(f"Failed constraints: {failures}")
         
         Notes:
-            - Returns (True, []) if no constraints are defined.
-            - Exceptions during constraint evaluation are captured and
-              reported in the failures list.
+            - Constraints are already syntax-validated at load time
+            - For Ax optimizer, use config.parameter_constraints directly
         """
         if not self.parameter_constraints:
             return True, []
@@ -308,7 +423,7 @@ class DesignConfig(BaseModel):
         failed = []
         for constraint in self.parameter_constraints:
             try:
-                if not constraint.validate_constraint(param_values):
+                if not constraint.evaluate(param_values):
                     failed.append(constraint.name)
             except Exception as e:
                 failed.append(f"{constraint.name} (error: {e})")

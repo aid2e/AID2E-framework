@@ -2,18 +2,21 @@
 """
 AID2E Command Line Interface.
 
-Provides commands for loading and running optimization configurations.
+Main CLI entry point that coordinates all command modules:
+- Config commands: describe, inspect, validate (config_commands.py)
+- Workflow commands: optimize, run (workflow_commands.py)
+- Utility commands: list, version (utility_commands.py)
 """
-
-import sys
-from pathlib import Path
-from typing import Optional
 
 import click
 import importlib.metadata
 
 from aid2e import __MAIN_VERSION__
-from aid2e.utilities.configurations import FullConfig, load_config
+
+# Import commands from modular files
+from .config_commands import describe, inspect, validate
+from .workflow_commands import optimize
+from .utility_commands import list_resources, version
 
 
 @click.group()
@@ -23,15 +26,36 @@ def cli():
     AID2E - AI assisted Detector Design for EIC.
     
     A framework for optimization of detector designs and other complex systems.
+    
+    Commands are organized into categories:
+    
+    \b
+    Configuration Inspection:
+      describe   - Quick summary of config files (auto-detects type)
+      inspect    - Detailed configuration view with section filtering
+      validate   - Validate configuration syntax and structure
+    
+    \b
+    Workflow Execution:
+      optimize   - Run optimization from configuration
+    
+    \b
+    Utilities:
+      list       - Show available optimizers/templates/problems
+      version    - Display version information
     """
     pass
 
 
 def _load_plugin_commands(group: click.Group):
-    """Discover and register plugin commands from entry points.
+    """
+    Discover and register plugin commands from entry points.
 
     Uses the `aid2e.commands` entry point group. Each entry point must
     resolve to a Click command object.
+    
+    Args:
+        group: Click command group to register plugins to
     """
     try:
         eps = importlib.metadata.entry_points()
@@ -49,224 +73,17 @@ def _load_plugin_commands(group: click.Group):
         pass
 
 
-@cli.command(name="load")
-@click.argument("config_file", type=click.Path(exists=True))
-@click.option("--validate-only", is_flag=True, help="Only validate the configuration without running")
-@click.option("--verbose", "-v", is_flag=True, help="Enable verbose output")
-def load(config_file: str, validate_only: bool, verbose: bool):
-    """
-    Load and validate an optimization configuration from a YAML file.
-    
-    CONFIG_FILE: Path to the YAML configuration file.
-    
-    Example:
-        aid2e load optimization.yml
-        aid2e load optimization.yml --validate-only
-    """
-    try:
-        if verbose:
-            click.echo(f"Loading configuration from: {config_file}")
+# Register commands from modular files
+cli.add_command(describe)
+cli.add_command(inspect)
+cli.add_command(validate)
+cli.add_command(optimize)
+cli.add_command(list_resources, name="list")
+cli.add_command(version)
 
-        config = load_config(config_file)
-
-        click.echo(click.style("✓ Configuration loaded successfully!", fg="green"))
-        click.echo()
-        click.echo(click.style("Configuration Summary:", bold=True))
-        click.echo(f"  Problem: {config.problem.name}")
-        click.echo(f"  Type: {config.problem.problem_type}")
-        click.echo(f"  Output: {config.problem.output_location}")
-        click.echo(f"  Work: {config.problem.work_location}")
-        click.echo()
-        click.echo(f"  Optimizer: {config.optimization.optimizer.name} ({config.optimization.optimizer.type})")
-        click.echo(f"  Iterations: {config.optimization.n_iterations}")
-        click.echo(f"  Initial Samples: {config.optimization.n_initial_samples}")
-        click.echo(f"  Parallel Evaluations: {config.optimization.parallel_evaluations}")
-        click.echo()
-
-        param_names = config.problem.design_config.get_parameter_names()
-        click.echo(f"  Design Parameters: {len(param_names)}")
-        if verbose:
-            for name in param_names:
-                param = config.problem.design_config.get_flat_parameters()[name]
-                bounds = config.problem.design_config.get_parameter_bounds(name)
-                click.echo(f"    - {name}: {param.value} {bounds}")
-
-        if config.optimization.objectives:
-            click.echo()
-            click.echo(f"  Objectives ({len(config.optimization.objectives)}):")
-            for obj in config.optimization.objectives:
-                click.echo(f"    - {obj}")
-
-        if config.problem.design_config.parameter_constraints:
-            click.echo()
-            click.echo(f"  Parameter Constraints ({len(config.problem.design_config.parameter_constraints)}):")
-            for constraint in config.problem.design_config.parameter_constraints:
-                click.echo(f"    - {constraint.name}: {constraint.rule}")
-
-        if validate_only:
-            click.echo()
-            click.echo(click.style("✓ Validation complete. Configuration is valid.", fg="green"))
-            return
-
-        click.echo()
-        click.echo(click.style("Note: Optimization execution not yet implemented.", fg="yellow"))
-        click.echo("The configuration has been validated and is ready to use.")
-
-    except FileNotFoundError as e:
-        click.echo(click.style(f"✗ Error: {e}", fg="red"), err=True)
-        sys.exit(1)
-    except ValueError as e:
-        click.echo(click.style(f"✗ Configuration Error: {e}", fg="red"), err=True)
-        sys.exit(1)
-    except Exception as e:
-        click.echo(click.style(f"✗ Unexpected Error: {e}", fg="red"), err=True)
-        if verbose:
-            import traceback
-            traceback.print_exc()
-        sys.exit(1)
-
-
-@cli.command()
-@click.argument("config_file", type=click.Path(exists=True))
-def info(config_file: str):
-    """
-    Display detailed information about a configuration file.
-    
-    CONFIG_FILE: Path to the YAML configuration file.
-    
-    Example:
-        aid2e info optimization.yml
-    """
-    try:
-        config = load_config(config_file)
-
-        click.echo(click.style("=" * 60, bold=True))
-        click.echo(click.style(f"Configuration: {config.problem.name}", bold=True))
-        click.echo(click.style("=" * 60, bold=True))
-        click.echo()
-
-        click.echo(click.style("PROBLEM CONFIGURATION", fg="cyan", bold=True))
-        click.echo(f"  Name: {config.problem.name}")
-        click.echo(f"  Type: {config.problem.problem_type}")
-        click.echo(f"  Output Location: {config.problem.output_location}")
-        click.echo(f"  Work Location: {config.problem.work_location}")
-        click.echo()
-
-        click.echo(click.style("DESIGN PARAMETERS", fg="cyan", bold=True))
-        param_names = config.problem.design_config.get_parameter_names()
-        flat_params = config.problem.design_config.get_flat_parameters()
-
-        params_by_group = {}
-        for name in param_names:
-            group = name.split('.')[0]
-            params_by_group.setdefault(group, []).append(name)
-
-        for group, names in params_by_group.items():
-            click.echo(f"\n  {group} ({len(names)} parameters):")
-            for name in names:
-                param = flat_params[name]
-                param_short_name = name.split('.', 1)[1]
-                bounds = config.problem.design_config.get_parameter_bounds(name)
-                if bounds:
-                    click.echo(f"    - {param_short_name}: {param.value} {bounds}")
-                else:
-                    choices = config.problem.design_config.get_parameter_choices(name)
-                    click.echo(f"    - {param_short_name}: {param.value} {choices}")
-
-        if config.problem.design_config.parameter_constraints:
-            click.echo()
-            click.echo(click.style("PARAMETER CONSTRAINTS", fg="cyan", bold=True))
-            for constraint in config.problem.design_config.parameter_constraints:
-                click.echo(f"  - {constraint.name}")
-                click.echo(f"    Rule: {constraint.rule}")
-                if constraint.description:
-                    click.echo(f"    Description: {constraint.description}")
-
-        click.echo()
-        click.echo(click.style("OPTIMIZATION CONFIGURATION", fg="cyan", bold=True))
-        click.echo(f"  Name: {config.optimization.name}")
-        if config.optimization.description:
-            click.echo(f"  Description: {config.optimization.description}")
-        click.echo(f"  Optimizer: {config.optimization.optimizer.name} ({config.optimization.optimizer.type})")
-        click.echo(f"  Iterations: {config.optimization.n_iterations}")
-        click.echo(f"  Initial Samples: {config.optimization.n_initial_samples}")
-        click.echo(f"  Parallel Evaluations: {config.optimization.parallel_evaluations}")
-
-        if config.optimization.objectives:
-            click.echo()
-            click.echo(f"  Objectives ({len(config.optimization.objectives)}):")
-            for obj in config.optimization.objectives:
-                click.echo(f"    - {obj}")
-
-        if config.optimization.optimizer.parameters:
-            click.echo()
-            click.echo("  Optimizer Parameters:")
-            for key, value in config.optimization.optimizer.parameters.items():
-                click.echo(f"    - {key}: {value}")
-
-        click.echo()
-        click.echo(click.style("=" * 60, bold=True))
-
-    except Exception as e:
-        click.echo(click.style(f"✗ Error: {e}", fg="red"), err=True)
-        sys.exit(1)
-
-
-@cli.command()
-def version():
-    """Display version information."""
-    click.echo(f"AID2E Framework v{__MAIN_VERSION__}")
-    click.echo("AI assisted Detector Design for EIC")
-
-
-@cli.command(name="optimize")
-@click.argument("config_file", type=click.Path(exists=True))
-@click.option("--validate-only", is_flag=True, help="Validate config but do not run")
-@click.option("-v", "--verbosity", count=True, help="Increase verbosity (can be used multiple times)")
-@click.option("--log", "log_file", type=click.Path(dir_okay=False), help="Path to log file")
-def optimize(config_file: str, validate_only: bool, verbosity: int, log_file: Optional[str]):
-    """
-    Run optimization based on configuration file.
-    
-    CONFIG_FILE: Path to the YAML configuration file.
-    
-    Example:
-        aid2e optimize optimization.yml
-        aid2e optimize optimization.yml --validate-only
-        aid2e optimize optimization.yml -vv --log output.log
-    """
-    try:
-        if verbosity > 0:
-            click.echo(f"Loading configuration from: {config_file}")
-        
-        config = load_config(config_file)
-        
-        if validate_only:
-            click.echo(click.style("✓ Configuration validated; skipping execution.", fg="green"))
-            return
-        
-        # Display optimization info
-        click.echo(click.style(f"Running optimization: {config.optimization.name}", fg="cyan", bold=True))
-        click.echo(f"  Algorithm: {config.optimization.optimizer.name} ({config.optimization.optimizer.type})")
-        click.echo(f"  Iterations: {config.optimization.n_iterations}")
-        click.echo(f"  Verbosity: {verbosity}")
-        if log_file:
-            click.echo(f"  Log file: {log_file}")
-        click.echo()
-        
-        # Placeholder for actual optimization execution
-        click.echo(click.style("Note: Optimizer execution not yet implemented.", fg="yellow"))
-        click.echo("The configuration has been validated and is ready for optimization.")
-        
-    except Exception as e:
-        click.echo(click.style(f"✗ Error: {e}", fg="red"), err=True)
-        if verbosity > 1:
-            import traceback
-            traceback.print_exc()
-        sys.exit(1)
-
-
+# Load plugin commands
 _load_plugin_commands(cli)
+
 
 if __name__ == "__main__":
     cli()

@@ -32,13 +32,3 @@ def test_cli_version_subcommand(runner):
     assert result.exit_code == 0
 
 
-def test_cli_info_command_exists(runner):
-    """Test that info command exists."""
-    result = runner.invoke(cli, ['--help'])
-    assert 'info' in result.output
-
-
-def test_cli_load_command_exists(runner):
-    """Test that load command exists."""
-    result = runner.invoke(cli, ['--help'])
-    assert 'load' in result.output

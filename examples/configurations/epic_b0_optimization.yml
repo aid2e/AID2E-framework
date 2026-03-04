@@ -1,0 +1,80 @@
+# Example ePIC Tracking Detector Optimization Configuration
+# This demonstrates optimization of ePIC detector parameters with XML integration
+
+problem:
+  name: "ePIC B0 Trackers Optimization"
+  problem_type: "EPIC_B0"
+  output_location: "./output"
+  work_location: "./work"
+
+  epic_configuration:
+    singularity_image: "/path/to/epic/singularity/image.sif" # PLACEHOLDER
+    epic_install: "$HOME/epic/install"
+    eic_recon_install: "$HOME/epic/install/local"
+
+  objectives:
+    - name: "b0_resolution"
+      direction: "maximize"  # TOY PROXY FOR NOW, to be replaced by real computation
+
+  design_config:
+  inline_design:
+    design_parameters:
+      b0_tracker:
+        file_path: "$DETECTOR_PATH/compact/far_forward/B0_tracker.xml"
+        parameters:
+          layer1_z_cm:
+            value: -40.0
+            bounds: [-45.0, -35.0]
+            xml_path: "//constant[@name='B0TrackerLayer1_zstart']/@value"
+            unit: "cm"
+
+          layer2_z_cm:
+            value: -13.0
+            bounds: [-18.0, -8.0]
+            xml_path: "//constant[@name='B0TrackerLayer2_zstart']/@value"
+            unit: "cm"
+
+          layer3_z_cm:
+            value: 13.0
+            bounds: [8.0, 18.0]
+            xml_path: "//constant[@name='B0TrackerLayer3_zstart']/@value"
+            unit: "cm"
+
+          layer4_z_cm:
+            value: 40.0
+            bounds: [35.0, 45.0]
+            xml_path: "//constant[@name='B0TrackerLayer4_zstart']/@value"
+            unit: "cm"
+
+    parameter_constraints:
+      - name: ordered_layers
+        rule: "b0_tracker.layer1_z_cm < b0_tracker.layer2_z_cm and b0_tracker.layer2_z_cm < b0_tracker.layer3_z_cm and b0_tracker.layer3_z_cm < b0_tracker.layer4_z_cm"
+
+      - name: min_separation
+        rule: "(b0_tracker.layer2_z_cm - b0_tracker.layer1_z_cm) > 5.0 and (b0_tracker.layer3_z_cm - b0_tracker.layer2_z_cm) > 5.0 and (b0_tracker.layer4_z_cm - b0_tracker.layer3_z_cm) > 5.0"
+
+    optimization_groups:
+      all_parameters:
+        - "b0_tracker.layer1_z_cm"
+        - "b0_tracker.layer2_z_cm"
+        - "b0_tracker.layer3_z_cm"
+        - "b0_tracker.layer4_z_cm"
+
+optimization:
+  name: "ePIC B0 MOBO"
+  description: "Multi-objective optimization of ePIC B0 tracker design"
+
+  optimizer:
+    name: "MOBO"
+    type: "Bayesian"
+    parameters:
+      acquisition_function: "EHVI"
+      kernel: "matern52"
+      n_restarts_optimizer: 5
+      batch_size: 4
+  
+  constraints: []
+  
+  n_iterations: 50
+  n_initial_samples: 10
+  parallel_evaluations: 4

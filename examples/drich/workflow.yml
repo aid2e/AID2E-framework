@@ -4,7 +4,7 @@
 # This example shows:
 #   1. Multi-objective optimization with Ax (Sobol warmup + BO)
 #   2. dRICH combined objective from multiple metrics: (acceptance*0.5*(piKsep_etalow + piKsep_etahigh))
-#   3. ePIC workflow chain: overlap check -> simulation -> reconstruction -> analysis (in drich_problem.py)
+#   3. ePIC workflow chain: overlap check -> simulation -> reconstruction -> analysis (in drich_eval.py)
 # ============================================================================
 
 # ============================================================================
@@ -12,10 +12,11 @@
 # ============================================================================
 problem:
   name: "dRICH Multi-Objective Optimization"
-  type: "toy_drich"
+  type: "EPIC_dRICH"
   description: "Combined multi-objective optimization of dRICH"
 
-  output_location: "./output"
+  output_location: "./examples/drich/output"
+  work_location: "./examples/drich/work"
 
   # Design space parameters
   design_space:
@@ -23,67 +24,59 @@ problem:
 
   # OBJECTIVES: Define what we're optimizing for, for now multiple objectives
   # ===========================================================================
+
   objectives:
-    - name: "drich_combined"
-      direction: "maximize"
-      objective_plan:
-        script:
-          path: "./scripts/drich_problem.py"
-          output_file: "objectives.json"
-          timeout_sec: 7200
-      metrics:
-        - name: "combined_objective"
-          direction: "maximize"
-          metric_key: "combined_objective"
-        - name: "piKsep_etalow"
-          direction: "maximize"
-          metric_key: "piKsep_etalow"
-        - name: "piKsep_etahigh"
-          direction: "maximize"
-          metric_key: "piKsep_etahigh"
-        - name: "acceptance"
-          direction: "maximize"
-          metric_key: "acceptance"
+  - name: "piKsep_etalow"
+    direction: "maximize"
+  - name: "piKsep_etahigh"
+    direction: "maximize"
+  - name: "acceptance"
+    direction: "maximize"
+    
 
   # EPIC PIPELINE config 
   # ===========================================================================
-  epic_pipeline:
+  epic_configuration:
+    evaluator_script: "./examples/drich/scripts/drich_eval.py"
+    detector_path: "$DETECTOR_PATH"
+    detector_config: "$DETECTOR_CONFIG"
+    eic_shell: "$EIC_SHELL_HOME"
+    eic_software: "$EIC_SOFTWARE"
     npart: 3000
+    bootstrap_samples: 3000
+    nbootstraps: 5000
+    particles: ["pi+", "kaon+"]
     analysis_executable: "./scripts/dRICHAna_bootstrap"
+    scan_points:
+      - {p: 15, eta_min: 1.5, eta_max: 2.0, radiator: 0}
+      - {p: 15, eta_min: 2.0, eta_max: 2.5, radiator: 0}
+      - {p: 45, eta_min: 2.5, eta_max: 3.0, radiator: 1}
+      - {p: 45, eta_min: 3.0, eta_max: 3.5, radiator: 1}
+
+    # Overlap policy:
+    # overlap_ok_value: expected valid return value
+    # overlap_policy: penalty | fail
+    overlap_ok_value: 0
+    overlap_policy: "penalty"
+    failed_objectives:
+      piKsep_etalow: 0.0
+      piKsep_etahigh: 0.0
+      acceptance: 0.0
   # ===========================================================================
 
-# SECTION 2: SCHEDULER CONFIGURATION
-# ============================================================================
-scheduler:
-  runner_type: "JobLibRunner"
-  parameters:
-    n_jobs: 5
-    backend: "loky"
-    verbose: 0
-    max_retries: 1
-    output_location: "./output"
-    monitor_interval: 30
-
-
-# SECTION 3: OPTIMIZATION CONFIGURATION
+# SECTION 2: OPTIMIZATION CONFIGURATION
 # ============================================================================
 optimization:
-  name: "drich_optimization"
-  description: "AID2E dRICH optimization from dRICH-MOBO logic"
+  name: "dRICH MOBO"
+  description: "AID2E dRICH optimization"
 
   optimizer:
-    type: "B0"
+    name: "ax"
+    type: "Bayesian"
     parameters:
       initialization_strategy: "sobol"
       output_name: "drich_optimization_toy"
       seed: 999
-
-      # Trial counts
-      n_sobol: 25
-      n_mobo: 75
-      # Batch policy 
-      n_batch_sobol: 10
-      n_batch_mobo: 5
 
       # Objective thresholds 
       objective_thresholds:
@@ -92,75 +85,111 @@ optimization:
         acceptance: 0.80
 
       # Generation strategy model configuration
-      sobol_model: "SOBOL"
-      mobo_model: "BOTORCH_MODULAR"
-      mobo_surrogate: "SingleTaskGP"
-      mobo_acquisition: "qLogNoisyExpectedHypervolumeImprovement"
-      mobo_num_samples: 128
-      mobo_warmup_steps: 256
+      surrogate_model: "saasbo" 
+      acquisition_function: "qnehvi" 
+      n_initial_samples: 25 #n_sobol
+      batch_size: 5 #n_batch_sobol = n_batch_mobo for now
 
   n_iterations: 100
-  n_initial_samples: 25
   parallel_evaluations: 5
+
+# SECTION 3: SCHEDULER CONFIGURATION (global)
+# ============================================================================
+scheduler:
+  runner_type: "JobLibRunner" #SlurmRunner, PanDAiDDSRunner
+  parameters:
+    n_jobs: 5
+    backend: "loky"
+    verbose: 0
+    max_retries: 1 
+    output_location: "./examples/drich/output" 
+    monitor_interval: 30 
 
 # SECTION 4: WORKFLOW EXECUTION
 # ============================================================================
-workflows:
-  - name: "drich_optimization"
+workflow:
+    name: "drich_eval"
     description: "dRICH evaluation workflow"
+     # Optional: Workflow-level scheduler (overrides global scheduler)
 
-     # Workflow-level scheduler (overrides global scheduler)
-    scheduler:
-      runner_type: "JobLibRunner"
-      parameters:
-        n_jobs: 8
-        backend: "loky"
-    # Branches: parallel execution paths
+    # BRANCHES : parallel execution paths
+    #=========================================================================
     branches:
       - name: "main"
-        description: "Main evaluation branch"
+        # Optional: Branch-level scheduler (overrides workflow scheduler)
 
-        # Branch-level scheduler (overrides workflow scheduler)
-        scheduler:
-          runner_type: "JobLibRunner"
-          parameters:
-            n_jobs: 2
-            backend: "loky"
+        # STAGES: groups of sequential computation steps
+        # ======================================================================
+        stages: 
+        # Optional config: stage-level scheduler (overrides branch scheduler)
+        # Optional config: job-level scheduler (overrides stage scheduler)
+        # Optional config: parallelism in stage jobs 
+        #epic_stages w edit geo -> overlap check -> sim -> reco -> analysis
+        - name: "geometry_overlap"
+          #   input: design point params
+          #   output: trial xml + overlap log
+          jobs:
+            - name: "drich_geometry_overlap"
+              command: &drich_command "python examples/drich/scripts/drich_eval.py"
+              rule: &drich_rule_no_job_index "{command} --stage {stage_name} --trial-index {trial_index} --output-dir {output_dir} --config-path {config_path}"
+              payload:
+                overlap_check_command: "checkOverlaps -c {trial_epic_xml} | awk '/Number of illegal overlaps\\/extrusions/ {print $NF}'"
+                overlap_ok_value: 0
+                overlap_policy: "penalty"
 
-        # Stages: sequential computation steps    
-        stages:
-          - name: "evaluate_objectives"
-            description: "Evaluate dRICH combined objective for design points"
 
-            # Individual jobs for this stage
-            jobs:
-              - name: "drich_eval"
-                command: "python examples/drich/scripts/drich_problem.py"
-                outputs:
-                  - path: "objectives.json"
-                    format: "json"
+        - name: "simulate"
+          #   input: trial xml from geometry_overlap
+          #   output: simulation root files
+          jobs:
+            - name: "drich_simulate"
+              command: *drich_command
+              rule: &drich_rule_with_job_index "{command} --stage {stage_name} --job-index {job_index} --trial-index {trial_index} --output-dir {output_dir} --config-path {config_path}"
+              payload:
+                simulation_command_template: "npsim --compactFile {trial_epic_xml} -G -N {npart} --gun.etaMax {eta_max} --gun.etaMin {eta_min} --gun.phiMin 0 --gun.phiMax 6.2831853 --gun.momentumMax '{p}*GeV' --gun.momentumMin '{p}*GeV' --gun.particle {particle} --gun.distribution eta -O {sim_file}"
+          job_factory:
+            type: "range"
+            params:
+              n: 8
+          
 
-            # Job factory: expand one job into many parallel copies
-            # Creates 4 parallel job instances (one per design point)
-            job_factory:
-              type: "range"
-              params:
-                n: 4
+        - name: "reconstruct"
+          #   input: simulation ROOT files
+          #   output: reconstruction ROOT files
+          jobs:
+            - name: "drich_reconstruct"
+              command: *drich_command
+              rule: *drich_rule_with_job_index
+              payload:
+                reconstruction_command_template: "eicrecon {sim_file} -Ppodio:output_file={reco_file} -Pdd4hep:xml_files={trial_epic_xml} -Ppodio:output_include_collections={reco_collections}"
+          job_factory:
+            type: "range"
+            params:
+              n: 8
 
-            # Parallelism policies for this stage
-            parallelism:
-              max_concurrent: 4
-              retry_max: 2
-              timeout_sec: 7200
+        - name: "analyze"
+          #   input: reconstruction ROOT files
+          #   output: per-scan analysis outputs
+          jobs:
+            - name: "drich_analyze"
+              command: *drich_command
+              rule: *drich_rule_with_job_index
+              payload:
+                analysis_command_template: "{analysis_binary} {pi_file} {k_file} {out_txt} {radiator} {nsamples} {nbootstraps}"
+          job_factory:
+            type: "range"
+            params:
+              n: 8
+              n: 5
 
-            # Stage-level scheduler (overrides branch scheduler)
-            scheduler:
-              runner_type: "JobLibRunner"
-              parameters:
-                n_jobs: 4
-                backend: "loky"
+        - name: "collect_objectives"
+          #   input: analysis outputs
+          #   output: objectives
+          jobs:
+            - name: "drich_collect"
+              command: *drich_command
+              rule: *drich_rule_no_job_index
 
-            # Output artifacts
-            outputs:
-              - path: "objectives.json"
-                format: "json"
+          outputs:
+            - path: "objectives.json"
+              format: "json"

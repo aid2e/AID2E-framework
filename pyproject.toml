@@ -36,6 +36,9 @@ dependencies = [
     "pydantic>=2.0",
     "click>=8.0",
     "ax-platform>=0.3.7",
+    "scikit-learn>=0.24",
+    "pymoo>=0.6",
+    "joblib>=1.0"
 ]
 
 [project.optional-dependencies]

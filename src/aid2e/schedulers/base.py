@@ -22,6 +22,7 @@ class JobStatus(BaseModel):
         return_code: Exit code when completed or failed.
         stdout: Standard output from the job.
         stderr: Standard error from the job.
+        outputs: Optional output data (e.g., objectives, results from Python callables).
         metrics: Optional metrics (e.g., runtime, memory usage).
     """
 
@@ -30,6 +31,7 @@ class JobStatus(BaseModel):
     return_code: Optional[int] = None
     stdout: Optional[str] = None
     stderr: Optional[str] = None
+    outputs: Optional[Dict[str, Any]] = None
     metrics: Optional[Dict[str, Any]] = None
 
 
@@ -49,6 +51,21 @@ class StageExecutionResult(BaseModel):
     artifacts: Dict[str, Any]
     success: bool
     error_message: Optional[str] = None
+
+
+class StageStatus(BaseModel):
+    """Lightweight status summary for a submitted stage.
+
+    This model is intended for polling asynchronous stage submissions. It
+    provides progress information and optional per-job statuses when available.
+    """
+
+    stage_id: str
+    status: str  # e.g. "queued", "running", "completed", "failed", "cancelled"
+    completed_jobs: int = 0
+    total_jobs: Optional[int] = None
+    progress: Optional[float] = None  # 0.0 - 1.0
+    job_statuses: Optional[List[JobStatus]] = None
 
 
 class BaseScheduler(ABC):
@@ -87,6 +104,7 @@ class BaseScheduler(ABC):
             StageExecutionResult describing job outcomes and collected artifacts.
         """
 
+
     @abstractmethod
     def check_status(self, job_id: str) -> JobStatus:
         """Check the status of a previously submitted job.
@@ -107,6 +125,52 @@ class BaseScheduler(ABC):
 
         Returns:
             True if the job was cancelled, False otherwise.
+        """
+
+    @abstractmethod
+    def submit_stage(
+        self,
+        stage_name: str,
+        job_definitions: List[Dict[str, Any]],
+        parallelism_policy: Optional[Dict[str, Any]] = None,
+        working_dir: Optional[str] = None,
+    ) -> str:
+        """Submit a stage for asynchronous execution.
+
+        Unlike `run_stage`, which may block until completion and return a
+        `StageExecutionResult`, `submit_stage` should schedule the stage and
+        return immediately with a `stage_id` that can be used to poll status
+        and retrieve results later.
+
+        Returns:
+            A unique `stage_id` string that identifies the submitted stage.
+        """
+
+    @abstractmethod
+    def check_stage_status(self, stage_id: str) -> StageStatus:
+        """Check the current status of an asynchronously submitted stage.
+
+        Args:
+            stage_id: The identifier returned by `submit_stage`.
+
+        Returns:
+            A `StageStatus` object summarizing progress and (optionally)
+            per-job statuses.
+        """
+
+    @abstractmethod
+    def get_stage_results(self, stage_id: str) -> StageExecutionResult:
+        """Retrieve final execution results for a completed stage.
+
+        This should block or raise an informative error if the stage is not
+        yet finished, depending on the scheduler implementation's semantics.
+
+        Args:
+            stage_id: The identifier returned by `submit_stage`.
+
+        Returns:
+            A `StageExecutionResult` containing artifact collection and
+            per-job statuses for the stage.
         """
 
     def shutdown(self) -> None:

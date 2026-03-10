@@ -1,0 +1,119 @@
+# AID2E PanDAiDDS Scheduler Configuration Example
+# This shows how to configure the PanDAiDDS runner via YAML
+
+# Example 1: Minimal PanDA configuration (name auto-generated from username)
+scheduler:
+  runner_type: "PanDAiDDSRunner"
+  parameters:
+    cloud: "US"
+    queue: "BNL_PanDA_1"
+    max_walltime: 3600  # 1 hour in seconds
+    core_count: 1
+    total_memory: 2000  # MB
+  output_location: "./panda_output"
+  monitor_interval: 60
+
+---
+# Example 2: Full PanDA configuration with explicit name
+scheduler:
+  runner_type: "PanDAiDDSRunner"
+  parameters:
+    name: "user.scientist.epic_tracking_opt"  # Must start with 'user.<username>'
+    cloud: "US"
+    queue: "BNL_PanDA_1"
+    source_dir: null  # null means use current directory
+    source_dir_parent_level: 1
+    exclude_source_files:
+      - "(^|/)\\..*"  # Hidden files
+      - ".*\\.log"
+      - ".*\\.json"
+      - "__pycache__"
+      - "work"
+      - "OUTDIR"
+    max_walltime: 7200  # 2 hours
+    core_count: 4
+    total_memory: 8000  # 8GB
+    enable_separate_log: true
+    job_dir: "/tmp/panda_jobs"
+  max_retries: 3
+  output_location: "./panda_output"
+  monitor_interval: 120
+
+---
+# Example 3: Using environment variable for username
+# Set PANDA_USERNAME=myuser before running
+# The name will be auto-generated as: user.myuser.aid2e_job
+scheduler:
+  runner_type: "PanDAiDDSRunner"
+  parameters:
+    # name omitted - will auto-generate from $PANDA_USERNAME or system username
+    cloud: "US"
+    queue: "ORNL_Frontier"
+    max_walltime: 10800  # 3 hours
+    core_count: 8
+    total_memory: 16000  # 16GB
+  output_location: "./panda_output"
+
+---
+# Example 4: Complete optimization config with PanDA scheduler
+problem:
+  name: "EPIC Tracking Optimization"
+  type: "simulation"
+  
+  objectives:
+    - name: "tracking_efficiency"
+      direction: "maximize"
+      computation:
+        script:
+          path: "scripts/run_epic_simulation.py"
+          output_file: "metrics_{job_id}.json"
+          timeout_sec: 3600
+      metrics_keys: ["efficiency"]
+    
+    - name: "ghost_rate"
+      direction: "minimize"
+      computation:
+        script:
+          path: "scripts/run_epic_simulation.py"
+          output_file: "metrics_{job_id}.json"
+          timeout_sec: 3600
+      metrics_keys: ["ghosts"]
+  
+  design_space:
+    path: "tracking_params.json"
+
+optimizer:
+  kind: "BO"
+  max_iterations: 50
+  
+  bo:
+    surrogate_model:
+      name: "SAASBO"  # Sparse Axis-Aligned Subspace Bayesian Optimization
+    
+    acquisition_function:
+      name: "qNEHVI"  # Noisy Expected Hypervolume Improvement
+    
+    parameters:
+      initial_design: "sobol"
+      n_initial_samples: 20
+      batch_size: 5
+      parallel_evaluations: 5
+
+scheduler:
+  runner_type: "PanDAiDDSRunner"
+  parameters:
+    name: "user.physicist.epic_tracking"
+    cloud: "US"
+    queue: "BNL_PanDA_1"
+    max_walltime: 7200
+    core_count: 2
+    total_memory: 4000
+    enable_separate_log: true
+  max_retries: 3
+  output_location: "./epic_panda_output"
+  monitor_interval: 90
+
+metadata:
+  project: "EPIC Tracking Optimization"
+  description: "Optimize tracking detector parameters using PanDA distributed execution"
+  version: "0.1.0"

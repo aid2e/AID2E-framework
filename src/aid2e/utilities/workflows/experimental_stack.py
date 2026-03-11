@@ -16,13 +16,14 @@ Repository: https://github.com/aid2e/AID2E-framework.git
 """
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, fields, field
+from dataclasses import dataclass, fields, field, replace
 from typing import Any, Dict, List
 import pathlib
 
 from aid2e.utilities.configurations.experimental_stack_config import (
-    StackLayerConfiguration
+    StackLayerConfig
 )
+
 
 @dataclass
 class StackLayer(ABC):
@@ -168,7 +169,7 @@ class AnaLayer(StackLayer):
         """Formats inputs for generic analysis layer"""
         return ' '.join(inputs)
 
-    # FIXME sould allow for users to specify how to
+    # FIXME should allow for users to specify how to
     # handle multiple outputs
     def _make_output_arg(self, outputs: List[str]) -> str:
         """Formats outputs for generic analysis layer"""
@@ -247,7 +248,7 @@ class ExperimentStack(ABC):
         """
         commands = []
         for config in configs:
-             layer = self[config.name]
+             layer = replace(self[config.name]) # clone layer to avoid rule/command overrides sticking
              if config.command is not None:
                  layer.command = config.command
              if config.rule is not None:

@@ -46,8 +46,6 @@ def example_configure_layers():
         name = "sim",
         inputs = ["steer.py", "macro.mac"],
         outputs = ["testB.edm4hep.root"],
-        arguments = ["--enableOpticalPhotons 0"],
-        command = "npsim",
     )
     cfg_rec = StackLayerConfig(
         name = "rec",

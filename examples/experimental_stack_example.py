@@ -5,7 +5,7 @@ This example demonstrates:
    stack in python
 2. Generate a driver script to run configured
    layers
-3. Run script as a stage in a worklow [TODO]
+3. Run script as a stage in a worklow [IN PROGRESS]
 
 Project: AID2E v0.0.0
 """
@@ -13,7 +13,9 @@ Project: AID2E v0.0.0
 import os
 
 from aid2e.utilities.configurations import (
-    StackLayerConfiguration,
+    StackLayerConfig,
+    StackJobDefinition,
+    StackStageDefinition,
 )
 from aid2e.utilities.epic_utils import (
     EpicStack,
@@ -28,32 +30,32 @@ def example_configure_layers():
     """Stack layer configuration"""
 
     # configure desired layers in a stack
-    cfg_geo = StackLayerConfiguration(
+    cfg_geo = StackLayerConfig(
         name = "geo",
         inputs = ["my_geo.xml"],
         outputs = ["my_geo.overlaps.txt"],
     )
-    cfg_sim_A = StackLayerConfiguration(
+    cfg_sim_A = StackLayerConfig(
         name = "sim",
         inputs = ["steer.py", "macro.mac"],
         outputs = ["testA.edm4hep.root"],
         arguments = ["--enableOpticalPhotons 0"],
         command = "ddsim",
     )
-    cfg_sim_B = StackLayerConfiguration(
+    cfg_sim_B = StackLayerConfig(
         name = "sim",
         inputs = ["steer.py", "macro.mac"],
         outputs = ["testB.edm4hep.root"],
         arguments = ["--enableOpticalPhotons 0"],
-        command = "ddsim",
+        command = "npsim",
     )
-    cfg_rec = StackLayerConfiguration(
+    cfg_rec = StackLayerConfig(
         name = "rec",
         inputs = ["testA.edm4hep.root", "testB.edm4hep.root"],
         outputs = ["test.edm4eic.root"],
-        arguments = ["-Pjana:ncores=8", "-Peicrecon:loglevel=debug"],
+        arguments = ["-Pjana:ncores=8", "-Pjana:loglevel=debug"],
     )
-    cfg_ana = StackLayerConfiguration(
+    cfg_ana = StackLayerConfig(
         name = "ana",
         inputs = ["test.edm4eic.root"],
         outputs = ["test.hist.root"],
@@ -63,7 +65,7 @@ def example_configure_layers():
     )
     cfgs = [cfg_geo, cfg_sim_A, cfg_sim_B, cfg_rec, cfg_ana]
 
-    print(f"  -- Configured layers:\n{cfgs}")
+    print(f"  -- Configured layers:\n    {cfgs}")
     return cfgs
 
 
@@ -71,21 +73,21 @@ def example_configure_layers():
 # Example 2: Generate Driver Script
 # =============================================================================
 
-def example_generate_driver(cfgs: List[StackLayerConfiguration]):
+def example_generate_driver(cfgs: List[StackLayerConfig]):
     """Generate driver script for configured layers"""
 
-    # metadata about a trial like the path to modified
-    # geometry available as a dictionary
-    #   -- TODO CONFIRM
+    # Metadata about a trial like the path to modified
+    # geometry will (most likely) be available via a
+    # dictionary somehow
     meta = {
         'det_path'   : 'run/trial_0/epic',
         'det_config' : 'epic_full'
     }
 
     # instantiate a stack and generate river script
-    drvr_script = "driver.sh"
+    drvr_script = "driver_from_stack.sh"
     epic_stack  = EpicStack()
-    epic_stack.make_driver_script("driver.sh", cfgs, meta)
+    epic_stack.make_driver_script(drvr_script, cfgs, meta)
 
     drvr_path = os.path.abspath(drvr_script)
     print(f"  -- Created script at {drvr_path}")
@@ -95,9 +97,85 @@ def example_generate_driver(cfgs: List[StackLayerConfiguration]):
 # =============================================================================
 # Example 3: Run Script in a Workflow
 # =============================================================================
-def example_run_script():
+def example_run_script(cfgs: List[StackLayerConfig]):
     """Run driver script in a workflow"""
-    print(f"  -- TODO")
+
+    # As an example, workflow will consist of 3 stages:
+    #   1. run overlap check (geo)
+    #   2. run sim A, B in parallel
+    #   3. run rec + ana
+
+    # -------------------------------------------------------------------------
+    # Stage 1
+    # -------------------------------------------------------------------------
+
+    job_1 = StackJobDefinition(
+        name = "geo_job",
+        layers = [cfgs[0]],
+        payload = {
+            "evaluator_type": "bash",
+            "job_id": "geo",
+        },
+    )
+
+    stage_1 = StackStageDefinition(
+        name = "geo_stage",
+        jobs = [job_1],
+    )
+    print(f"  -- Defined stage 1:\n    {stage_1}")
+
+    # -------------------------------------------------------------------------
+    # Stage 2
+    # -------------------------------------------------------------------------
+
+    job_2A = StackJobDefinition(
+        name = "sim_job_A",
+        layers = [cfgs[1]],
+        payload = {
+            "evaluator_type": "bash",
+            "job_id": "sim_A",
+        },
+    )
+
+    job_2B = StackJobDefinition(
+        name = "sim_job_B",
+        layers = [cfgs[2]],
+        payload = {
+            "evaluator_type": "bash",
+            "job_id": "sim_B",
+        },
+    )
+
+    stage_2 = StackStageDefinition(
+        name = "sim_stage",
+        jobs = [job_2A, job_2B],
+    )
+    print(f"  -- Defined stage 2:\n    {stage_2}")
+
+    # -------------------------------------------------------------------------
+    # Stage 3
+    # -------------------------------------------------------------------------
+
+    job_3 = StackJobDefinition(
+        name = "rec_ana_job",
+        layers = [cfgs[3], cfgs[4]],
+        payload = {
+            "evaluator_type": "bash",
+            "job_id": "rec_ana",
+        },
+    )
+
+    stage_3 = StackStageDefinition(
+        name = "rec_ana_stage",
+        jobs = [job_3],
+    )
+    print(f"  -- Defined stage 3:\n    {stage_3}")
+
+    # TODO
+    #  - create branch
+    #  - create workflow
+    #  - create executor
+    #  - run executor for an arbitrary design point
 
 
 # =============================================================================
@@ -116,4 +194,4 @@ if __name__ == '__main__':
 
     print("\nExample 3: run driver script")
     print("-" * 70)
-    example_run_script()
+    example_run_script(cfgs)

@@ -6,6 +6,7 @@ __version__ = __MAIN_VERSION__
 
 from .base_models import BaseParameter, RangeParameter, ChoiceParameter, Parameter, ContainerConfig
 from .design_config import DesignConfig, DesignParameters, ParameterGroup, ParameterConstraint, DesignConfigLoader
+from .experimental_stack_config import StackLayerConfig, StackJobDefinition, StackStageDefinition
 from .problem_config import ProblemConfiguration, Objective, ProblemConfigLoader
 from .optimization_config import OptimizationConfiguration, OptimizerConfig
 from .objectives import (
@@ -54,6 +55,10 @@ __all__ = [
 	"ParameterGroup",
 	"ParameterConstraint",
 	"DesignConfigLoader",
+	# Experimental stack configuration
+	"StackLayerConfig",
+        "StackJobDefinition",
+        "StackStageDefinition",
 	# Problem configuration
 	"ProblemConfiguration",
 	"Objective",

@@ -180,13 +180,14 @@ workflows:
             #         - artifacts from "sim_and_reco" stage
             #       outputs:
             #         - some name w/ job ID
-            #       rule: "hadd {etc}"
+            #       command: "hadd"
+            #       rule: "{command} {etc}"
             #  - epic_ana:
             #      inputs:
             #        - merged output
             #      outputs:
             #        - some name w/ job ID
-            #      rule: "python scripts/resolution.py"
+            #      command: "python scripts/resolution.py"
 
             # TODO and here we specify the analysis output
             # as a JSON (or otherwise) artifact

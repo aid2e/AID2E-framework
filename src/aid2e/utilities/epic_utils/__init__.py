@@ -17,6 +17,11 @@ from .epic_stack import (
 	EpicAnaLayer,
 	EpicStack,
 )
+from .epic_stack_config import (
+	EpicLayerConfig,
+	EpicJobDefinition,
+	EpicStageDefinition,
+)
 
 __version__ = __MAIN_VERSION__
 __all__ = [
@@ -31,4 +36,7 @@ __all__ = [
 	"EpicRecLayer",
 	"EpicAnaLayer",
 	"EpicStack",
+	"EpicLayerConfig",
+	"EpicJobDefinition",
+	"EpicStageDefinition",
 ]

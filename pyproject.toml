@@ -37,7 +37,7 @@ dependencies = [
     "click>=8.0",
     "scikit-learn>=0.24",
     "pymoo>=0.6",
-    "joblib>=1.0"
+    "joblib>=1.0",
     "ax-platform<=0.2.10; python_version < '3.9'",
     "ax-platform==0.3.7; python_version >= '3.9' and python_version < '3.11'",
     "ax-platform==1.0.0; python_version >= '3.11'",

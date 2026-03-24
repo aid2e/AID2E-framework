@@ -10,16 +10,47 @@ This example demonstrates:
 Project: AID2E v0.0.0
 """
 
+import argparse
 import os
 
 from aid2e.utilities.configurations import (
+    BranchDefinition,
     StackLayerConfig,
     StackJobDefinition,
     StackStageDefinition,
+    WorkflowDefinition,
 )
 from aid2e.utilities.epic_utils import (
     EpicStack,
 )
+from aid2e.utilities.workflows import (
+    DAGExecutor,
+)
+
+# constants
+CONST = {
+    "run_dir" : "./epic_example_run",
+    "out_dir" : "./epic_example_out",
+}
+
+
+# =============================================================================
+# Set up for examples
+# =============================================================================
+
+def setup():
+    """Setup to run examples"""
+
+    # create directory to run in
+    if os.path.exists(CONST["run_dir"]):
+        os.system(f"rm -rf {CONST['run_dir']}")
+    os.makedirs(CONST["run_dir"])
+    print(f"  -- Made run directory at {CONST['run_dir']}")
+
+    # clone epic repo
+    os.system(f"git clone git@github.com:eic/epic.git {CONST['run_dir']}/epic")
+    print(f"  -- Cloned epic repo:")
+    os.system(f"ls {CONST['run_dir']}/epic")
 
 
 # =============================================================================
@@ -78,12 +109,12 @@ def example_generate_driver(cfgs: List[StackLayerConfig]):
     # geometry will (most likely) be available via a
     # dictionary somehow
     meta = {
-        'det_path'   : 'run/trial_0/epic',
+        'det_path'   : f"{CONST['run_dir']}/epic",
         'det_config' : 'epic_full'
     }
 
     # instantiate a stack and generate river script
-    drvr_script = "driver_from_stack.sh"
+    drvr_script = f"{CONST['run_dir']}/driver_from_stack.sh"
     epic_stack  = EpicStack()
     epic_stack.make_driver_script(drvr_script, cfgs, meta)
 
@@ -95,6 +126,7 @@ def example_generate_driver(cfgs: List[StackLayerConfig]):
 # =============================================================================
 # Example 3: Run Script in a Workflow
 # =============================================================================
+
 def example_run_script(cfgs: List[StackLayerConfig]):
     """Run driver script in a workflow"""
 
@@ -169,11 +201,34 @@ def example_run_script(cfgs: List[StackLayerConfig]):
     )
     print(f"  -- Defined stage 3:\n    {stage_3}")
 
-    # TODO
-    #  - create branch
-    #  - create workflow
-    #  - create executor
-    #  - run executor for an arbitrary design point
+    # -------------------------------------------------------------------------
+    # Organize stages into a workflow
+    # -------------------------------------------------------------------------
+
+    branch = BranchDefinition(
+        name = "main",
+        stages = [stage_1, stage_2, stage_3],
+    )
+
+    workflow = WorkflowDefinition(
+        name = "stack_workflow",
+        description = "An experimental pipeline: check geometry → run simulations → run reco + ana",
+        branches = [branch],
+        objectives = [],
+    )
+    print(f"  -- Defined workflow:\n    {branch}\n    {workflow}")
+
+    # -------------------------------------------------------------------------
+    # Run workflow
+    # -------------------------------------------------------------------------
+
+    executor = DAGExecutor(workflow, base_output_dir = "/tmp/aid2e_examples", log_level = "INFO")
+    design_point = {"nozzle_length" : 55.1, "ecal_absorber_thickness" : 4.3}
+
+    print(f"\n  -- Running experimental workflow...")
+    objectives = executor.execute(design_point)
+
+    print(f"\n✅ Experimental workflow completed!")
 
 
 # =============================================================================

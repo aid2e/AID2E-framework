@@ -35,6 +35,12 @@ import json
 import os
 from pathlib import Path
 
+from aid2e.utilities.configurations.experimental_stack_config import (
+    StackLayerConfig,
+)
+
+from .experimental_stack import ExperimentStack
+
 
 @dataclass
 class BranchContext:
@@ -544,6 +550,105 @@ class ContainerExecutionEngine(BaseExecutionEngine):
             result = result.replace(f"{{design_point.{key}}}", str(value))
         
         return result
+
+
+class StackExecutionEngine(BaseExecutionEngine):
+    """Execute layers of an experimental software stack.
+
+    Runs a sequence of layers of a generic experimental
+    software stack.
+
+    Example:
+        >>> engine = StackExecutionEngine(
+        ...     job_id='run_simulation',
+        ...     stack_type='EpicStack',
+        ...     layers=[
+        ...         StackLayerConfig(
+        ...             name='sim',
+        ...             inputs='in.hepmc3.tree.root',
+        ...             outputs='out.edm4hep.root',
+        ...         ],
+        ...     ]
+        ... )
+    """
+
+    def __init__(
+        self,
+        job_id: str,
+        stack_type: str,
+        layers: List[StackLayerConfig],
+        **kwargs
+    ):
+        """Initialize StackExecutionEngine
+
+        Args:
+            job_id: Task identifier
+            stack_type: Which type of stack to use (e.g. 'EpicStack')
+            layers: List of layers to run
+        """
+        super().__init__(job_id, **kwargs)
+        self.layers = layers
+        self.stack_type = stack_type
+        self.stack_class = ExperimentStack() # TODO registry goes here
+        if not self.stack_class:
+            raise ValueError(f"Unknown stack type: {stack_type}")
+
+    def execute(self, context: JobContext) -> Dict[str, Any]:
+        """Execute experimental stack
+
+        Args:
+            context: Task context.
+
+        Returns:
+            Dict with 'container_id', 'stdout', 'stderr', 'returncode'.
+
+        Raises:
+            RuntimeError: If execution fails
+        """
+        stack = self.stack_class()
+
+        # Build driver script and command to run it
+        driver = f"{context.execution_dir}/{self.job_id}_driver.sh"
+        command = stack.make_driver_command(driver)
+        stack.make_driver_script(driver)
+
+        # Append script and command to context
+        context.add_log(f"Driver script: {driver}")
+        context.add_log(f"Driver command: {command}")
+
+        # Try running command
+        try:
+            result = subprocess.run(
+                command,
+                shell=True,
+                capture_output=True,
+                text=True,
+                cwd=context.execution_dir
+            )
+
+            # Log output
+            if result.stdout:
+                context.add_log(f"STDOUT:\n{result.stdout}")
+            if result.stderr:
+                context.add_log(f"STDERR:\n{result.stderr}")
+
+            # Push any output to XCom
+            output = {
+                'stdout': result.stdout,
+                'stderr': result.stderr,
+                'returncode': result.returncode,
+            }
+            context.xcom_push('return_value', output)
+
+            if result.returncode != 0:
+                raise RuntimeError(f"{stack_type} execution failed with code {result.returncode}")
+            return output
+
+        # And throw generic exception if
+        # something goes wrong
+        except Exception as e:
+            context.add_log(f"ERROR: {str(e)}")
+            raise
 
 
 __all__ = [

@@ -260,6 +260,9 @@ class ExperimentStack(ABC):
              )
         return commands
 
+    # FIXME need to consider how to handle 'metadata'
+    #   better... A generic stack should be able to
+    #   access all of the info it needs...
     def make_driver_script(self, script: str, configs: List[StackLayerConfig], metadata: Dict[str, Any] = None) -> None:
         """Make driver script
 
@@ -278,3 +281,20 @@ class ExperimentStack(ABC):
         text = "\n\n".join(commands)
         with open(script, 'w') as driver:
             driver.write(text)
+
+    # FIXME also need to consider 'metadata' here...
+    #   Will need to flexibly handle arguments
+    #   users want to throw at the script.
+    @abstractmethod
+    def make_driver_command(self, script: str) -> str:
+        """Make driver command
+
+        Builds command to run specified driver script. Must
+        be implemented by subclasses.
+
+        Args:
+            script: the driver script to run
+        Returns:
+            Command to run the drivers script
+        """
+        pass

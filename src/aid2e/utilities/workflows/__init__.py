@@ -38,6 +38,7 @@ from .execution_engine import (
 	BashExecutionEngine,
 	PythonExecutionEngine,
 	ContainerExecutionEngine,
+	StackExecutionEngine,
 )
 from .dag_executor import (
 	DAGExecutor,

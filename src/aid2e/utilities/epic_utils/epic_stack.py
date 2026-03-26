@@ -149,6 +149,12 @@ class EpicStack(ExperimentStack):
         with open(script, 'w') as driver:
             driver.write(text)
 
+    def make_driver_command(self, script: str) -> str:
+        """
+        Form command to run ePIC driver script.
+        """
+        return f"eic-shell -- {script}"  # FIXME need to figure out how to handle eic-shell path
+
 
 # Register ePIC stack config & implementation in stack registry
 StackRegistry.register_stack(

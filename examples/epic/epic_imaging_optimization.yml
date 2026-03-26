@@ -13,8 +13,27 @@ problem:
   type: "EPIC_CALORIMETRY"
   description: "Single-objective optimization of the BIC for angular resolution"
 
-  # TODO 
-  #   ADD epic_configuration HERE
+  # ePIC Environment Configuration
+  # ==============================
+  # Configure paths to the ePIC software stack. Either eic_shell OR
+  # singularity_image must be provided. If both are provided, singularity_image
+  # takes precedence.
+  epic_configuration:
+    # Option A: Use singularity image (recommended for reproducibility)
+    singularity_image: "/path/to/eic-shell.sif"
+    
+    # Option B: Use eic-shell script directly
+    # eic_shell: "/path/to/eic-shell"
+    
+    # Path to ePIC installation directory
+    epic_install: "/opt/epic"
+    
+    # Optional: Path to EIC reconstruction installation
+    # If not provided, defaults to {epic_install}/local
+    eic_recon_install: null
+    
+    # Optional: Override for EIC reconstruction command
+    eic_recon: null
 
   # ===========================================================================
   # PARAMETERS: Define what we're optimizing

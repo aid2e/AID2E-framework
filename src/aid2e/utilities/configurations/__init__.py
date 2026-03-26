@@ -8,6 +8,7 @@ from .base_models import BaseParameter, RangeParameter, ChoiceParameter, Paramet
 from .design_config import DesignConfig, DesignParameters, ParameterGroup, ParameterConstraint, DesignConfigLoader
 from .experimental_stack_config import StackLayerConfig, StackJobDefinition, StackStageDefinition
 from .problem_config import ProblemConfiguration, Objective, ProblemConfigLoader
+from .stack_registry import StackRegistry
 from .optimization_config import OptimizationConfiguration, OptimizerConfig
 from .objectives import (
     ObjectiveDirection,
@@ -63,6 +64,7 @@ __all__ = [
 	"ProblemConfiguration",
 	"Objective",
 	"ProblemConfigLoader",
+	"StackRegistry",
 	# Optimization configuration
 	"OptimizationConfiguration",
 	"OptimizerConfig",

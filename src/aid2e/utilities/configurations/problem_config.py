@@ -28,6 +28,8 @@ from .objectives import (
     ObjectiveDefinition,
     ObjectiveComputationSpec,
 )
+from .stack_registry import StackRegistry
+from aid2e.utilities.epic_utils.epic_env_config import EpicConfiguration
 
 
 class Objective(BaseModel):
@@ -77,6 +79,42 @@ class ProblemConfiguration(BaseModel):
     design_config: DesignConfig
     objectives: List[ObjectiveDefinition]
     observations: Optional[List[Dict[str, Any]]] = Field(default=None)
+    epic_configuration: Optional[EpicConfiguration] = Field(
+        default=None,
+        description="ePIC-specific environment configuration (optional)",
+    )
+    stack_configurations: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="Map of stack name to config object (e.g., epic, idea)",
+    )
+
+    @field_validator("stack_configurations", mode="before")
+    @classmethod
+    def normalize_stack_configurations(cls, raw):
+        if raw is None:
+            return {}
+        if not isinstance(raw, dict):
+            raise ValueError("stack_configurations must be a mapping")
+
+        normalized: Dict[str, Any] = {}
+        for stack_name, config_payload in raw.items():
+            try:
+                config_model = StackRegistry.get_config_model(stack_name)
+            except KeyError:
+                normalized[stack_name] = config_payload
+                continue
+
+            if isinstance(config_payload, config_model):
+                normalized[stack_name] = config_payload
+            elif isinstance(config_payload, dict):
+                normalized[stack_name] = config_model(**config_payload)
+            else:
+                raise ValueError(
+                    f"stack_configurations[{stack_name}] must be {config_model.__name__} or dict"
+                )
+
+        return normalized
+
 
     @field_validator("objectives", mode="before")
     @classmethod
@@ -258,6 +296,25 @@ class ProblemConfigLoader:
                 payload["parameter_constraints"] = resolved["parameter_constraints"]
             design_config = DesignConfig(**payload)
 
+        # Parse epic_configuration if present (legacy hydration)
+        epic_config = None
+        if "epic_configuration" in problem:
+            epic_config_data = problem["epic_configuration"]
+            if isinstance(epic_config_data, dict):
+                epic_config = EpicConfiguration(**epic_config_data)
+            elif isinstance(epic_config_data, EpicConfiguration):
+                epic_config = epic_config_data
+
+        # Merge into stack_configurations map for extensibility
+        stack_confs = {}
+        if "stack_configurations" in problem:
+            if not isinstance(problem["stack_configurations"], dict):
+                raise ValueError("stack_configurations must be a mapping")
+            stack_confs.update(problem["stack_configurations"])
+
+        if epic_config is not None:
+            stack_confs.setdefault("epic", epic_config)
+
         # Build ProblemConfiguration
         return ProblemConfiguration(
             name=problem["name"],
@@ -267,6 +324,8 @@ class ProblemConfigLoader:
             design_config=design_config,
             objectives=objectives_raw,
             observations=problem.get("observations"),
+            epic_configuration=epic_config,
+            stack_configurations=stack_confs,
         )
 
     @staticmethod

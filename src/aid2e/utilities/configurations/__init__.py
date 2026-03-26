@@ -64,6 +64,7 @@ __all__ = [
 	"ProblemConfiguration",
 	"Objective",
 	"ProblemConfigLoader",
+	# Experimental stack registry
 	"StackRegistry",
 	# Optimization configuration
 	"OptimizationConfiguration",

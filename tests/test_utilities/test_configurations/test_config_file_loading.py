@@ -8,7 +8,9 @@ from aid2e.utilities.configurations import (
     DesignConfigLoader,
     ProblemConfigLoader,
     load_config,
+    StackRegistry,
 )
+from aid2e.utilities.epic_utils import EpicConfiguration
 
 
 def _fixture_dir() -> Path:
@@ -60,9 +62,6 @@ def test_problem_config_loader_with_fixture(tmp_path):
 
 def test_problem_config_loader_stack_registry(tmp_path):
     """Load problem config with stack_configurations and registry deserialization."""
-    from aid2e.utilities.configurations.stack_registry import StackRegistry
-    from aid2e.utilities.epic_utils.epic_env_config import EpicConfiguration
-
     fixture_dir = _fixture_dir()
     design_dst = tmp_path / "design.params"
     design_dst.write_text((fixture_dir / "design.params").read_text())

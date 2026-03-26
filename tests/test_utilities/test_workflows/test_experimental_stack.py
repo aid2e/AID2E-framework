@@ -84,6 +84,9 @@ def test_experiment_stack():
     class MyExperimentStack(ExperimentStack):
         sim: MySimLayer = field(default_factory = MySimLayer)
 
+        def make_driver_command(self, script: str) -> str:
+            return f"./{script}"
+
     mystack = MyExperimentStack()
     assert isinstance(mystack, MyExperimentStack)
     assert isinstance(mystack[payload["sim_details"]["name"]], MySimLayer)

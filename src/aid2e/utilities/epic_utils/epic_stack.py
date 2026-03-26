@@ -150,10 +150,9 @@ class EpicStack(ExperimentStack):
             driver.write(text)
 
 
-# Register ePIC stack config & implementation in unified registry
+# Register ePIC stack config & implementation in stack registry
 StackRegistry.register_stack(
     name="epic",
     config_model=EpicConfiguration,
     experimental_stack=EpicStack,
 )
-

@@ -38,6 +38,7 @@ from pathlib import Path
 from aid2e.utilities.configurations.experimental_stack_config import (
     StackLayerConfig,
 )
+from aid2e.utilities.configurations.stack_registry import StackRegistry
 
 from .experimental_stack import ExperimentStack
 
@@ -589,7 +590,7 @@ class StackExecutionEngine(BaseExecutionEngine):
         super().__init__(job_id, **kwargs)
         self.layers = layers
         self.stack_type = stack_type
-        self.stack_class = ExperimentStack() # TODO registry goes here
+        self.stack_class = StackRegistry.get_experimental_stack(self.stack_type)
         if not self.stack_class:
             raise ValueError(f"Unknown stack type: {stack_type}")
 

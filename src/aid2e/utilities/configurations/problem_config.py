@@ -85,7 +85,7 @@ class ProblemConfiguration(BaseModel):
     )
     stack_configurations: Dict[str, Any] = Field(
         default_factory=dict,
-        description="Map of stack name to config object (e.g., epic, idea)",
+        description="Map of stack name to config object (e.g. epic)",
     )
 
     @field_validator("stack_configurations", mode="before")

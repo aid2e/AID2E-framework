@@ -52,6 +52,7 @@ from .execution_engine import (
     BashExecutionEngine,
     PythonExecutionEngine,
     ContainerExecutionEngine,
+    StackExecutionEngine,
     JobContext,
     StageContext,
     BranchContext,
@@ -490,6 +491,23 @@ class DAGExecutor:
                 python_callable=python_callable,
                 op_args=job.payload.get("op_args", ()),
                 op_kwargs=job.payload.get("op_kwargs", {}),
+            )
+        elif evaluator_type == "stack":
+            # StackExecutionEngine (requires stack_type in payload and layers in job)
+            stack_type = job.payload.get("stack_type")
+            if not stack_type:
+                raise ValueError(
+                    f"Job {job_id} specifies evaluator_type='stack' but is missing 'stack_type'"
+                )
+            layers = getattr(job, 'layers', [])
+            if not layers:
+                raise RuntimeError(
+                    f"Job {job_id} specifies evaluator_type='stack' but is missing the layer configurations"
+                )
+            return StackExecutionEngine(
+                job_id=job_id,
+                stack_type=stack_type,
+                layers=layers,
             )
         else:
             # Default to BashExecutionEngine

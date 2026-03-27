@@ -18,19 +18,47 @@ from aid2e.utilities.configurations import (
     WorkflowDefinition,
 )
 from aid2e.utilities.epic_utils import (
-    EpicStack,
-    EpicLayerConfig,
+    EpicConfiguration,
+    EpicDesignConfig,
     EpicJobDefinition,
+    EpicLayerConfig,
+    EpicParameter,
+    EpicStack,
     EpicStageDefinition,
 )
 from aid2e.utilities.workflows import (
     DAGExecutor,
+    modify_xml_files,
 )
 
 # constants
 CONST = {
     "run_dir" : "./epic_example_run",
-    "out_dir" : "./epic_example_out",
+    "out_dir" : "./epic_example_run",
+    "design"  : {
+        "epic_design_parameters" : {
+            "bemc" : {
+                "file_path" : f"./epic_example_run/epic/compact/ecal/bic_default.xml",
+                "parameters" : {
+                    "EcalBarrel_enable_staves_2" : {
+                        "value"     : 0,
+                        "choices"   : (0, 1),
+                        "xml_path"  : ".//constant[@name='EcalBarrel_enable_staves_2']",
+                        "attribute" : "value",
+                        "unit"      : "",
+                    },
+                    "EcalBarrel_enable_staves_5" : {
+                        "value"     : 0,
+                        "choices"   : (0, 1),
+                        "xml_path"  : ".//constant[@name='EcalBarrel_enable_staves_5']",
+                        "attribute" : "value",
+                        "unit"      : "",
+                    }
+                },
+            }
+        },
+        "optimization_groups" : {"default" : ["bemc.EcalBarrel_enable_staves_2"]},
+    }
 }
 
 
@@ -51,6 +79,26 @@ def setup():
     os.system(f"git clone git@github.com:eic/epic.git {CONST['run_dir']}/epic")
     print(f"  -- Cloned epic repo:")
     os.system(f"ls {CONST['run_dir']}/epic")
+
+
+# =============================================================================
+# Example 0: Modify ePIC geometry
+# =============================================================================
+def example_modify_geometry():
+    """Modify ePIC geometry"""
+
+    # set up design configruation and generate
+    # modifications to apply
+    configuration = EpicDesignConfig(**CONST["design"])
+    parameters    = configuration.get_flat_parameters()
+    modifications = configuration.get_xml_modifications({"bemc.EcalBarrel_enable_staves_2" : 1})
+    print(f"  -- parameters & modifications:\n    parameters = {parameters}\n    modifications = {modifications}")
+
+    # apply changes to compact files
+    modify_xml_files(modifications)
+    print("  -- modified files")
+
+    return configuration
 
 
 # =============================================================================
@@ -129,6 +177,15 @@ def example_generate_driver(cfgs: List[EpicLayerConfig]):
 
 def example_run_script(cfgs: List[EpicLayerConfig]):
     """Run driver script in a workflow"""
+
+    # Relevant environment variables and configuration parameters
+    # for a given experimental software stack are set in a
+    # `StackConfiguration`
+    environment = EpicConfiguration(
+        eic_shell = "/home/dereka/.bin/eic-shell",
+        epic_install = f"{CONST['run_dir']}/epic",
+    )
+    environment.activate()
 
     # As an example, workflow will consist of 3 stages:
     #   1. run overlap check (geo)
@@ -251,7 +308,11 @@ if __name__ == '__main__':
             print("-" * 70)
             setup()
 
-    print("Example 1: configure layers")
+    print("\nExample 0: modify geometry")
+    print("-" * 70)
+    design = example_modify_geometry()
+
+    print("\nExample 1: configure layers")
     print("-" * 70)
     cfgs = example_configure_layers()
 

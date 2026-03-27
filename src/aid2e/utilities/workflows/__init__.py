@@ -44,12 +44,14 @@ from .dag_executor import (
 	DAGExecutor,
 	create_executor_from_config,
 )
+from .geometry_utils import modify_xml_files
 
 __version__ = __MAIN_VERSION__
 __all__ = [
+	# Experimental stack definitions
+	"AnaLayer",
 	"StackLayer",
 	"ExperimentStack",
-	"AnaLayer",
 	# Workflow configuration (re-exported from configurations for backward compatibility)
 	"WorkflowsConfiguration",
 	"WorkflowDefinition",
@@ -82,6 +84,8 @@ __all__ = [
 	# DAG Executor
 	"DAGExecutor",
 	"create_executor_from_config",
+	# Geometry utils
+	"modify_xml_files",
 ]
 
 # Backward compatibility aliases

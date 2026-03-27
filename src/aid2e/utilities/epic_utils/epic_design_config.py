@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-ePIC-specific design configuration with XML modification support.
-Extends the base DesignConfig from the configurations module.
+ePIC-specific design configuration. Extends the base
+DesignConfig from the configurations module.
 """
 
 from typing import Dict, List, Optional, Tuple, Union, Any
@@ -22,6 +22,7 @@ class EpicRangeParameter(RangeParameter):
     """
     xml_path: str  # XPath to XML element, e.g., "//constant[@name='...']/@value"
     unit: Optional[str] = None  # e.g., "mm", "cm", "um"
+    attribute: Optional[str] = "value"  # the attribute of XML element to set, e.g. value
 
     @property
     def type(self) -> str:
@@ -34,6 +35,7 @@ class EpicChoiceParameter(ChoiceParameter):
     """
     xml_path: str  # XPath to XML element, e.g., "//constant[@name='...']/@value"
     unit: Optional[str] = None  # e.g., "mm", "cm", "um"
+    attribute: Optional[str] = "value"  # the attribute of XML element to set, e.g. value
 
     @property
     def type(self) -> str:
@@ -95,7 +97,7 @@ class EpicDesignConfig(DesignConfig):
         """Get all parameter qualified names."""
         return list(self.get_flat_parameters().keys())
     
-    def get_xml_modifications(self, param_values: Optional[Dict[str, float]] = None) -> Dict[str, List[Tuple[str, str, float]]]:
+    def get_xml_modifications(self, param_values: Optional[Dict[str, float]] = None) -> Dict[str, List[Tuple[str, str, str, Any]]]:
         """
         Get XML modifications for given parameter values.
         
@@ -104,7 +106,7 @@ class EpicDesignConfig(DesignConfig):
                          If None, uses default values from config.
             
         Returns:
-            Dictionary mapping file_path -> [(xml_path, unit, new_value), ...]
+            Dictionary mapping file_path -> [(xml_path, attribute, unit, new_value), ...]
         """
         if param_values is None:
             # Use default values from config
@@ -125,6 +127,7 @@ class EpicDesignConfig(DesignConfig):
                     new_value = param_values[qualified_name]
                     modifications[file_path].append((
                         param.xml_path,
+                        param.attribute,
                         param.unit or "",
                         new_value
                     ))

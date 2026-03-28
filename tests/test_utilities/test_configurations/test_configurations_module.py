@@ -27,6 +27,10 @@ def test_configurations_has_full_config():
     from aid2e.utilities.configurations import FullConfig
     assert FullConfig is not None
 
+def test_configurations_has_env_config():
+    """Test that configurations module has EnvironmentConfiguration class."""
+    from aid2e.utilities.configurations import EnvironmentConfig
+    assert EnvironmentConfig
 
 def test_configurations_module_structure():
     """Test that configurations module has expected structure."""

@@ -10,7 +10,7 @@ from aid2e.utilities.configurations import (
     load_config,
     StackRegistry,
 )
-from aid2e.utilities.epic_utils import EpicConfiguration
+from aid2e.utilities.epic_utils import EpicEnvConfig
 
 
 def _fixture_dir() -> Path:
@@ -103,7 +103,7 @@ def test_problem_config_loader_stack_registry(tmp_path):
     problem_config = ProblemConfigLoader.load(str(config_path))
 
     assert "epic" in problem_config.stack_configurations
-    assert isinstance(problem_config.stack_configurations["epic"], EpicConfiguration)
+    assert isinstance(problem_config.stack_configurations["epic"], EpicEnvConfig)
     assert problem_config.stack_configurations["epic"].epic_install == "/opt/epic"
 
     # legacy epic_configuration still works and is also mirrored

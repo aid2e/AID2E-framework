@@ -9,7 +9,10 @@ from .epic_design_config import (
 	EpicDesignParameters,
 	EpicDesignConfigLoader,
 )
-from .epic_env_config import EpicConfiguration
+from .epic_env_config import (
+	EpicConfiguration,
+	EpicEnvConfig,
+)
 from .epic_stack import (
 	EpicGeoLayer,
 	EpicSimLayer,
@@ -31,6 +34,7 @@ __all__ = [
 	"EpicDesignParameters",
 	"EpicDesignConfigLoader",
 	"EpicConfiguration",
+	"EpicEnvConfig",
 	"EpicGeoLayer",
 	"EpicSimLayer",
 	"EpicRecLayer",

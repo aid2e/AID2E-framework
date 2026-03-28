@@ -14,7 +14,7 @@ from aid2e.utilities.configurations.experimental_stack_config import (
 )
 from aid2e.utilities.configurations.stack_registry import StackRegistry
 from aid2e.utilities.epic_utils.epic_design_config import EpicDesignConfig
-from aid2e.utilities.epic_utils.epic_env_config import EpicConfiguration
+from aid2e.utilities.epic_utils.epic_env_config import EpicEnvConfig
 from aid2e.utilities.workflows.execution_engine import JobContext
 from aid2e.utilities.workflows.experimental_stack import (
     AnaLayer,
@@ -242,6 +242,6 @@ class EpicStack(ExperimentStack):
 # Register ePIC stack config & implementation in stack registry
 StackRegistry.register_stack(
     name="epic",
-    config_model=EpicConfiguration,
+    config_model=EpicEnvConfig,
     experimental_stack=EpicStack,
 )

@@ -5,8 +5,10 @@ from pydantic import BaseModel, model_validator
 from pathlib import Path
 import os
 
+from aid2e.utilities.configurations.env_config import EnvironmentConfig
 
-class EpicConfiguration(BaseModel):
+
+class EpicEnvConfig(EnvironmentConfig):
     """ePIC-specific environment configuration.
     
     Manages ePIC detector environment variables including singularity image,
@@ -69,3 +71,10 @@ class EpicConfiguration(BaseModel):
         for var in ["EPIC_INSTALL", "EIC_RECON_INSTALL", "EIC_SHELL", "EIC_RECON"]:
             if var in os.environ:
                 print(f"  {var} = {os.environ[var]}")
+
+
+class EpicConfiguration(EpicEnvConfig):
+    """
+    Alias of EpicEnvConfig for backwards compatibility.
+    """
+    pass

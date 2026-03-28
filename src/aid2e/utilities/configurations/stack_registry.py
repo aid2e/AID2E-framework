@@ -6,7 +6,6 @@ Repository: https://github.com/aid2e/AID2E-framework.git
 """
 
 from typing import Dict, Type, Any
-
 from pydantic import BaseModel
 
 
@@ -14,7 +13,6 @@ class StackRegistry:
     """
     Unified registry for experimental stack configuration models + interfaces
      """
-
     _config_models: Dict[str, Type[BaseModel]] = {}
     _experimental_stacks: Dict[str, Type[Any]] = {}
 

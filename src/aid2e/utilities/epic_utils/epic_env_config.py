@@ -19,13 +19,16 @@ class EpicConfiguration(BaseModel):
                    either this OR singularity_image must be provided
         singularity_image: Path to the EIC shell singularity image, either
                            this OR eic_shell must be provided
-        epic_install: Optional path to ePIC installation directory
+        epic_install: Optional path to ePIC installation directory, will be
+                      used as template for modifying geometry
+        epic_config: ePIC geometry configuration to use (e.g. epic, epic_full)
         eic_recon_install: Optional path to EIC reconstruction installation
         eic_recon: Optional override for EIC reconstruction command
     """
     eic_shell: Optional[str] = None
     singularity_image: Optional[str] = None
     epic_install: Optional[str] = None
+    epic_config: Optional[str] = None
     eic_recon_install: Optional[str] = None
     eic_recon: Optional[str] = None
 
@@ -46,7 +49,7 @@ class EpicConfiguration(BaseModel):
 
         # default to singularity image over eic-shell
         if self.singularity_image:
-            os.environ["EIC_SHELL"] = self.singularity_image
+            os.environ["EIC_SINGULARITY_IMAGE"] = self.singularity_image
         elif self.eic_shell:
             os.environ["EIC_SHELL"] = self.eic_shell
 
@@ -55,6 +58,8 @@ class EpicConfiguration(BaseModel):
             os.environ["EPIC_INSTALL"] = self.epic_install
             if not self.eic_recon_install:
                 self.eic_recon_install = str(Path(self.epic_install) / "local")
+        if self.epic_config:
+            os.environ["EPIC_CONFIG"] = self.epic_config
         if self.eic_recon_install:
             os.environ["EIC_RECON_INSTALL"] = self.eic_recon_install
         if self.eic_recon:

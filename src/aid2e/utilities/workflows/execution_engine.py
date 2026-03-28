@@ -608,9 +608,12 @@ class StackExecutionEngine(BaseExecutionEngine):
         """
         stack = self.stack_class()
 
+        # Do any preparations ahead of execution
+        preparations = stack.prepare_for_execution(context = context)
+
         # Build driver script and command to run it
         driver = f"{context.execution_dir}/{self.job_id}_driver.sh"
-        command = stack.make_driver_command(driver)
+        command = stack.make_driver_command(driver, preparations)
         stack.make_driver_script(driver)
 
         # Append script and command to context

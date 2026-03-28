@@ -5,18 +5,23 @@ module.
 """
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
+import os
+import shutil
 
 from aid2e.utilities.configurations.experimental_stack_config import (
     StackLayerConfig
 )
 from aid2e.utilities.configurations.stack_registry import StackRegistry
+from aid2e.utilities.epic_utils.epic_design_config import EpicDesignConfig
 from aid2e.utilities.epic_utils.epic_env_config import EpicConfiguration
+from aid2e.utilities.workflows.execution_engine import JobContext
 from aid2e.utilities.workflows.experimental_stack import (
     AnaLayer,
     ExperimentStack,
-    StackLayer
+    StackLayer,
 )
+from aid2e.utilities.workflows.geometry_utils import modify_xml_files
 
 
 class EpicGeoLayer(StackLayer):
@@ -134,26 +139,104 @@ class EpicStack(ExperimentStack):
     rec: EpicRecLayer = field(default_factory = EpicRecLayer)
     ana: EpicAnaLayer = field(default_factory = EpicAnaLayer)
 
-    def make_driver_script(self, script: str, configs: List[StackLayerConfig], metadata: Dict[str, Any] = None) -> None:
+    def prepare_for_execution(self, **kwargs) -> Optional[str]:
+        """
+        Prepare for running ePIC driver script.
+        """
+        context = None
+        for arg, value in kwargs.items():
+            if isinstance(value, JobContext):
+                context = value
+
+        # JobContext must be provided to access execution dir
+        if context is None:
+            raise RuntimeError("No JobContext provided to EpicStack.prepare_for_execution")
+
+        # Need EpicDesignConfig to determine geometry modifications
+        if context.design is None:
+            raise AttributeError("DesignConfig not present in job context. Must define a DesignConfig")
+        if not isinstance(context.design, EpicDesignConfig):
+            raise TypeError("DesignConfig is not an instance of EpicDesignConfig. Must use EpicDesignConfig if running with ePIC stack")
+
+        # make sure a geometry directory has been defined as a template
+        if 'EPIC_INSTALL' not in os.environ:
+            raise EnvironmentError("Variable 'EPIC_INSTALL' not set. Must define epic_install.")
+
+        template_geo_dir = os.environ['EPIC_INSTALL']
+        trial_geo_dir = '/'.join([context.execution_dir, os.path.basename(template_geo_dir)])
+        if not os.path.exists(trial_geo_dir):
+            shutil.copytree(template_geo_dir, trial_geo_dir)
+
+        modifications = context.design.get_xml_modifications(context.design_point)
+        modify_xml_files(modifications)
+        context.add_log(f"Modified geometry in job {context.job_id}")
+
+        # list of commands to execute at start of driver script
+        commands = "\n".join([
+            "set -e\n",
+            f"if [ ! -f {trial_geo_dir}/compiled.log]; then",
+            f"  cmake -B {trial_geo_dir}/build -S {trial_geo_dir} -DCMAKE_INSTALL_PREFIX={trial_geo_dir}/install",
+            f"  cmake --build {trial_geo_dir}/build",
+            f"  cmake --install {trial_geo_dir}/build\n",
+            "  time=$(date -u)",
+            f'  Job {context.job_id} ' + 'geometry compiled at ${time}" > ' + f"{trial_geo_dir}/compiled.log",
+            "fi\n",
+        ])
+        return commands
+
+    def make_driver_script(
+        self,
+        script: str,
+        configs: List[StackLayerConfig],
+        preparations: str = None,
+        **kwargs
+    ) -> None:
         """
         Create a driver script to run ePIC layers.
         """
+        context = None
+        for arg, value in kwargs.items():
+            if isinstance(value, JobContext):
+                context = value
+
+        # JobContext must be provided to access execution dir
+        if context is None:
+            raise RuntimeError("No JobContext provided to EpicStack.make_driver_script")
+
         commands = self._make_commands(configs)
         commands.insert(0, self._determine_shebang(script))
-        if metadata != None:
-            detector = f"source {metadata['det_path']}/install/bin/thisepic.sh\n" \
-                       f"export DETECTOR_CONFIG={metadata['det_config']}"
-            commands.insert(1, detector)
+        if preprations != None:
+            commands.insert(1, preparations)
+
+        # reconstruct geometry dir for job
+        #   - FIXME this can be improved! We can likely make use
+        #     of xcom to retrieve this
+        template_geo_dir = os.environ['EPIC_INSTALL']
+        trial_geo_dir = '/'.join([context.execution_dir, os.path.basename(template_geo_dir)])
+
+        # make sure a geometry config has been specififed
+        if 'EPIC_CONFIG' not in os.environ:
+            raise EnvironmentError("Variable 'EPIC_CONFIG' not set. Must define epic_config.")
+
+        # ensure detector path is set
+        detector = f"source {trial_geo_dir}/install/bin/thisepic.sh\n" \
+                   f"export DETECTOR_CONFIG={os.environ['EPIC_CONFIG']}"
+        commands.insert(2, detector)
 
         text = "\n\n".join(commands)
         with open(script, 'w') as driver:
             driver.write(text)
 
-    def make_driver_command(self, script: str) -> str:
+    def make_driver_command(self, script: str, **kwargs) -> str:
         """
         Form command to run ePIC driver script.
         """
-        return f"eic-shell -- {script}"  # FIXME need to figure out how to handle eic-shell path
+        if 'EIC_SINGULARITY_IMAGE' in os.environ:
+            return f"singularity exec {os.environ['EIC_SINGULARITY_IMAGE']} {script}"
+        elif 'EIC_SHELL' in os.environ:
+            return f"{os.environ['EIC_SHELL']} -- {script}"
+        else:
+            raise EnvironmentError("Neither 'EIC_SINGULARITY_IMAGE' nor 'EIC_SHELL' set. Must define eic_shell or singularity image.")
 
 
 # Register ePIC stack config & implementation in stack registry

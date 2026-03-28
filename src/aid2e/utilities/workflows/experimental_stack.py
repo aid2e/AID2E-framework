@@ -17,7 +17,7 @@ Repository: https://github.com/aid2e/AID2E-framework.git
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, fields, field, replace
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 import pathlib
 
 from aid2e.utilities.configurations.experimental_stack_config import (
@@ -260,10 +260,25 @@ class ExperimentStack(ABC):
              )
         return commands
 
-    # FIXME need to consider how to handle 'metadata'
-    #   better... A generic stack should be able to
-    #   access all of the info it needs...
-    def make_driver_script(self, script: str, configs: List[StackLayerConfig], metadata: Dict[str, Any] = None) -> None:
+    def prepare_for_execution(**kwargs) -> Optional[str]:
+        """Prepare for executing driver script
+
+        Subclasses can override this function to carry out any
+        necessary operations ahead of running the driver script.
+
+        Returns:
+            Optionally can return string of additional commands
+            to run at start of driver script
+        """
+        pass
+
+    def make_driver_script(
+        self,
+        script: str,
+        configs: List[StackLayerConfig],
+        preparations: str = None,
+        **kwargs
+    ) -> None:
         """Make driver script
 
         Writes driver script at specified path to run a sequence of
@@ -273,7 +288,8 @@ class ExperimentStack(ABC):
         Args:
             script: full path of driver script
             configs: list of layer configurations
-            metadata: dictionary of metadata about trial (e.g. 'job_id')
+            preparations: optional list of commands to run at start
+                          of script
         """
         commands = self._make_commands(configs)
         commands.insert(0, self._determine_shebang(script))
@@ -282,11 +298,8 @@ class ExperimentStack(ABC):
         with open(script, 'w') as driver:
             driver.write(text)
 
-    # FIXME also need to consider 'metadata' here...
-    #   Will need to flexibly handle arguments
-    #   users want to throw at the script.
     @abstractmethod
-    def make_driver_command(self, script: str) -> str:
+    def make_driver_command(self, script: str, **kwargs) -> str:
         """Make driver command
 
         Builds command to run specified driver script. Must

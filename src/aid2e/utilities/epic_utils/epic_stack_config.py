@@ -31,14 +31,6 @@ class EpicJobDefinition(StackJobDefinition):
     """
     layers: List[EpicLayerConfig]
 
-    @model_validator(mode='before')
-    @classmethod
-    def set_default_command(cls, data):
-        if 'command' not in data:
-            data['command'] = 'eic-shell -- {script}' # FIXME have to figure out how to locate script
-            # TODO do same for container
-        return data
-
 
 class EpicStageDefinition(StackStageDefinition):
     """

@@ -111,4 +111,4 @@ class EpicEnvConfigLoader(EnvironmentConfigLoader):
         if 'epic_environment' not in data:
             raise ValueError(f"Invalid data configuration: missing 'epic_environment' in {file_path}")
 
-        return EpicEnvConfig(**data)
+        return EpicEnvConfig(**data['epic_environment'])

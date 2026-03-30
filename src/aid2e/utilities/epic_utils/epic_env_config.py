@@ -4,8 +4,13 @@ from typing import Optional
 from pydantic import BaseModel, model_validator
 from pathlib import Path
 import os
+import pathlib
+import yaml
 
-from aid2e.utilities.configurations.env_config import EnvironmentConfig
+from aid2e.utilities.configurations.env_config import (
+    EnvironmentConfig,
+    EnvironmentConfigLoader,
+)
 
 
 class EpicEnvConfig(EnvironmentConfig):
@@ -27,10 +32,10 @@ class EpicEnvConfig(EnvironmentConfig):
         eic_recon_install: Optional path to EIC reconstruction installation
         eic_recon: Optional override for EIC reconstruction command
     """
+    epic_install:Optional[str]
+    epic_config: Optional[str]
     eic_shell: Optional[str] = None
     singularity_image: Optional[str] = None
-    epic_install: Optional[str] = None
-    epic_config: Optional[str] = None
     eic_recon_install: Optional[str] = None
     eic_recon: Optional[str] = None
 
@@ -78,3 +83,32 @@ class EpicConfiguration(EpicEnvConfig):
     Alias of EpicEnvConfig for backwards compatibility.
     """
     pass
+
+
+class EpicEnvConfigLoader(EnvironmentConfigLoader):
+    """
+    Loader for ePIC environment configuration. Loads YAML
+    files, instantiates EpicEnvConfig.
+    """
+
+    @staticmethod
+    def load(file_path: str) -> "EpicEnvConfig":
+        """
+        Load ePIC environment configuration.
+
+        Args:
+            file_path: Path to YAML configuration file
+        Returns:
+            EpicEnvConfig instance
+        """
+        path = pathlib.Path(file_path)
+        if not path.exists():
+            raise FileNotFoundError(f"Configuration file not found: {file_path}")
+
+        with open(path, 'r') as file:
+            data = yaml.safe_load(file)
+
+        if 'epic_environment' not in data:
+            raise ValueError(f"Invalid data configuration: missing 'epic_environment' in {file_path}")
+
+        return EpicEnvConfig(**data)

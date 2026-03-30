@@ -9,12 +9,13 @@ Repository: https://github.com/aid2e/AID2E-framework.git
 
 from abc import ABC, abstractmethod
 from pydantic import BaseModel
+from typing import Generic, TypeVar
 
 
 class EnvironmentConfig(ABC, BaseModel):
     """Configures environment variables
 
-    Generic base model for configuring environment variables. Can
+    Generic base model for configuring environment variables. Must
     be specialized for specific for specifc contexts such as
     EpicConfiguration.
 
@@ -31,5 +32,32 @@ class EnvironmentConfig(ABC, BaseModel):
         """
         Activate environment variables. Must be implemented
         by subclasses.
+        """
+        pass
+
+
+class EnvironmentConfigLoader(ABC):
+    """Loader for environment variables
+
+    Generic base class for loading environment config
+    models.  Must be specialized for specific contexts
+    like EnvironmentConfig.
+
+    Example:
+        >>> class MyEnvConfigLoader(EnvironmentConfigLoader[MyEnvConfig]):
+        ...     @staticmethod
+        ...     def load(file_path: str) -> MyEnvConfigLoader:
+        ...         with open(file_path, 'r') as file:
+        ...             data = yaml.safe_load(file)
+        ...         return MyEnvConfigLoader(**data)
+    """
+
+    @staticmethod
+    @abstractmethod
+    def load(file_path: str) -> "EnvironmentConfig":
+        """
+        Load an environment configuration from a YAML file.
+        Must instantiate and return a subclass of
+        EnvironmentConfig.
         """
         pass

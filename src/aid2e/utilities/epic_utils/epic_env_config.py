@@ -108,8 +108,8 @@ class EpicEnvConfigLoader(EnvironmentConfigLoader):
         """
         # should EITHER provide data as a dict OR a file path
         # as a string
-        is_data_provided = env_data != None
-        is_file_provided = file_path != None
+        is_data_provided = env_data is not None
+        is_file_provided = file_path is not None
         if is_data_provided and is_file_provided:
             raise RuntimeWarning(f"Both data and a file path ({file_path}) were provided. Defaulting to data.")
 
@@ -145,8 +145,8 @@ class EpicConfigLoader(EnvironmentConfigLoader):
         """
         # should EITHER provide data as a dict OR a file path
         # as a string
-        is_data_provided = env_data != None
-        is_file_provided = file_path != None
+        is_data_provided = env_data is not None
+        is_file_provided = file_path is not None
         if is_data_provided and is_file_provided:
             raise RuntimeWarning(f"Both data and a file path ({file_path}) were provided. Defaulting to data.")
 

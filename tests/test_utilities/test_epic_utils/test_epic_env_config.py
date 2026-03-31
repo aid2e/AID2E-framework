@@ -22,7 +22,7 @@ def test_epic_env_config_loader(tmp_path):
     config_path = tmp_path /  "epic_env.config"
     config_path.write_text(yaml.safe_dump(_sample_epic_env_payload()))
 
-    config = EpicEnvConfigLoader.load(str(config_path))
+    config = EpicEnvConfigLoader.load(file_path=str(config_path))
     assert isinstance(config, EpicEnvConfig)
     assert "/home/eic/.bin/eic-shell" == config.eic_shell
     assert "/home/eic/epic" == config.epic_install

@@ -270,12 +270,7 @@ class ProblemConfigLoader:
         # Parse epic_configuration if present (legacy hydration)
         epic_config = None
         if "epic_configuration" in problem:
-            #epic_config_data = problem["epic_configuration"] # TEST
-            epic_config_data = problem
-            if isinstance(epic_config_data, dict):
-                epic_config = EpicConfigLoader.load(epic_config_data)
-            elif isinstance(epic_config_data, EpicConfiguration):
-                epic_config = epic_config_data
+            epic_config = EpicConfigLoader.load(env_data=problem)
 
         # Parse environment config if any present
         env_config = None
@@ -283,24 +278,8 @@ class ProblemConfigLoader:
             config_model = components['config_model']
             config_loader = components['config_loader']
             if config_model.key in problem:
-                #env_config_data = problem[config_model.key] # TEST
-                env_config_data = problem
-                if isinstance(env_config_data, dict):
-                    env_config = config_loader.load(env_config_data)
-                elif isinstance(env_config_data, config_model):
-                    env_config = env_config_data
+                env_config = config_loader.load(env_data=problem)
 
-        """FIXME this needs to work with inheritance scheme
-        # Merge into stack_configurations map for extensibility
-        stack_confs = {}
-        if "stack_configurations" in problem:
-            if not isinstance(problem["stack_configurations"], dict):
-                raise ValueError("stack_configurations must be a mapping")
-            stack_confs.update(problem["stack_configurations"])
-
-        if epic_config is not None:
-            stack_confs.setdefault("epic", epic_config)
-        """
         # Build ProblemConfiguration
         return ProblemConfiguration(
             name=problem["name"],
@@ -312,7 +291,6 @@ class ProblemConfigLoader:
             observations=problem.get("observations"),
             environment_config=env_config,
             epic_configuration=epic_config,
-#            stack_configurations=stack_confs, # FIXME this needs to work with inheritance scheme
         )
 
     @staticmethod

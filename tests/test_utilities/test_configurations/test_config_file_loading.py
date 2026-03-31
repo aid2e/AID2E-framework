@@ -100,12 +100,8 @@ def test_problem_config_loader_stack_registry(tmp_path):
     config_path.write_text(yaml.safe_dump(problem_payload))
 
     problem_config = ProblemConfigLoader.load(str(config_path))
-
-    """FIXME this needs to work with inheritance scheme
-    assert "epic" in problem_config.stack_configurations
-    assert isinstance(problem_config.stack_configurations["epic"], EpicEnvConfig)
-    assert problem_config.stack_configurations["epic"].epic_install == "/opt/epic"
-    """
+    assert isinstance(problem_config.environment_config, EpicEnvConfig)
+    assert problem_config.environment_config.epic_install == "/home/eic/epic"
 
     # legacy epic_configuration still works and is also mirrored
     problem_payload["problem"]["epic_configuration"] = {
@@ -116,7 +112,7 @@ def test_problem_config_loader_stack_registry(tmp_path):
     config_path.write_text(yaml.safe_dump(problem_payload))
     problem_config2 = ProblemConfigLoader.load(str(config_path))
     assert problem_config2.epic_configuration is not None
-    #assert problem_config2.stack_configurations["epic"].epic_install == "/home/eic/epic" # FIXME
+    assert problem_config2.epic_configuration.epic_install == "/opt/epic/legacy"
 
 
 def test_full_config_loader_combines_problem_and_optimization(tmp_path):

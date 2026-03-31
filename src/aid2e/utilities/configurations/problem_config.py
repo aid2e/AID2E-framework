@@ -272,7 +272,7 @@ class ProblemConfigLoader:
         if "epic_configuration" in problem:
             epic_config_data = problem["epic_configuration"]
             if isinstance(epic_config_data, dict):
-                epic_config = EpicConfiguration(**epic_config_data)
+                epic_config = EpicConfigurationLoader.load(**epic_config_data)
             elif isinstance(epic_config_data, EpicConfiguration):
                 epic_config = epic_config_data
 
@@ -284,7 +284,7 @@ class ProblemConfigLoader:
             if config_model.key in problem:
                 env_config_data = problem[config_model.key]
                 if isinstance(env_config_data, dict):
-                    env_config = config_loader.load(**env_config_data)
+                    env_config = config_loader.load(str())
                 elif isinstance(env_config_data, config_model):
                     env_config = env_config_data
 

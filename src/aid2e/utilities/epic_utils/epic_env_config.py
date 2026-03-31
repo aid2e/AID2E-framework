@@ -1,6 +1,6 @@
 """ePIC environment configuration utilities."""
 
-from typing import Optional
+from typing import Any, Dict, Optional
 from pydantic import BaseModel, model_validator
 from pathlib import Path
 import os
@@ -96,25 +96,35 @@ class EpicEnvConfigLoader(EnvironmentConfigLoader):
     files, instantiates EpicEnvConfig.
     """
     @staticmethod
-    def load(file_path: str) -> "EpicEnvConfig":
+    def load(env_data: Dict[str, Any] = None, file_path: str = None) -> "EpicEnvConfig":
         """
         Load ePIC environment configuration.
 
         Args:
+
             file_path: Path to YAML configuration file
         Returns:
             EpicEnvConfig instance
         """
-        path = pathlib.Path(file_path)
-        if not path.exists():
-            raise FileNotFoundError(f"Configuration file not found: {file_path}")
+        # should EITHER provide data as a dict OR a file path
+        # as a string
+        is_data_provided = env_data != None
+        is_file_provided = file_path != None
+        if is_data_provided and is_file_provided:
+            raise RuntimeWarning(f"Both data and a file path ({file_path}) were provided. Defaulting to data.")
 
-        with open(path, 'r') as file:
-            data = yaml.safe_load(file)
+        data = None
+        if is_data_provided:
+            data = env_data
+        elif is_file_provided:
+            path = pathlib.Path(file_path)
+            if not path.exists():
+                raise FileNotFoundError(f"Configuration file not found: {file_path}")
+            with open(path, 'r') as file:
+                data = yaml.safe_load(file)
 
         if EpicEnvConfig.key not in data:
-            raise ValueError(f"Invalid data configuration: missing '{EpicEnvConfig.key}' in {file_path}")
-
+            raise ValueError(f"Invalid data configuration: missing '{EpicEnvConfig.key}' in data")
         return EpicEnvConfig(**data[EpicEnvConfig.key])
 
 
@@ -124,7 +134,7 @@ class EpicConfigLoader(EnvironmentConfigLoader):
     for legacy EpicConfiguration.
     """
     @staticmethod
-    def load(file_path: str) -> "EpicConfiguration":
+    def load(env_data: Dict[str, Any] = None, file_path: str = None) -> "EpicConfiguration":
         """
         Load legacy ePIC environment configuration.
 
@@ -133,14 +143,23 @@ class EpicConfigLoader(EnvironmentConfigLoader):
         Returns:
             EpicConfiguration instance
         """
-        path = pathlib.Path(file_path)
-        if not path.exists():
-            raise FileNotFoundError(f"Configuration file not found: {file_path}")
+        # should EITHER provide data as a dict OR a file path
+        # as a string
+        is_data_provided = env_data != None
+        is_file_provided = file_path != None
+        if is_data_provided and is_file_provided:
+            raise RuntimeWarning(f"Both data and a file path ({file_path}) were provided. Defaulting to data.")
 
-        with open(path, 'r') as file:
-            data = yaml.safe_load(file)
+        data = None
+        if is_data_provided:
+            data = env_data
+        elif is_file_provided:
+            path = pathlib.Path(file_path)
+            if not path.exists():
+                raise FileNotFoundError(f"Configuration file not found: {file_path}")
+            with open(path, 'r') as file:
+                data = yaml.safe_load(file)
 
-        if EpicConfiguration.key not in data:
-            raise ValueError(f"Invalid data configuration: missing '{EpicConfiguration.key}' in {file_path}")
-
+        if EpicEnvConfig.key not in data:
+            raise ValueError(f"Invalid data configuration: missing '{EpicEnvConfig.key}' in data")
         return EpicConfiguration(**data[EpicConfiguration.key])

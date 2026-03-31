@@ -30,7 +30,7 @@ from .objectives import (
     ObjectiveComputationSpec,
 )
 from .stack_registry import StackRegistry
-from aid2e.utilities.epic_utils import EpicConfiguration
+from aid2e.utilities.epic_utils import EpicConfiguration, EpicConfigLoader
 
 
 class Objective(BaseModel):
@@ -270,9 +270,10 @@ class ProblemConfigLoader:
         # Parse epic_configuration if present (legacy hydration)
         epic_config = None
         if "epic_configuration" in problem:
-            epic_config_data = problem["epic_configuration"]
+            #epic_config_data = problem["epic_configuration"] # TEST
+            epic_config_data = problem
             if isinstance(epic_config_data, dict):
-                epic_config = EpicConfigurationLoader.load(epic_config_data)
+                epic_config = EpicConfigLoader.load(epic_config_data)
             elif isinstance(epic_config_data, EpicConfiguration):
                 epic_config = epic_config_data
 
@@ -282,7 +283,8 @@ class ProblemConfigLoader:
             config_model = components['config_model']
             config_loader = components['config_loader']
             if config_model.key in problem:
-                env_config_data = problem[config_model.key]
+                #env_config_data = problem[config_model.key] # TEST
+                env_config_data = problem
                 if isinstance(env_config_data, dict):
                     env_config = config_loader.load(env_config_data)
                 elif isinstance(env_config_data, config_model):

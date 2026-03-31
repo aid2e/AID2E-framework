@@ -39,6 +39,9 @@ class EpicEnvConfig(EnvironmentConfig):
     eic_recon_install: Optional[str] = None
     eic_recon: Optional[str] = None
 
+    # set key associated with model
+    key: ClassVar[str] = "epic_environment"
+
     @model_validator(mode='before')
     @classmethod
     def ensure_shell_or_image(cls, data):
@@ -82,6 +85,8 @@ class EpicConfiguration(EpicEnvConfig):
     """
     Alias of EpicEnvConfig for backwards compatibility.
     """
+    # set key associated with model
+    key: ClassVar[str] = "epic_configuration"
     pass
 
 
@@ -90,7 +95,6 @@ class EpicEnvConfigLoader(EnvironmentConfigLoader):
     Loader for ePIC environment configuration. Loads YAML
     files, instantiates EpicEnvConfig.
     """
-
     @staticmethod
     def load(file_path: str) -> "EpicEnvConfig":
         """
@@ -108,7 +112,35 @@ class EpicEnvConfigLoader(EnvironmentConfigLoader):
         with open(path, 'r') as file:
             data = yaml.safe_load(file)
 
-        if 'epic_environment' not in data:
-            raise ValueError(f"Invalid data configuration: missing 'epic_environment' in {file_path}")
+        if EpicEnvConfig.key not in data:
+            raise ValueError(f"Invalid data configuration: missing '{EpicEnvConfig.key}' in {file_path}")
 
-        return EpicEnvConfig(**data['epic_environment'])
+        return EpicEnvConfig(**data[EpicEnvConfig.key])
+
+
+class EpicConfigLoader(EnvironmentConfigLoader):
+    """
+    Parallels EpicEnvConfigLoader to provide a loader
+    for legacy EpicConfiguration.
+    """
+    @staticmethod
+    def load(file_path: str) -> "EpicConfiguration":
+        """
+        Load legacy ePIC environment configuration.
+
+        Args:
+            file_path: Path to YAML configuration file
+        Returns:
+            EpicConfiguration instance
+        """
+        path = pathlib.Path(file_path)
+        if not path.exists():
+            raise FileNotFoundError(f"Configuration file not found: {file_path}")
+
+        with open(path, 'r') as file:
+            data = yaml.safe_load(file)
+
+        if EpicConfiguration.key not in data:
+            raise ValueError(f"Invalid data configuration: missing '{EpicConfiguration.key}' in {file_path}")
+
+        return EpicConfiguration(**data[EpicConfiguration.key])

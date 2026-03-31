@@ -116,7 +116,7 @@ def test_problem_config_loader_stack_registry(tmp_path):
     config_path.write_text(yaml.safe_dump(problem_payload))
     problem_config2 = ProblemConfigLoader.load(str(config_path))
     assert problem_config2.epic_configuration is not None
-    #assert problem_config2.stack_configurations["epic"].epic_install == "/opt/epic" # FIXME this needs to work with inheritance scheme
+    #assert problem_config2.stack_configurations["epic"].epic_install == "/home/eic/epic" # FIXME
 
 
 def test_full_config_loader_combines_problem_and_optimization(tmp_path):

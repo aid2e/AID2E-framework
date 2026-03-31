@@ -26,6 +26,12 @@ class EnvironmentConfig(ABC, BaseModel):
         ...         os.environ['GEOMETRY_INSTALL'] = self.geometry_install
         ...         print(f"[INFO] Set $GEOMETRY_INSTALL to {self.geometry_install}")
     """
+    @property
+    @abstractmethod
+    def key(self) -> str:
+        """YAML key associated with model (e.g. epic_environment_config)
+        """
+        pass
 
     @abstractmethod
     def activate(self) -> None:

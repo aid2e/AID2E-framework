@@ -11,6 +11,7 @@ from .epic_design_config import (
 )
 from .epic_env_config import (
 	EpicConfiguration,
+	EpicConfigLoader,
 	EpicEnvConfig,
 	EpicEnvConfigLoader,
 )
@@ -35,6 +36,7 @@ __all__ = [
 	"EpicDesignParameters",
 	"EpicDesignConfigLoader",
 	"EpicConfiguration",
+	"EpicConfigLoader",
 	"EpicEnvConfig",
         "EpicEnvConfigLoader",
 	"EpicGeoLayer",

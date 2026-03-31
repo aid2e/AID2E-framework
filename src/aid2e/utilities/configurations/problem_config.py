@@ -23,13 +23,14 @@ from pathlib import Path
 import yaml
 
 from .design_config import DesignConfig, DesignConfigLoader
+from .env_config import EnvironmentConfig, EnvironmentConfigLoader
 from .objectives import (
     ObjectiveDirection,
     ObjectiveDefinition,
     ObjectiveComputationSpec,
 )
 from .stack_registry import StackRegistry
-from aid2e.utilities.epic_utils.epic_env_config import EpicConfiguration
+from aid2e.utilities.epic_utils import EpicConfiguration
 
 
 class Objective(BaseModel):
@@ -75,46 +76,16 @@ class ProblemConfiguration(BaseModel):
     work_location: str
     problem_type: str  # e.g., "EPIC_TRACKING", "DTLZ2", "CLOSURE_MOO"
 
-    # Accept any subclass of DesignConfig, including EpicDesignConfig
+    # Accept any subclass of DesignConfig and EnvironmentConfig, including
+    # EpicDesignConfig and EpicEnvConfig
     design_config: DesignConfig
     objectives: List[ObjectiveDefinition]
     observations: Optional[List[Dict[str, Any]]] = Field(default=None)
+    environment_config: Optional[EnvironmentConfig] = Field(default=None)
     epic_configuration: Optional[EpicConfiguration] = Field(
         default=None,
-        description="ePIC-specific environment configuration (optional)",
+        description="Optional ePIC-specific environment configuration (legacy interface)",
     )
-    stack_configurations: Dict[str, Any] = Field(
-        default_factory=dict,
-        description="Map of stack name to config object (e.g. epic)",
-    )
-
-    @field_validator("stack_configurations", mode="before")
-    @classmethod
-    def normalize_stack_configurations(cls, raw):
-        if raw is None:
-            return {}
-        if not isinstance(raw, dict):
-            raise ValueError("stack_configurations must be a mapping")
-
-        normalized: Dict[str, Any] = {}
-        for stack_name, config_payload in raw.items():
-            try:
-                config_model = StackRegistry.get_config_model(stack_name)
-            except KeyError:
-                normalized[stack_name] = config_payload
-                continue
-
-            if isinstance(config_payload, config_model):
-                normalized[stack_name] = config_payload
-            elif isinstance(config_payload, dict):
-                normalized[stack_name] = config_model(**config_payload)
-            else:
-                raise ValueError(
-                    f"stack_configurations[{stack_name}] must be {config_model.__name__} or dict"
-                )
-
-        return normalized
-
 
     @field_validator("objectives", mode="before")
     @classmethod
@@ -305,6 +276,19 @@ class ProblemConfigLoader:
             elif isinstance(epic_config_data, EpicConfiguration):
                 epic_config = epic_config_data
 
+        # Parse environment config if any present
+        env_config = None
+        for stack, components in StackRegistry.list_registered_stacks().items():
+            config_model = components['config_model']
+            config_loader = components['config_loader']
+            if config_model.key in problem:
+                env_config_data = problem[config_model.key]
+                if isinstance(env_config_data, dict):
+                    env_config = config_loader.load(**env_config_data)
+                elif isinstance(env_config_data, config_model):
+                    env_config = env_config_data
+
+        """FIXME this needs to work with inheritance scheme
         # Merge into stack_configurations map for extensibility
         stack_confs = {}
         if "stack_configurations" in problem:
@@ -314,7 +298,7 @@ class ProblemConfigLoader:
 
         if epic_config is not None:
             stack_confs.setdefault("epic", epic_config)
-
+        """
         # Build ProblemConfiguration
         return ProblemConfiguration(
             name=problem["name"],
@@ -324,8 +308,9 @@ class ProblemConfigLoader:
             design_config=design_config,
             objectives=objectives_raw,
             observations=problem.get("observations"),
+            environment_config=env_config,
             epic_configuration=epic_config,
-            stack_configurations=stack_confs,
+#            stack_configurations=stack_confs, # FIXME this needs to work with inheritance scheme
         )
 
     @staticmethod

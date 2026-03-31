@@ -9,7 +9,7 @@ Repository: https://github.com/aid2e/AID2E-framework.git
 
 from abc import ABC, abstractmethod
 from pydantic import BaseModel
-from typing import Generic, TypeVar
+from typing import Any, Dict
 
 
 class EnvironmentConfig(ABC, BaseModel):
@@ -60,7 +60,7 @@ class EnvironmentConfigLoader(ABC):
 
     @staticmethod
     @abstractmethod
-    def load(file_path: str) -> "EnvironmentConfig":
+    def load(env_data: Dict[str, Any] = None, file_path: str = None) -> "EnvironmentConfig":
         """
         Load an environment configuration from a YAML file.
         Must instantiate and return a subclass of

@@ -188,18 +188,18 @@ def example_configure_layers():
     )
     cfg_sim_A = EpicLayerConfig(
         name = "sim",
-        inputs = ["epic/inputs/central_photons_bin0.py"],
+        inputs = ["inputs/central_photons_bin0.py"],
         outputs = ["{{context.execution_dir}}/central_photons_bin0.edm4hep.root"],
         command = "ddsim",
     )
     cfg_sim_B = EpicLayerConfig(
         name = "sim",
-        inputs = ["epic/inputs/central_photons_bin1.py"],
+        inputs = ["inputs/central_photons_bin1.py"],
         outputs = ["{{context.execution_dir}}/central_photons_bin1.edm4hep.root"],
     )
     cfg_sim_C = EpicLayerConfig(
         name = "sim",
-        inputs = ["epic/inputs/central_photons_bin2.py"],
+        inputs = ["inputs/central_photons_bin2.py"],
         outputs = ["{{context.execution_dir}}/central_photons_bin2.edm4hep.root"],
     )
     cfg_ana_A = EpicLayerConfig(

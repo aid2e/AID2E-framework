@@ -35,6 +35,9 @@ import json
 import os
 from pathlib import Path
 
+from aid2e.utilities.configurations.problem_config import (
+    ProblemConfig,
+)
 from aid2e.utilities.configurations.experimental_stack_config import (
     StackLayerConfig,
 )
@@ -86,6 +89,8 @@ class JobContext:
         logs: Execution logs (stdout/stderr).
         execution_dir: Working directory for job execution.
         stage_context: Parent stage context (optional).
+        problem_config: Problem configuration for accessing stack-
+                        dependent design space
     """
     job_id: str
     stage_id: str
@@ -96,7 +101,8 @@ class JobContext:
     logs: List[str] = field(default_factory=list)
     execution_dir: Optional[str] = None
     stage_context: Optional[StageContext] = None
-    
+    problem_config: Optional[ProblemConfig] = None
+
     def xcom_push(self, key: str, value: Any) -> None:
         """Push data to XCom for downstream jobs.
         

@@ -34,6 +34,9 @@ import json
 import logging
 from datetime import datetime
 
+from aid2e.utilities.configurations.problem_config import (
+    ProblemConfig,
+)
 from .workflow_config import (
     WorkflowDefinition,
     BranchDefinition,
@@ -77,6 +80,9 @@ class DAGExecutor:
         base_output_dir: Base directory for all execution outputs.
         logger: Execution logger for checkpoints and logs.
         global_xcom: Shared XCom storage across all jobs.
+        problem_config: Problem configuration for accessing stack-
+                        dependent design space and environment
+                        configuration (optional)
         
     Example:
         >>> workflow = WorkflowDefinition(name="dtlz2_eval", ...)
@@ -91,6 +97,7 @@ class DAGExecutor:
         workflow: WorkflowDefinition,
         base_output_dir: str = "/tmp/aid2e_runs",
         log_level: str = "INFO",
+        problem_config: Optional[ProblemConfig] = None,
     ):
         """Initialize DAG Executor.
         
@@ -102,12 +109,18 @@ class DAGExecutor:
         self.workflow = workflow
         self.base_output_dir = Path(base_output_dir)
         self.log_level = log_level
-        
+        self.problem_config = problem_config
+
         # Create workflow-specific output directory
         workflow_dir = self.base_output_dir / workflow.name / datetime.now().strftime("%Y%m%d_%H%M%S")
         workflow_dir.mkdir(parents=True, exist_ok=True)
         self.output_dir = workflow_dir
         
+        # If provided, activate environment variables
+        if self.problem_config is not None:
+            if self.problem_config.environment_config is not None:
+                self.problem_config.environment_config.activate()
+
         # Initialize logger
         self.logger = ExecutionLogger(
             job_name=f"executor_{workflow.name}",
@@ -411,6 +424,7 @@ class DAGExecutor:
             xcom=self.global_xcom,
             stage_context=stage_context,
             execution_dir=str(self.output_dir / "jobs" / job_id),
+            problem_config=self.problem_config,
         )
         
         # Ensure job execution directory exists

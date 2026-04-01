@@ -153,7 +153,7 @@ class EpicStack(ExperimentStack):
             raise RuntimeError("No JobContext provided to EpicStack.prepare_for_execution")
 
         # Need EpicDesignConfig to determine geometry modifications
-        if context.design is None:
+        if context.problem_config.design_config is None:
             raise AttributeError("DesignConfig not present in job context. Must define a DesignConfig")
         if not isinstance(context.design, EpicDesignConfig):
             raise TypeError("DesignConfig is not an instance of EpicDesignConfig. Must use EpicDesignConfig if running with ePIC stack")

@@ -74,7 +74,7 @@ class EpicSimLayer(StackLayer):
     """Simulation layer of ePIC stack"""
     name = "sim"
     command = "npsim"
-    rule = '{command} {arguments} {inputs} {outputs}'
+    rule = '{command} --compactFile $DETECTOR_PATH/$DETECTOR_CONFIG.xml {arguments} {inputs} {outputs}'
 
     def _make_input_arg(self, inputs: List[str]) -> str:
         """
@@ -82,14 +82,23 @@ class EpicSimLayer(StackLayer):
         layer. Applies appropriate CLI option based
         on file extension of input.
         """
+        has_gun = False
+        has_macro = False
         formatted_inputs = list()
         for in_file in inputs:
             if in_file.endswith(".py"):
                 formatted_inputs.append(f"--steeringFile {in_file}")
+                has_gun = True
             if in_file.endswith(".hepmc3.root") or in_file.endswith(".hepmc"):
                 formatted_inputs.append(f"-I {in_file}")
             if in_file.endswith(".mac"):
                 formatted_inputs.append(f"--macroFile {in_file}")
+                has_macro = True
+
+        if has_gun:
+            formatted_inputs.insert(0, "-G")
+        if has_macro:
+            formatted_inputs.insert(0, "--enableG4GPS")
         return ' '.join(formatted_inputs)
 
     def _make_output_arg(self, outputs: List[str]) -> str:

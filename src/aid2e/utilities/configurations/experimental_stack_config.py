@@ -99,7 +99,7 @@ class StackJobDefinition(JobDefinition):
         layers: Layer configurations to run in this job
     """
     command: Optional[str] = Field(default="./{script}", description="Executable command")
-    script: Optional[str] = Field(default="do_job_{payload[job_id]}.sh", description="Driver script name")
+    script: Optional[str] = Field(default="do_job_{{context.job_id}}.sh", description="Driver script name")
     layers: List[StackLayerConfig]
 
 

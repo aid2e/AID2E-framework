@@ -81,6 +81,7 @@ __all__ = [
 	"BashExecutionEngine",
 	"PythonExecutionEngine",
 	"ContainerExecutionEngine",
+        "StackExecutionEngine",
 	# DAG Executor
 	"DAGExecutor",
 	"create_executor_from_config",

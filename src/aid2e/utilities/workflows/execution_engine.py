@@ -210,7 +210,7 @@ class BashExecutionEngine(BaseExecutionEngine):
         env: Environment variables (optional).
         
     Example:
-        >>> engine = BashExecutionEngine(
+        >epic/scripts/bic_angular_reso.py>> engine = BashExecutionEngine(
         ...     job_id='run_sim',
         ...     bash_command='python scripts/simulate.py --input {input_file}',
         ...     env={'PYTHONUNBUFFERED': '1'}
@@ -607,7 +607,7 @@ class StackExecutionEngine(BaseExecutionEngine):
             context: Task context.
 
         Returns:
-            Dict with 'container_id', 'stdout', 'stderr', 'returncode'.
+            Dict with 'stdout', 'stderr', 'returncode'.
 
         Raises:
             RuntimeError: If execution fails
@@ -617,10 +617,18 @@ class StackExecutionEngine(BaseExecutionEngine):
         # Do any preparations ahead of execution
         preparations = stack.prepare_for_execution(context = context)
 
+        # Substitute templates in each layer's inputs, outputs, args
+        self._apply_template_substitution(context)
+
         # Build driver script and command to run it
         driver = f"{context.execution_dir}/{self.job_id}_driver.sh"
-        command = stack.make_driver_command(driver, preparations)
-        stack.make_driver_script(driver, layers, preparations)
+        command = stack.make_driver_command(driver)
+        stack.make_driver_script(
+            script=driver,
+            configs=self.layers,
+            preparations=preparations,
+            context=context,
+        )
 
         # Append script and command to context
         context.add_log(f"Driver script: {driver}")
@@ -651,7 +659,7 @@ class StackExecutionEngine(BaseExecutionEngine):
             context.xcom_push('return_value', output)
 
             if result.returncode != 0:
-                raise RuntimeError(f"{stack_type} execution failed with code {result.returncode}")
+                raise RuntimeError(f"{self.stack_type} execution failed with code {result.returncode}")
             return output
 
         # And throw generic exception if
@@ -659,6 +667,55 @@ class StackExecutionEngine(BaseExecutionEngine):
         except Exception as e:
             context.add_log(f"ERROR: {str(e)}")
             raise
+
+    def _apply_template_substitution(self, context: JobContext) -> None:
+        """
+        Apply template substitution to layer configs
+
+        Args:
+            context: Task context
+        """
+        for layer in self.layers:
+            resolved_inputs = list()
+            for layer_input in layer.inputs:
+                layer_input = self._substitute_templates(layer_input, context)
+                resolved_inputs.append(layer_input)
+            layer.inputs = resolved_inputs
+
+            resolved_outputs = list()
+            for layer_output in layer.outputs:
+                layer_output = self._substitute_templates(layer_output, context)
+                resolved_outputs.append(layer_output)
+            layer.outputs = resolved_outputs
+
+            if layer.arguments is not None:
+                resolved_arguments = list()
+                for layer_argument in layer.arguments:
+                    layer_argument = self._substitute_templates(layer_argument, context)
+                    resolved_arguments.append(layer_argument)
+                layer.arguments = resolved_arguments
+
+    def _substitute_templates(self, text: str, context: JobContext) -> str:
+        """Simple template variable substitution.
+        
+        Supports:
+        - {design_point.key} → from context.design_point
+        - {job_id} → from context
+        - {context.execution_dir} → from context
+        
+        Args:
+            text: Text with template variables.
+            context: Task context.
+            
+        Returns:
+            Text with variables substituted.
+        """
+        result = text
+        result = result.replace("{{context.job_id}}", str(context.job_id))
+        result = result.replace("{{context.execution_dir}}", str(context.execution_dir))
+        for key, value in context.design_point.items():
+            result = result.replace(f"{{design_point.{key}}}", str(value))
+        return result
 
 
 __all__ = [

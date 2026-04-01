@@ -28,7 +28,7 @@ class EpicGeoLayer(StackLayer):
     """Geometry layer of ePIC stack"""
     name = "geo"
     command = "checkOverlaps"
-    rule = '{command} {arguments} {inputs} {outputs}'
+    rule = '{command} {arguments} -c {inputs} {outputs}'
 
     def _make_input_arg(self, inputs: List[str]) -> str:
         """
@@ -154,9 +154,10 @@ class EpicStack(ExperimentStack):
 
         # Need EpicDesignConfig to determine geometry modifications
         if context.problem_config.design_config is None:
-            raise AttributeError("DesignConfig not present in job context. Must define a DesignConfig")
-        if not isinstance(context.design, EpicDesignConfig):
-            raise TypeError("DesignConfig is not an instance of EpicDesignConfig. Must use EpicDesignConfig if running with ePIC stack")
+            raise AttributeError("DesignConfig not present in job context.")
+        if not isinstance(context.problem_config.design_config, EpicDesignConfig):
+            raise TypeError("DesignConfig is not an instance of EpicDesignConfig.")
+        design = context.problem_config.design_config
 
         # make sure a geometry directory has been defined as a template
         if 'EPIC_INSTALL' not in os.environ:
@@ -167,20 +168,20 @@ class EpicStack(ExperimentStack):
         if not os.path.exists(trial_geo_dir):
             shutil.copytree(template_geo_dir, trial_geo_dir)
 
-        modifications = context.design.get_xml_modifications(context.design_point)
+        modifications = design.get_xml_modifications(context.design_point)
         modify_xml_files(modifications)
         context.add_log(f"Modified geometry in job {context.job_id}")
 
         # list of commands to execute at start of driver script
         commands = "\n".join([
             "set -e\n",
-            f"if [ ! -f {trial_geo_dir}/compiled.log]; then",
+            f"if [ ! -f {trial_geo_dir}/compiled.log ]; then",
             f"  cmake -B {trial_geo_dir}/build -S {trial_geo_dir} -DCMAKE_INSTALL_PREFIX={trial_geo_dir}/install",
             f"  cmake --build {trial_geo_dir}/build",
             f"  cmake --install {trial_geo_dir}/build\n",
             "  time=$(date -u)",
-            f'  Job {context.job_id} ' + 'geometry compiled at ${time}" > ' + f"{trial_geo_dir}/compiled.log",
-            "fi\n",
+            f'  echo "Job {context.job_id} ' + 'geometry compiled at ${time}" > ' + f"{trial_geo_dir}/compiled.log",
+            "fi",
         ])
         return commands
 
@@ -205,7 +206,7 @@ class EpicStack(ExperimentStack):
 
         commands = self._make_commands(configs)
         commands.insert(0, self._determine_shebang(script))
-        if preprations != None:
+        if preparations != None:
             commands.insert(1, preparations)
 
         # reconstruct geometry dir for job
@@ -226,6 +227,7 @@ class EpicStack(ExperimentStack):
         text = "\n\n".join(commands)
         with open(script, 'w') as driver:
             driver.write(text)
+        os.chmod(script, 0o777)
 
     def make_driver_command(self, script: str, **kwargs) -> str:
         """

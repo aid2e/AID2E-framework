@@ -30,7 +30,6 @@ def modify_xml_files(modifications: Dict[str, List[Tuple[str, str, str, Any]]]) 
 
             path, attribute, units, value = parameter
             element = tree.getroot().find(path)
-            print(f"CHECK CHECK element = {element}")
 
             if units != '':
                 element.set(attribute, "{}*{}".format(value, units))

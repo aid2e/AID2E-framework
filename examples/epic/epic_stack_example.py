@@ -1,13 +1,13 @@
 """Example: Configuring and running layers of a stack
 
-This example demonstrates:
+This low-level example demonstrates:
 1. How to directly configure layers of an experimental
    stack in python
 2. Generate a driver script to run configured
    layers
-3. Run script as a stage in a worklow [IN PROGRESS]
+3. Run script as a stage in a worklow
 
-Project: AID2E v0.0.0
+Project: AID2E v0.0.0 - AI assisted Detector Design for EIC
 """
 
 from typing import List, Tuple
@@ -42,7 +42,7 @@ CONST = {
     "exec_dir" : "epic_example_exec",
     "design"   : {
         "epic_design_parameters" : {
-            "bemc" : {
+            "bic" : {
                 "file_path" : "compact/ecal/bic_default.xml",
                 "parameters" : {
                     "EcalBarrel_enable_staves_2" : {
@@ -70,16 +70,16 @@ CONST = {
             }
         },
         "optimization_groups" : {"default" : [
-            "bemc.EcalBarrel_enable_staves_2",
-            "bemc.EcalBarrel_enable_staves_4",
-            "bemc.EcalBarrel_enable_staves_6"
+            "bic.EcalBarrel_enable_staves_2",
+            "bic.EcalBarrel_enable_staves_4",
+            "bic.EcalBarrel_enable_staves_6"
         ]},
     },
     "enviro" : {
         "epic_environment" : {
-            "epic_install" : "./epic_example_test/epic",
+            "epic_install" : "epic_example_test/epic",
             "epic_config"  : "epic",
-            "eic_shell"    : "/home/dereka/.bin/eic-shell",
+            "eic_shell"    : "/path/to/my/eic-shell",
         },
     },
 }
@@ -155,13 +155,13 @@ def example_modify_geometry():
 
     # hard code path to compact file for testing
     design = CONST["design"]
-    design["epic_design_parameters"]["bemc"]["file_path"] = f"{CONST['test_dir']}/epic/compact/ecal/bic_default.xml"
+    design["epic_design_parameters"]["bic"]["file_path"] = f"{CONST['test_dir']}/epic/compact/ecal/bic_default.xml"
 
     # set up design configruation and generate
     # modifications to apply
     configuration = EpicDesignConfig(**design)
     parameters    = configuration.get_flat_parameters()
-    modifications = configuration.get_xml_modifications({"bemc.EcalBarrel_enable_staves_2" : 1})
+    modifications = configuration.get_xml_modifications({"bic.EcalBarrel_enable_staves_2" : 1})
     print(f"  -- parameters & modifications:\n    parameters = {parameters}\n    modifications = {modifications}")
 
     # apply changes to compact files
@@ -224,7 +224,7 @@ def example_configure_layers():
         inputs = ["{{context.execution_dir}}/central_photons.edm4eic.root"],
         outputs = ["{{context.execution_dir}}/central_photon_phi_resolution.hist.root"],
         arguments = ["-c phi", "-s 22"],
-        command = "epic/scripts/bic_angular_reso.py",
+        command = "scripts/bic_angular_reso.py",
         rule = "python {command} -i {inputs} -o {outputs} {arguments}",
     )
     cfgs = [cfg_geo, cfg_sim_A, cfg_sim_B, cfg_sim_C, cfg_ana_A, cfg_rec, cfg_ana_B]
@@ -265,7 +265,7 @@ def example_make_configs_and_context():
         job_id = "make_driver",
         stage_id = "test_stage",
         workflow_id = "test_workflow",
-        design_point = {"bemc.EcalBarrel_enable_staves_4" : 0},
+        design_point = {"bic.EcalBarrel_enable_staves_4" : 0},
         xcom = {},  # NOTE empty dict for testing
         artifacts = {},  # NOTE empty dict for testing
         logs = [f"{CONST['test_dir']}/make_test_driver.log"],
@@ -436,7 +436,7 @@ def example_run_script(layers: List[EpicLayerConfig], configs: Tuple[ProblemConf
         log_level = "INFO",
         problem_config = problem,
     )
-    design_point = {"bemc.EcalBarrel_enable_staves_6" : 0}
+    design_point = {"bic.EcalBarrel_enable_staves_6" : 0}
 
     print(f"\n  -- Running ePIC workflow...")
     objectives = executor.execute(design_point)

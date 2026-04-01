@@ -1,8 +1,8 @@
 # ============================================================================
 # ePIC BIC Single-Objective Optimization
 # ============================================================================
-# This example shows:
-#   1. An ePIC workflow: sim → reco → ana 
+# This example shows how to configure and run an entire
+# ePIC workflow in YAML.
 # ============================================================================
 
 # SECTION 1: PROBLEM DEFINITION
@@ -16,59 +16,56 @@ problem:
   # ePIC Environment Configuration
   # ==============================
   # Configure paths to the ePIC software stack. Either eic_shell OR
-  # singularity_image must be provided. If both are provided, singularity_image
-  # takes precedence.
-  epic_configuration:
-    # Option A: Use singularity image (recommended for reproducibility)
-    singularity_image: "/path/to/eic-shell.sif"
-    
-    # Option B: Use eic-shell script directly
-    # eic_shell: "/path/to/eic-shell"
-    
-    # Path to ePIC installation directory
-    epic_install: "/opt/epic"
-    
-    # Optional: Path to EIC reconstruction installation
-    # If not provided, defaults to {epic_install}/local
-    eic_recon_install: null
-    
-    # Optional: Override for EIC reconstruction command
-    eic_recon: null
+  # singularity_image must be provided. If both are provided,
+  # singularity_image takes precedence.
+  epic_environment:
+    # Option A: Use eic-shell script
+    eic_shell: "/path/to/my/eic-shell"
+
+    # Option B: Or use singularity image
+    # singularity_image: "/path/to/my/eic_xl-nightly.sif"
+
+    # Path to ePIC installation directory. This
+    # will be copied and modified during execution.
+    epic_install: "./epic"
+
+    # Geometry configuration file to use (e.g. epic, epic_full)
+    epic_configu=: "epic"
 
   # ===========================================================================
   # PARAMETERS: Define what we're optimizing
   # ===========================================================================
   # Here, we want to find the optimal combination of AstroPix
-  # staves in the BIC. Staves can be enabled ("1") or disabled
-  # ("0") in their xml files.
+  # staves in the BIC. Staves can be enabled (1) or disabled
+  # (0) in their xml files.
   design_space:
     epic_design_parameters:
       bic:
         parameters:
 
           enable_staves_2:
-            value: "0"
-            choices: ["0", "1"]
+            value: 0
+            choices: [0, 1]
             xml_path: ".//constant[@name='EcalBarrel_enable_staves_2']"
 
           enable_staves_3:
-            value: "1"
-            choices: ["0", "1"]
+            value: 1
+            choices: [0, 1]
             xml_path: ".//constant[@name='EcalBarrel_enable_staves_3']"
 
           enable_staves_4:
-            value: "1"
-            choices: ["0", "1"]
+            value: 1
+            choices: [0, 1]
             xml_path: ".//constant[@name='EcalBarrel_enable_staves_4']"
 
           enable_staves_5:
-            value: "0"
-            choices: ["0", "1"]
+            value: 0
+            choices: [0, 1]
             xml_path: ".//constant[@name='EcalBarrel_enable_staves_5']"
 
           enable_staves_6:
-            value: "1"
-            choices: ["0", "1"]
+            value: 1
+            choices: [0, 1]
             xml_path: ".//constant[@name='EcalBarrel_enable_staves_6']"
 
   # ========================================================================
@@ -78,7 +75,7 @@ problem:
   # will output the calculated eta resolution, which
   # we want to minimize
   objectives:
-    - name: "eta_resolution"
+    - name: "phi_resolution"
       direction: "minimize"
 
       # Objective-level scheduler (applies to this objective's execution)
@@ -94,12 +91,12 @@ problem:
       #      generated during workflow below
       objective_plan:
         script:
-          path: "examples/epic/scripts/bic_angular_reso.py"
-          output_file: "eta_resolution.json"
+          path: "scripts/<TODO IMPLEMENT>"
+          output_file: "photon_phi_resolution.json"
           timeout_sec: 60  # should take no more than 1 min to extract
       
       # Metrics to extract from the objective plan output
-      metrics_keys: ["eta_resolution"]
+      metrics_keys: ["phi_resolution"]
 
 # SECTION 2: SCHEDULER CONFIGURATION
 # Global scheduler defaults (can be overridden at workflow/branch/stage level)
@@ -137,36 +134,34 @@ workflows:
        # ======================================================================
        # STAGES: groups of sequential computation steps
        # ======================================================================
-       # TODO MORE DETAILS HERE
-       #  1. Run Gean4 simulation via npsim
-       #  2. Reconstruct output via eicrecon
-       #  3. Run analysis code over reconstructed output
+       # The workflow below has 3 stages:
+       #  1. Run overlap checks on modified geometry
+       #  2. Run Geant4 simulation via npsim for 3 kinematic points in parallel
+       #  3. Merge npsim output, run eicrecon on merged output, and finally
+       #     run analysis on eicrecon output
        stages:
-       # epic_stages?
+         epic_stages:
 
-          # In the 1st stage, we'll run the simulation + reconstruction
-          # for 3 kinematic points. If using JobLibRunner, Slurm, or
-          # similar for scheduler, these will run in parallel.
-          - name: "sim_and_reco"
-            description: "Simulate and reconstruct single e-"
-            # layers:
-            #   - epic_geo:
-            #       outputs:
-            #         - log file with geo output
-            #   - epic_sim:
-            #       inputs:
-            #         - steering file {job_id}
-            #       outputs: # ==> TODO Make opt: if none provided, converts inputs + job ID into file name
-            #         - sim out file
-            #       arguments:
-            #         - "-- something"
-            #   - epic_rec:
-            #       inputs:
-            #         - sim out file
-            #       outputs: # ==> TODO Also make opt: handle same way
-            #         - rec out file
-            #       arguments:
-            #         " -- something"
+           # Stage 1: run overlap checks
+           # ==================================================================
+           # NOTE: anything in {{ }} will be substituted during execution
+           - name: "geo"
+             description: "Check for overlaps in modified geomtry"
+             layers:
+               - epic_geo:
+                   outputs:
+                       - "{{context.execution_dir}}/geo.overlaps.txt"
+
+          # Stage 2: run Geant4 simulations
+          # ===================================================================
+          - name: "sim"
+            description: "Simulate single photons"
+            layers:
+              - epic_sim:
+                  inputs:
+                    - "inputs/central_photons_bin{{context.job_id}}.py"
+                  outputs:
+                    - "{{context.execution_dir}}/central_photons_bin{{context.job_id}}.edm4hep.root"
 
             # now we're going to create 3 copies of the jobs with job IDs
             # 0, 1, 2. These correspond to the 3 kinematic points to run,
@@ -185,28 +180,40 @@ workflows:
               retry_max: 2
               timeout_sec: 3600 # should take no more than 30 min. per kinematic point to run
 
-            # TODO here we need to specify the reco output
-            # as a ROOT artifact
-
-          # And in the 2nd stage, we'll run two "analysis" steps:
-          #   1. Merge output from the 1st stage
-          #   2. Run on the analysis code on the merged output
-          - name: "merge_and_ana"
-            description: "Merge reconstruction output and run analysis on it"
-            # layers:
-            #   - epic_ana:
-            #       inputs:
-            #         - artifacts from "sim_and_reco" stage
-            #       outputs:
-            #         - some name w/ job ID
-            #       command: "hadd"
-            #       rule: "{command} {etc}"
-            #  - epic_ana:
-            #      inputs:
-            #        - merged output
-            #      outputs:
-            #        - some name w/ job ID
-            #      command: "python scripts/resolution.py"
-
-            # TODO and here we specify the analysis output
-            # as a JSON (or otherwise) artifact
+          # Stage 3: merge, run eicrecon, and do anslysis
+          # ===================================================================
+          # NOTE: the "ana" layers of the ePIC stack are for any sort of user
+          # provided code (running an analysis, compiling a plugin, etc.).
+          #
+          # NOTE: also that the {command}, {inputs}, {outputs}, and {arguments}
+          # fields in rule will be substituted accordingly during execution
+          - name: "rec_and_ana"
+            description: "Merge simulation output, run reconstruction and analysis"
+            layers:
+              - epic_ana:
+                  inputs:
+                    - "{{context.execution_dir}}/central_photons_bin0.edm4hep.root"
+                    - "{{context.execution_dir}}/central_photons_bin1.edm4hep.root"
+                    - "{{context.execution_dir}}/central_photons_bin2.edm4hep.root"
+                  outputs:
+                    - "{{context.execution_dir}}/central_photons.edm4hep.root"
+                  command: "hadd"
+                  rule: "{command} -f {outputs} {inputs}"
+              - epic_rec:
+                  inputs:
+                    - "{{context.exeuction_dir}}/central_photons.edm4hep.root"
+                  outputs:
+                    - "{{context.execution_dir}}/central_photons.edm4eic.root"
+                  arguments:
+                    - "-Pnthreads=8"
+                    - "-Peicrecon:LogLevel=debug"
+              - epic_ana:
+                  inputs:
+                    - "{{context.execution_dir}}/central_photons.edm4eic.root"
+                  outputs:
+                    - "{{context.execution_dir}}/central_photons.hist.root"
+                  arguments:
+                    - "-c phi"
+                    - "-s 22"
+                  command: "scripts/bic_angular_reso.py"
+                  rule: "python {command} -i {inputs} -o {outputs} {arguments}"

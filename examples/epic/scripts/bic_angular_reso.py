@@ -12,6 +12,7 @@ Project: AID2E v0.0.0 - AI assisted Detector Design for EIC
 """
 
 import argparse as ap
+import json
 import numpy as np
 import sys
 from dataclasses import dataclass
@@ -58,7 +59,7 @@ class Options:
 
 # default options
 DEFAULT_OPTS = Options(
-    ifiles = ["root://dtn-eic.jlab.org//volatile/eic/EPIC/RECO/25.12.0/epic_craterlake/SINGLE/e-/5GeV/45to135deg/e-_5GeV_45to135deg.0099.eicrecon.edm4eic.root"],
+    ifiles = ["root://dtn-eic.jlab.org//volatile/eic/EPIC/RECO/26.02.0/epic_craterlake/SINGLE/e-/5GeV/45to135deg/e-_5GeV_45to135deg.0099.eicrecon.edm4eic.root"],
     ofile = "e-_5GeV_45to135deg.0099.angreso.hist.root",
     excludes = [],
 )
@@ -286,14 +287,20 @@ def CalculateHitAngReso(opts: Options = DEFAULT_OPTS) -> Dict[str, float]:
 
     # wrap up script ----------------------------------------------------------
 
-    # save objects
+    # save root objects
     with ROOT.TFile(opts.ofile, "recreate") as out:
         out.WriteObject(fdiff, "fAngRes")
         out.WriteObject(hdiff, "hAngRes")
         out.Close()
 
+    # save metrics to a json file
+    metrics = {f"{opts.angle}_resolution" : fdiff.GetParameter(2)}
+    js_out  = opts.ofile.replace(".root", ".json")
+    with open(js_out, 'w') as o:
+       json.dump(metrics, o)
+
     # and return fit width as resolution
-    return {f"{opts.angle}_resolution", fdiff.GetParameter(2)}
+    return {f"{opts.angle}_resolution" : fdiff.GetParameter(2)}
 
 
 # =============================================================================

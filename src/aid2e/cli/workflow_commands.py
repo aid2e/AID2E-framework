@@ -17,6 +17,7 @@ import click
 
 from aid2e.utilities.configurations import load_config
 
+from aid2e.utilities.workflows.toy_evaluator import run_epic_b0_toy_optimization
 
 @click.command(name="optimize")
 @click.argument("config_file", type=click.Path(exists=True))
@@ -60,9 +61,14 @@ def optimize(config_file: str, validate_only: bool, verbosity: int, log_file: Op
         # 3. Run optimization loop
         # 4. Save results to config.problem.output_location
         
-        click.echo(click.style("Note: Optimizer execution not yet implemented.", fg="yellow"))
-        click.echo("The configuration has been validated and is ready for optimization.")
-        
+        # click.echo(click.style("Note: Optimizer execution not yet implemented.", fg="yellow"))
+        # click.echo("The configuration has been validated and is ready for optimization.")
+
+        # === Addressed TODO for B0 (toy model placeholder as objective function, to be replaced by Geant4 simulations later)
+        if config.problem.problem_type == "EPIC_B0":
+            run_epic_b0_toy_optimization(config, verbosity)
+            return
+
     except Exception as e:
         click.echo(click.style(f"✗ Error: {e}", fg="red"), err=True)
         if verbosity > 1:

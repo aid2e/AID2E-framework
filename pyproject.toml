@@ -35,15 +35,28 @@ dependencies = [
     "pyyaml>=5.4",
     "pydantic>=2.0",
     "click>=8.0",
-    "ax-platform==1.0.0",
+    "scikit-learn>=0.24",
+    "pymoo>=0.6",
+    "joblib>=1.0",
+    "ax-platform<=0.2.10; python_version < '3.9'",
+    "ax-platform==0.3.7; python_version >= '3.9' and python_version < '3.11'",
+    "ax-platform==1.0.0; python_version >= '3.11'",
 ]
 
 [project.optional-dependencies]
 mobo = ["scikit-learn>=0.24"]
 moea = ["pymoo>=0.6"]
 joblib = ["joblib>=1.0"]
-slurm = ["pyclusters>=1.0"]
-panda = ["panda-client>=1.0"]
+slurm = [
+    "submitit>=1.4",
+    "pyclusters>=1.0",
+]
+panda = [
+    "wheel",
+    "idds-common>=2.5.5",
+    "idds-workflow>=2.5.5",
+    "panda-client>=1.6.0",
+]
 
 dev = [
     "pytest>=6.0",

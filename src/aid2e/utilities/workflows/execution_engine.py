@@ -36,7 +36,7 @@ import os
 from pathlib import Path
 
 from aid2e.utilities.configurations.problem_config import (
-    ProblemConfig,
+    ProblemConfiguration,
 )
 from aid2e.utilities.configurations.experimental_stack_config import (
     StackLayerConfig,
@@ -101,7 +101,7 @@ class JobContext:
     logs: List[str] = field(default_factory=list)
     execution_dir: Optional[str] = None
     stage_context: Optional[StageContext] = None
-    problem_config: Optional[ProblemConfig] = None
+    problem_config: Optional[ProblemConfiguration] = None
 
     def xcom_push(self, key: str, value: Any) -> None:
         """Push data to XCom for downstream jobs.

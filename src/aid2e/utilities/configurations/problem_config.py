@@ -30,7 +30,6 @@ from .objectives import (
     ObjectiveComputationSpec,
 )
 from .stack_registry import StackRegistry
-from aid2e.utilities.epic_utils import EpicConfiguration, EpicConfigLoader
 
 
 class Objective(BaseModel):
@@ -82,10 +81,6 @@ class ProblemConfiguration(BaseModel):
     objectives: List[ObjectiveDefinition]
     observations: Optional[List[Dict[str, Any]]] = Field(default=None)
     environment_config: Optional[EnvironmentConfig] = Field(default=None)
-    epic_configuration: Optional[EpicConfiguration] = Field(
-        default=None,
-        description="Optional ePIC-specific environment configuration (legacy interface)",
-    )
 
     @field_validator("objectives", mode="before")
     @classmethod
@@ -267,11 +262,6 @@ class ProblemConfigLoader:
                 payload["parameter_constraints"] = resolved["parameter_constraints"]
             design_config = DesignConfig(**payload)
 
-        # Parse epic_configuration if present (legacy hydration)
-        epic_config = None
-        if "epic_configuration" in problem:
-            epic_config = EpicConfigLoader.load(env_data=problem)
-
         # Parse environment config if any present
         env_config = None
         for stack, components in StackRegistry.list_registered_stacks().items():
@@ -290,7 +280,6 @@ class ProblemConfigLoader:
             objectives=objectives_raw,
             observations=problem.get("observations"),
             environment_config=env_config,
-            epic_configuration=epic_config,
         )
 
     @staticmethod

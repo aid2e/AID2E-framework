@@ -35,7 +35,7 @@ import logging
 from datetime import datetime
 
 from aid2e.utilities.configurations.problem_config import (
-    ProblemConfig,
+    ProblemConfiguration,
 )
 from .workflow_config import (
     WorkflowDefinition,

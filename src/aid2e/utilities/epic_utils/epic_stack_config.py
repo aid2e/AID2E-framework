@@ -10,7 +10,6 @@ Repository: https://github.com/aid2e/AID2E-framework.git
 from pydantic import Field, model_validator
 from typing import List
 
-from aid2e.utilities.epic_utils.epic_env_config import EpicConfiguration
 from aid2e.utilities.configurations.experimental_stack_config import (
     StackLayerConfig,
     StackJobDefinition,

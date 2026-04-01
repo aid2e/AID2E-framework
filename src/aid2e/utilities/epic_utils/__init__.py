@@ -10,8 +10,6 @@ from .epic_design_config import (
 	EpicDesignConfigLoader,
 )
 from .epic_env_config import (
-	EpicConfiguration,
-	EpicConfigLoader,
 	EpicEnvConfig,
 	EpicEnvConfigLoader,
 )
@@ -35,8 +33,6 @@ __all__ = [
 	"EpicParameterGroup",
 	"EpicDesignParameters",
 	"EpicDesignConfigLoader",
-	"EpicConfiguration",
-	"EpicConfigLoader",
 	"EpicEnvConfig",
         "EpicEnvConfigLoader",
 	"EpicGeoLayer",

@@ -81,15 +81,6 @@ class EpicEnvConfig(EnvironmentConfig):
                 print(f"  {var} = {os.environ[var]}")
 
 
-class EpicConfiguration(EpicEnvConfig):
-    """
-    Alias of EpicEnvConfig for backwards compatibility.
-    """
-    # set key associated with model
-    key: ClassVar[str] = "epic_configuration"
-    pass
-
-
 class EpicEnvConfigLoader(EnvironmentConfigLoader):
     """
     Loader for ePIC environment configuration. Loads YAML
@@ -126,40 +117,3 @@ class EpicEnvConfigLoader(EnvironmentConfigLoader):
         if EpicEnvConfig.key not in data:
             raise ValueError(f"Invalid data configuration: missing '{EpicEnvConfig.key}' in data")
         return EpicEnvConfig(**data[EpicEnvConfig.key])
-
-
-class EpicConfigLoader(EnvironmentConfigLoader):
-    """
-    Parallels EpicEnvConfigLoader to provide a loader
-    for legacy EpicConfiguration.
-    """
-    @staticmethod
-    def load(env_data: Dict[str, Any] = None, file_path: str = None) -> "EpicConfiguration":
-        """
-        Load legacy ePIC environment configuration.
-
-        Args:
-            file_path: Path to YAML configuration file
-        Returns:
-            EpicConfiguration instance
-        """
-        # should EITHER provide data as a dict OR a file path
-        # as a string
-        is_data_provided = env_data is not None
-        is_file_provided = file_path is not None
-        if is_data_provided and is_file_provided:
-            raise RuntimeWarning(f"Both data and a file path ({file_path}) were provided. Defaulting to data.")
-
-        data = None
-        if is_data_provided:
-            data = env_data
-        elif is_file_provided:
-            path = pathlib.Path(file_path)
-            if not path.exists():
-                raise FileNotFoundError(f"Configuration file not found: {file_path}")
-            with open(path, 'r') as file:
-                data = yaml.safe_load(file)
-
-        if EpicEnvConfig.key not in data:
-            raise ValueError(f"Invalid data configuration: missing '{EpicEnvConfig.key}' in data")
-        return EpicConfiguration(**data[EpicConfiguration.key])

@@ -103,17 +103,6 @@ def test_problem_config_loader_stack_registry(tmp_path):
     assert isinstance(problem_config.environment_config, EpicEnvConfig)
     assert problem_config.environment_config.epic_install == "/home/eic/epic"
 
-    # legacy epic_configuration still works and is also mirrored
-    problem_payload["problem"]["epic_configuration"] = {
-        "singularity_image": "/path/to/eic-shell.sif",
-        "epic_install": "/opt/epic/legacy",
-        "epic_config": "epic",
-    }
-    config_path.write_text(yaml.safe_dump(problem_payload))
-    problem_config2 = ProblemConfigLoader.load(str(config_path))
-    assert problem_config2.epic_configuration is not None
-    assert problem_config2.epic_configuration.epic_install == "/opt/epic/legacy"
-
 
 def test_full_config_loader_combines_problem_and_optimization(tmp_path):
     """Load FullConfig from combined problem and optimization payload."""

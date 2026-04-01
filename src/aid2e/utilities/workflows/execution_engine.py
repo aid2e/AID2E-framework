@@ -620,7 +620,7 @@ class StackExecutionEngine(BaseExecutionEngine):
         # Build driver script and command to run it
         driver = f"{context.execution_dir}/{self.job_id}_driver.sh"
         command = stack.make_driver_command(driver, preparations)
-        stack.make_driver_script(driver)
+        stack.make_driver_script(driver, layers, preparations)
 
         # Append script and command to context
         context.add_log(f"Driver script: {driver}")

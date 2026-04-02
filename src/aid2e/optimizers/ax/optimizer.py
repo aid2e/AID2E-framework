@@ -36,10 +36,16 @@ except ImportError as e:
         from ax.core.search_space import SearchSpace as AxSearchSpace
         from ax.core.optimization_config import OptimizationConfig
         from ax.generation_strategy.generation_strategy import GenerationStrategy
+        from ax.core.parameter_constraint import (
+            ParameterConstraint as AxParameterConstraint,
+            SumConstraint as AxSumConstraint,
+        )
     else:
         AxSearchSpace = None
         OptimizationConfig = None
         GenerationStrategy = None
+        AxParameterConstraint = None
+        AxSumConstraint = None
     logger.warning(f"Ax not available: {e}. Install with: pip install ax-platform==1.0.0")
 
 from aid2e.optimizers.base import BaseOptimizer, SearchSpace, Trial
@@ -126,12 +132,12 @@ class AxOptimizer(BaseOptimizer):
         # Initialize base class (handles DesignConfig → SearchSpace conversion)
         super().__init__(
             search_space=search_space,
-            n_objectives=len(objective_names),
+            objective_names=objective_names,
             seed=seed if seed is not None else config.seed,
         )
 
         self.config = config
-        self.objective_names = objective_names
+        # self.objective_names and self.n_objectives are inherited from BaseOptimizer
         
         # Validate Ax version
         ax_version = getattr(ax, '__version__', '1.0.0')
@@ -522,59 +528,6 @@ class AxOptimizer(BaseOptimizer):
             f"Updated trial {trial_index} with {len(metrics)} metrics"
         )
     
-    def get_pareto_front(self) -> List[Trial]:
-        """Retrieve the current Pareto front of non-dominated solutions.
-        
-        Returns:
-            List of Trial objects representing Pareto-optimal solutions.
-        
-        Notes:
-            For single-objective, returns the best trial.
-            For multi-objective, computes Pareto front from all completed trials.
-        """
-        completed_trials = [t for t in self._trials if t and t.status == "completed"]
-        
-        if not completed_trials:
-            return []
-        
-        if self.n_objectives == 1:
-            # Single objective: return best trial
-            best_trial = min(
-                completed_trials,
-                key=lambda t: t.metrics[self.objective_names[0]]
-            )
-            return [best_trial]
-        
-        # Multi-objective: compute Pareto front
-        pareto_front = []
-        for trial in completed_trials:
-            is_dominated = False
-            for other_trial in completed_trials:
-                if trial == other_trial:
-                    continue
-                
-                # Check if trial is dominated by other_trial
-                better_in_all = True
-                better_in_at_least_one = False
-                
-                for obj_name in self.objective_names:
-                    trial_val = trial.metrics[obj_name]
-                    other_val = other_trial.metrics[obj_name]
-                    
-                    if trial_val < other_val:
-                        better_in_all = False
-                    elif trial_val > other_val:
-                        better_in_at_least_one = True
-                
-                if better_in_all and better_in_at_least_one:
-                    is_dominated = True
-                    break
-            
-            if not is_dominated:
-                pareto_front.append(trial)
-        
-        return pareto_front
-    
     def get_trials(self) -> List[Trial]:
         """Get all trials that have been evaluated.
         
@@ -582,20 +535,6 @@ class AxOptimizer(BaseOptimizer):
             List of all Trial objects.
         """
         return [t for t in self._trials if t is not None]
-    
-    def get_best_trial(self) -> Optional[Trial]:
-        """Get the best trial found so far.
-        
-        Returns:
-            Trial with the best objective value, or None if no trials completed.
-        """
-        pareto_front = self.get_pareto_front()
-        if not pareto_front:
-            return None
-        
-        # For single objective, return the best
-        # For multi-objective, return first from Pareto front
-        return pareto_front[0]
     
     def serialize_state(self) -> Dict[str, Any]:
         """Serialize optimizer state for distributed execution.

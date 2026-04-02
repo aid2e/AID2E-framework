@@ -1,39 +1,45 @@
 """PyMOO-based evolutionary optimizer for AID2E framework.
 
-This module integrates PyMOO's evolutionary algorithms (NSGA-II, NSGA-III,
-MOEA/D) with the AID2E ``BaseOptimizer`` interface via PyMOO's ask/tell
-protocol.
+AID2E philosophy — separation of concerns
+------------------------------------------
+An AID2E optimizer is a *candidate generator* and a *result ledger*. It has
+no knowledge of how evaluations are performed — that is the job of schedulers,
+workflow engines, and simulation back-ends.  The optimizer only:
 
-Design overview
----------------
-PyMOO algorithms are inherently *batch-generational*: an entire population of
-candidates is generated, evaluated externally, and then fed back before the
-next generation can be produced.  This maps cleanly to the AID2E interface as
-follows:
+1. Produces design-point candidates (``suggest_candidates``).
+2. Records objective values once evaluations are complete (``update_with_results``).
 
-- ``suggest_candidates(n)`` → calls ``algorithm.ask()`` and returns the
-  current generation as a list of parameter dicts.
-- ``update_with_results(trial_index, params, metrics)`` → buffers one result;
-  when all candidates of the current generation have been returned, the buffer
-  is flushed by calling ``algorithm.tell()`` internally.
+This module wires the PyMOO evolutionary library into that interface via the
+**ask/tell protocol**:
 
-Because ``update_with_results`` is called once per individual while PyMOO
-requires all result in a single ``tell()`` call, a *generation buffer* is
-maintained internally.  The caller need not be aware of this detail.
+- ``suggest_candidates()`` → ``algorithm.ask()`` — returns the current
+  generation as parameter dicts.
+- ``update_with_results()`` → buffers one result; flushes
+  ``algorithm.tell()`` automatically when the full generation has results.
 
-Parameter encoding
-------------------
-``RangeParameter`` values are passed directly as float variables.
-``ChoiceParameter`` values are encoded as integers in ``[0, n_choices − 1]``
-and decoded back to string choices when building the candidate dict.
+The ``_flush_generation`` mechanism is entirely internal. Callers never need
+to think in terms of "generations" — they simply call the same two methods
+repeatedly regardless of the backend.
 
-Constraints
------------
-Linear parameter constraints (``ParameterConstraint``) are not yet natively
-passed to PyMOO algorithms.  When a search space has constraints, a warning is
-logged and runtime validation via ``SearchSpace.validate()`` is left to the
-caller.  Native constraint support (via PyMOO's ``G`` output) is planned for a
-future release.
+AID2EProblem
+------------
+The public ``AID2EProblem`` class represents the search space as a proper
+PyMOO ``Problem``.  It has two modes:
+
+- **Ask/tell mode** (default, no ``eval_fn``): ``_evaluate`` raises
+  ``NotImplementedError`` because evaluations happen externally.  This is
+  what ``PyMOOOptimizer`` uses internally (stored as ``optimizer.problem``).
+- **Direct mode** (``eval_fn`` provided): ``_evaluate`` calls ``eval_fn``
+  for each individual.  Useful for synchronous local benchmarks or rapid
+  prototyping where you want to call ``pymoo.optimize.minimize()`` directly.
+
+Obtain a direct-mode problem via ``PyMOOOptimizer.make_pymoo_problem(eval_fn)``.
+
+Backend switching
+-----------------
+Use ``seed_from_trials(prior_optimizer.get_trials())`` to inject completed
+results from a different backend (e.g. a random-initialisation phase) before
+starting the evolutionary search.
 
 Project: AID2E v0.0.0 — AI assisted Detector Design for EIC
 Homepage: https://aid2e.github.io/AID2E-framework
@@ -43,7 +49,7 @@ Repository: https://github.com/aid2e/AID2E-framework.git
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional, Tuple, Union, TYPE_CHECKING
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union, TYPE_CHECKING
 
 import numpy as np
 
@@ -81,34 +87,110 @@ from .config import PyMOOOptimizerConfig
 
 
 # ---------------------------------------------------------------------------
-# Internal PyMOO problem proxy
+# Public PyMOO problem class
 # ---------------------------------------------------------------------------
 
-class _ExternalEvalProblem(Problem):
-    """Minimal PyMOO Problem that carries search‑space metadata.
+class AID2EProblem(Problem):
+    """PyMOO Problem that wraps an AID2E ``SearchSpace``.
 
-    ``_evaluate`` is intentionally not implemented here.  In the ask/tell
-    workflow the optimizer sets objective values on the population directly,
-    so this class only exists to provide ``n_var``, ``n_obj``, ``xl``, and
-    ``xu`` to the initialising algorithm.
+    This class has two modes of operation:
+
+    - **Ask/tell mode** (no ``eval_fn``): ``_evaluate`` raises
+      ``NotImplementedError``.  This is the default path used by
+      ``PyMOOOptimizer`` internally.  Evaluations happen externally via
+      schedulers; results are fed back through ``update_with_results``.
+    - **Direct mode** (``eval_fn`` provided): ``_evaluate`` calls ``eval_fn``
+      synchronously for each individual vector.  Useful for local benchmarks
+      or prototyping with ``pymoo.optimize.minimize()``.
+
+    In both modes, ``decode_x`` translates PyMOO's float vectors into
+    human-readable AID2E parameter dicts — the same representation returned
+    by ``suggest_candidates``.
 
     Args:
-        n_var: Number of decision variables.
+        n_var: Number of continuous decision variables.
         n_obj: Number of objectives.
-        xl: Lower bounds array of shape ``(n_var,)``.
-        xu: Upper bounds array of shape ``(n_var,)``.
+        xl: Lower-bound array of shape ``(n_var,)``.
+        xu: Upper-bound array of shape ``(n_var,)``.
+        param_items: Ordered list of ``(name, BaseParameter)`` pairs used for
+            encoding/decoding.
+        objective_names: Ordered objective names matching ``eval_fn`` output.
+        eval_fn: Optional callable ``(params: dict) -> dict`` for direct
+            evaluation.  When ``None`` the problem operates in ask/tell mode.
+
+    Examples:
+        >>> # Direct-evaluation mode:
+        >>> problem = optimizer.make_pymoo_problem(
+        ...     lambda p: {"f1": p["x"]**2, "f2": (p["y"] - 1)**2}
+        ... )
+        >>> from pymoo.optimize import minimize
+        >>> from pymoo.algorithms.moo.nsga2 import NSGA2
+        >>> result = minimize(problem, NSGA2(pop_size=50), ("n_gen", 100))
     """
 
-    def __init__(self, n_var: int, n_obj: int, xl: np.ndarray, xu: np.ndarray) -> None:
-        """Initialise the proxy problem with structural metadata only."""
+    def __init__(
+        self,
+        n_var: int,
+        n_obj: int,
+        xl: np.ndarray,
+        xu: np.ndarray,
+        param_items: List[Tuple[str, Any]],
+        objective_names: List[str],
+        eval_fn: Optional[Callable[[Dict[str, Any]], Dict[str, float]]] = None,
+    ) -> None:
+        """Initialise the AID2E problem with search-space metadata."""
         super().__init__(n_var=n_var, n_obj=n_obj, xl=xl, xu=xu)
+        self._param_items = param_items
+        self._objective_names = objective_names
+        self._eval_fn = eval_fn
 
-    def _evaluate(self, x: np.ndarray, out: dict, *args: Any, **kwargs: Any) -> None:
-        """Raise an error — evaluation is handled externally via ask/tell."""
-        raise NotImplementedError(
-            "_ExternalEvalProblem is only valid in ask/tell mode. "
-            "Do not call _evaluate directly."
-        )
+    def decode_x(self, x_row: np.ndarray) -> Dict[str, Any]:
+        """Translate a PyMOO float vector into an AID2E parameter dictionary.
+
+        Args:
+            x_row: 1-D float array of length ``n_var``.
+
+        Returns:
+            Mapping of parameter names to decoded values (``float`` for
+            ``RangeParameter``, choice value for ``ChoiceParameter``).
+        """
+        params: Dict[str, Any] = {}
+        for i, (name, param) in enumerate(self._param_items):
+            val = float(x_row[i])
+            if isinstance(param, DesignRangeParameter):
+                params[name] = val
+            elif isinstance(param, DesignChoiceParameter):
+                idx = int(round(val))
+                idx = max(0, min(idx, len(param.choices) - 1))
+                params[name] = param.choices[idx]
+        return params
+
+    def _evaluate(
+        self, x: np.ndarray, out: dict, *args: Any, **kwargs: Any
+    ) -> None:
+        """Evaluate a batch of individuals.
+
+        In ask/tell mode raises ``NotImplementedError``.  In direct mode calls
+        ``eval_fn`` for each row of ``x``.
+
+        Args:
+            x: Population matrix of shape ``(pop_size, n_var)``.
+            out: PyMOO output dict; sets ``out["F"]`` to shape
+                ``(pop_size, n_obj)``.
+        """
+        if self._eval_fn is None:
+            raise NotImplementedError(
+                "AID2EProblem is in ask/tell mode — evaluations are handled "
+                "externally through PyMOOOptimizer.update_with_results(). "
+                "To use direct synchronous evaluation, construct the problem "
+                "via optimizer.make_pymoo_problem(eval_fn)."
+            )
+        F = []
+        for x_row in x:
+            params = self.decode_x(x_row)
+            metrics = self._eval_fn(params)
+            F.append([float(metrics[obj]) for obj in self._objective_names])
+        out["F"] = np.array(F, dtype=float)
 
 
 # ---------------------------------------------------------------------------
@@ -232,26 +314,28 @@ class PyMOOOptimizer(BaseOptimizer):
         self._xl, self._xu = self._build_bounds()
         n_var = len(self._param_items)
 
-        # Create the structural problem proxy
-        self._problem = _ExternalEvalProblem(
+        # Public PyMOO problem — ask/tell mode (no eval_fn).
+        # For synchronous direct evaluation use make_pymoo_problem(eval_fn).
+        self.problem: AID2EProblem = AID2EProblem(
             n_var=n_var,
             n_obj=self.n_objectives,
             xl=self._xl,
             xu=self._xu,
+            param_items=self._param_items,
+            objective_names=self.objective_names,
+            eval_fn=None,
         )
 
         # Create the PyMOO algorithm
         self._algorithm = self._create_algorithm()
         self._algorithm.setup(
-            self._problem,
+            self.problem,
             seed=self.seed,
             verbose=self.config.verbose,
             termination=NoTermination(),
         )
 
-        # Trial bookkeeping
-        self._trials: List[Optional[Trial]] = []
-        self._trial_counter: int = 0
+        # _trials and _trial_counter are owned by BaseOptimizer.__init__
         self.n_gen_completed: int = 0
 
         # Per-generation state (cleared after each tell())
@@ -300,25 +384,15 @@ class PyMOOOptimizer(BaseOptimizer):
         return np.array(xl, dtype=float), np.array(xu, dtype=float)
 
     def _decode_x(self, x_row: np.ndarray) -> Dict[str, Any]:
-        """Decode a PyMOO individual vector into a parameter dictionary.
+        """Delegate to ``self.problem.decode_x`` for internal use.
 
         Args:
-            x_row: 1-D float array of length ``n_var`` as returned by PyMOO.
+            x_row: 1-D float array of length ``n_var``.
 
         Returns:
-            Mapping of parameter names to their decoded values (float for
-            ``RangeParameter``, str for ``ChoiceParameter``).
+            Parameter dictionary for the given individual.
         """
-        params: Dict[str, Any] = {}
-        for i, (name, param) in enumerate(self._param_items):
-            val = float(x_row[i])
-            if isinstance(param, DesignRangeParameter):
-                params[name] = val
-            elif isinstance(param, DesignChoiceParameter):
-                idx = int(round(val))
-                idx = max(0, min(idx, len(param.choices) - 1))
-                params[name] = param.choices[idx]
-        return params
+        return self.problem.decode_x(x_row)
 
     def _encode_params(self, params: Dict[str, Any]) -> np.ndarray:
         """Encode a parameter dictionary back to a PyMOO-compatible float vector.
@@ -455,8 +529,95 @@ class PyMOOOptimizer(BaseOptimizer):
         self._result_buffer = {}
 
     # ------------------------------------------------------------------
-    # BaseOptimizer abstract interface
+    # BaseOptimizer interface overrides + extensions
     # ------------------------------------------------------------------
+
+    def seed_from_trials(
+        self,
+        trials: List[Trial],
+        *,
+        only_completed: bool = True,
+    ) -> int:
+        """Inject completed trials from an external source into the history.
+
+        Extends the base implementation with a guard that prevents seeding
+        while a generation is in-flight (i.e., ``suggest_candidates`` has
+        been called but not all ``update_with_results`` calls have come back).
+
+        The injected trials are recorded in the optimizer's history and
+        visible via ``get_trials()`` and ``get_pareto_front()``.  They do
+        *not* advance PyMOO's internal population — the next
+        ``suggest_candidates`` call still produces the next generation.
+
+        Args:
+            trials: Trials to inject, typically from a previous backend
+                (e.g. random-initialisation results).
+            only_completed: When ``True`` (default), non-completed trials are
+                silently skipped.
+
+        Returns:
+            Number of trials actually injected.
+
+        Raises:
+            RuntimeError: If a generation is currently in-flight.
+
+        Examples:
+            >>> n = pymoo_opt.seed_from_trials(random_opt.get_trials())
+            >>> print(f"Seeded {n} prior evaluations")
+            >>> candidates = pymoo_opt.suggest_candidates()  # gen 1 starts
+        """
+        if self._generation_infills is not None:
+            raise RuntimeError(
+                "Cannot seed trials while a generation is in-flight. "
+                "Call update_with_results() for all pending candidates first."
+            )
+        return super().seed_from_trials(trials, only_completed=only_completed)
+
+    def make_pymoo_problem(
+        self,
+        eval_fn: Callable[[Dict[str, Any]], Dict[str, float]],
+    ) -> "AID2EProblem":
+        """Create a direct-evaluation ``AID2EProblem`` from this optimizer's search space.
+
+        Returns an ``AID2EProblem`` in *direct mode*, meaning its
+        ``_evaluate`` calls ``eval_fn`` synchronously.  This lets you pass
+        the result to ``pymoo.optimize.minimize()`` for quick synchronous
+        runs or local benchmarks without touching the ask/tell machinery.
+
+        The ``optimizer.problem`` attribute (used by the ask/tell loop) is
+        **not** modified; the returned object is independent.
+
+        Args:
+            eval_fn: Callable that accepts a parameter dict (as returned by
+                ``suggest_candidates``) and returns a metrics dict mapping
+                every objective name to a float.
+
+        Returns:
+            A new ``AID2EProblem`` instance with ``eval_fn`` attached, ready
+            for use with PyMOO's synchronous ``minimize`` API.
+
+        Examples:
+            >>> problem = optimizer.make_pymoo_problem(
+            ...     lambda p: {"f1": p["x"]**2, "f2": (p["y"] - 1)**2}
+            ... )
+            >>> from pymoo.optimize import minimize
+            >>> from pymoo.algorithms.moo.nsga2 import NSGA2
+            >>> result = minimize(problem, NSGA2(pop_size=50), ("n_gen", 100))
+            >>> result.F  # Pareto-front objective values
+
+        Notes:
+            Use this path for unit tests, tutorials, and local benchmarks.
+            For distributed/HPC evaluation use the ask/tell path instead.
+        """
+        return AID2EProblem(
+            n_var=len(self._param_items),
+            n_obj=self.n_objectives,
+            xl=self._xl,
+            xu=self._xu,
+            param_items=self._param_items,
+            objective_names=self.objective_names,
+            eval_fn=eval_fn,
+        )
 
     def suggest_candidates(self, n_candidates: int = 1) -> List[Dict[str, Any]]:
         """Suggest the next batch of candidates to evaluate.
@@ -593,17 +754,6 @@ class PyMOOOptimizer(BaseOptimizer):
         if len(self._result_buffer) == len(self._gen_pos_to_trial_idx):
             self._flush_generation()
 
-    def get_trials(self) -> List[Trial]:
-        """Return all recorded trials (pending, completed, and failed).
-
-        Returns:
-            List of non-``None`` Trial objects in the order they were created.
-
-        Examples:
-            >>> done = [t for t in optimizer.get_trials() if t.status == "completed"]
-        """
-        return [t for t in self._trials if t is not None]
-
     def serialize_state(self) -> Dict[str, Any]:
         """Serialise optimizer state to a JSON-compatible dictionary.
 
@@ -722,11 +872,14 @@ class PyMOOOptimizer(BaseOptimizer):
 
         self._param_items = list(self.search_space.parameters.items())
         self._xl, self._xu = self._build_bounds()
-        self._problem = _ExternalEvalProblem(
+        self.problem = AID2EProblem(
             n_var=len(self._param_items),
             n_obj=self.n_objectives,
             xl=self._xl,
             xu=self._xu,
+            param_items=self._param_items,
+            objective_names=self.objective_names,
+            eval_fn=None,
         )
 
         # Try to restore the algorithm state from pickle
@@ -748,7 +901,7 @@ class PyMOOOptimizer(BaseOptimizer):
                 )
                 self._algorithm = self._create_algorithm()
                 self._algorithm.setup(
-                    self._problem,
+                    self.problem,
                     seed=self.seed,
                     verbose=self.config.verbose,
                     termination=NoTermination(),
@@ -756,7 +909,7 @@ class PyMOOOptimizer(BaseOptimizer):
         else:
             self._algorithm = self._create_algorithm()
             self._algorithm.setup(
-                self._problem,
+                self.problem,
                 seed=self.seed,
                 verbose=self.config.verbose,
                 termination=NoTermination(),

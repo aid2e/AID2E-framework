@@ -25,7 +25,7 @@ from .ax import AxOptimizer, AxOptimizerConfig
 
 # Import pymoo subpackage to trigger auto-registration
 from . import pymoo
-from .pymoo import PyMOOOptimizer, PyMOOOptimizerConfig
+from .pymoo import AID2EProblem, PyMOOOptimizer, PyMOOOptimizerConfig
 
 __version__ = __MAIN_VERSION__
 __all__ = [
@@ -37,6 +37,7 @@ __all__ = [
     "AxOptimizerConfig",
     "PyMOOOptimizer",
     "PyMOOOptimizerConfig",
+    "AID2EProblem",
     "register",
     "get_optimizer_config",
     "ax",

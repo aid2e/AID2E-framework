@@ -331,6 +331,13 @@ class BaseOptimizer(ABC):
         self.objective_names: List[str] = list(objective_names)
         self.seed = seed
 
+        # Shared trial history managed by the base class.
+        # All backends read and write through self._trials and self._trial_counter
+        # so utilities like seed_from_trials, get_trials, get_pareto_front work
+        # uniformly regardless of the backend.
+        self._trials: List[Optional[Trial]] = []
+        self._trial_counter: int = 0
+
     @property
     def n_objectives(self) -> int:
         """Return the number of optimisation objectives.
@@ -396,6 +403,97 @@ class BaseOptimizer(ABC):
         """
         pass
 
+    def get_trials(self) -> List[Trial]:
+        """Return all recorded trials (pending, completed, and failed).
+
+        The base implementation reads directly from ``self._trials``, which is
+        owned by ``BaseOptimizer`` and kept up to date by every backend.
+        Backends that maintain additional internal state may override this to
+        include synthetic or reconstructed trials, but doing so is uncommon.
+
+        Returns:
+            List of non-``None`` Trial objects in creation order.
+
+        Examples:
+            >>> done = [t for t in optimizer.get_trials() if t.status == "completed"]
+        """
+        return [t for t in self._trials if t is not None]
+
+    def seed_from_trials(
+        self,
+        trials: List[Trial],
+        *,
+        only_completed: bool = True,
+    ) -> int:
+        """Inject external trials into the optimizer history without advancing the algorithm.
+
+        This is the *backend-switch primitive*.  It lets you:
+
+        - Seed a new optimizer with results from a previous one (e.g. random
+          init → MOEA → BO transition).
+        - Inject prior knowledge before the first ``suggest_candidates`` call.
+        - Resume an optimisation from a checkpoint produced by a *different*
+          backend.
+
+        Trials are appended to the internal ``_trials`` list with freshly
+        assigned sequential indices (starting from the current
+        ``_trial_counter``).  The original ``trial.index`` values from the
+        source optimizer are preserved in each trial's ``metadata`` under the
+        key ``"source_index"``.
+
+        Args:
+            trials: Iterable of Trial objects to inject.  The list may contain
+                ``None`` placeholders (they are silently skipped).
+            only_completed: When ``True`` (default), only trials whose
+                ``status`` is ``"completed"`` are imported.  Set to ``False``
+                to also import ``"pending"`` or ``"failed"`` trials.
+
+        Returns:
+            Number of trials actually injected.
+
+        Examples:
+            >>> # Transfer best results from a random-search warmup:
+            >>> warmup_trials = random_opt.get_trials()
+            >>> pymoo_opt.seed_from_trials(warmup_trials)
+            100
+            >>> # Now start MOEA generation — the history already has 100 points
+            >>> candidates = pymoo_opt.suggest_candidates()
+
+        Notes:
+            - This method does NOT advance PyMOO's (or any other backend's)
+              internal population.  The injected trials are purely visible in
+              the history for Pareto-front and best-trial queries.
+            - Backends that want to warm-start their internal state from these
+              trials should override this method.
+        """
+        accepted = 0
+        for trial in trials:
+            if trial is None:
+                continue
+            if only_completed and trial.status != "completed":
+                continue
+            new_idx = self._trial_counter
+            seeded_trial = Trial(
+                index=new_idx,
+                parameters=trial.parameters,
+                metrics=trial.metrics,
+                status=trial.status,
+                metadata={**(trial.metadata or {}), "source_index": trial.index},
+            )
+            while len(self._trials) <= new_idx:
+                self._trials.append(None)
+            self._trials[new_idx] = seeded_trial
+            self._trial_counter += 1
+            accepted += 1
+
+        if accepted:
+            logger.debug(
+                "seed_from_trials: injected %d trial(s) (total history: %d).",
+                accepted,
+                self._trial_counter,
+            )
+        return accepted
+
     def get_pareto_front(self) -> List[Trial]:
         """Retrieve the current Pareto front of non-dominated solutions.
 
@@ -421,25 +519,6 @@ class BaseOptimizer(ABC):
             ``update_with_results``.
         """
         return compute_pareto_front(self.get_trials(), self.objective_names)
-
-    @abstractmethod
-    def get_trials(self) -> List[Trial]:
-        """Get all trials that have been recorded by this optimizer.
-
-        Returns:
-            List of all Trial objects, including pending, completed, and failed.
-
-        Examples:
-            >>> trials = optimizer.get_trials()
-            >>> completed_trials = [t for t in trials if t.status == "completed"]
-            >>> print(f"Total trials: {len(trials)}")
-
-        Notes:
-            Trials are returned in the order they were created.
-            This method is the foundation for :meth:`get_pareto_front` and
-            :meth:`get_best_trial`.
-        """
-        pass
 
     def get_best_trial(self) -> Optional[Trial]:
         """Get the best trial found so far.

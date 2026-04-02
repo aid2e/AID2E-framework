@@ -164,8 +164,7 @@ class AxOptimizer(BaseOptimizer):
         self.generation_strategy = self._create_generation_strategy()
         
         # Track trials
-        self._trials: List[Trial] = []
-        self._trial_counter = 0
+        # self._trials and self._trial_counter are owned by BaseOptimizer
         
         logger.info(
             f"AxOptimizer initialized: {len(self.search_space.parameters)} params, "
@@ -527,14 +526,6 @@ class AxOptimizer(BaseOptimizer):
         logger.debug(
             f"Updated trial {trial_index} with {len(metrics)} metrics"
         )
-    
-    def get_trials(self) -> List[Trial]:
-        """Get all trials that have been evaluated.
-        
-        Returns:
-            List of all Trial objects.
-        """
-        return [t for t in self._trials if t is not None]
     
     def serialize_state(self) -> Dict[str, Any]:
         """Serialize optimizer state for distributed execution.

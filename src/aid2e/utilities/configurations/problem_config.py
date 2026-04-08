@@ -23,11 +23,13 @@ from pathlib import Path
 import yaml
 
 from .design_config import DesignConfig, DesignConfigLoader
+from .env_config import EnvironmentConfig, EnvironmentConfigLoader
 from .objectives import (
     ObjectiveDirection,
     ObjectiveDefinition,
     ObjectiveComputationSpec,
 )
+from .stack_registry import StackRegistry
 
 
 class Objective(BaseModel):
@@ -73,10 +75,12 @@ class ProblemConfiguration(BaseModel):
     work_location: str
     problem_type: str  # e.g., "EPIC_TRACKING", "DTLZ2", "CLOSURE_MOO"
 
-    # Accept any subclass of DesignConfig, including EpicDesignConfig
+    # Accept any subclass of DesignConfig and EnvironmentConfig, including
+    # EpicDesignConfig and EpicEnvConfig
     design_config: DesignConfig
     objectives: List[ObjectiveDefinition]
     observations: Optional[List[Dict[str, Any]]] = Field(default=None)
+    environment_config: Optional[EnvironmentConfig] = Field(default=None)
 
     @field_validator("objectives", mode="before")
     @classmethod
@@ -258,6 +262,14 @@ class ProblemConfigLoader:
                 payload["parameter_constraints"] = resolved["parameter_constraints"]
             design_config = DesignConfig(**payload)
 
+        # Parse environment config if any present
+        env_config = None
+        for stack, components in StackRegistry.list_registered_stacks().items():
+            config_model = components['config_model']
+            config_loader = components['config_loader']
+            if config_model.key in problem:
+                env_config = config_loader.load(env_data=problem)
+
         # Build ProblemConfiguration
         return ProblemConfiguration(
             name=problem["name"],
@@ -267,6 +279,7 @@ class ProblemConfigLoader:
             design_config=design_config,
             objectives=objectives_raw,
             observations=problem.get("observations"),
+            environment_config=env_config,
         )
 
     @staticmethod

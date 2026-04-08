@@ -27,6 +27,12 @@ def test_ana_layer():
     assert AnaLayer is not None
 
 
+def test_modify_xml_files():
+    """Test that workflows module has modify_xml_files function."""
+    from aid2e.utilities.workflows import modify_xml_files
+    assert modify_xml_files is not None
+
+
 def test_experiment_stack():
     """Test that workflows module has ExperimentStack class."""
     from aid2e.utilities.workflows import ExperimentStack

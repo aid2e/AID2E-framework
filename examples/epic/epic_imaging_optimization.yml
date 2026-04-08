@@ -1,0 +1,219 @@
+# ============================================================================
+# ePIC BIC Single-Objective Optimization
+# ============================================================================
+# This example shows how to configure and run an entire
+# ePIC workflow in YAML.
+# ============================================================================
+
+# SECTION 1: PROBLEM DEFINITION
+# What to optimize (objectives) and design space
+# ============================================================================
+problem:
+  name: "BIC Single-Objective Optimization"
+  type: "EPIC_CALORIMETRY"
+  description: "Single-objective optimization of the BIC for angular resolution"
+
+  # ePIC Environment Configuration
+  # ==============================
+  # Configure paths to the ePIC software stack. Either eic_shell OR
+  # singularity_image must be provided. If both are provided,
+  # singularity_image takes precedence.
+  epic_environment:
+    # Option A: Use eic-shell script
+    eic_shell: "/path/to/my/eic-shell"
+
+    # Option B: Or use singularity image
+    # singularity_image: "/path/to/my/eic_xl-nightly.sif"
+
+    # Path to ePIC installation directory. This
+    # will be copied and modified during execution.
+    epic_install: "./epic"
+
+    # Geometry configuration file to use (e.g. epic, epic_full)
+    epic_configu=: "epic"
+
+  # ===========================================================================
+  # PARAMETERS: Define what we're optimizing
+  # ===========================================================================
+  # Here, we want to find the optimal combination of AstroPix
+  # staves in the BIC. Staves can be enabled (1) or disabled
+  # (0) in their xml files.
+  design_space:
+    epic_design_parameters:
+      bic:
+        parameters:
+
+          enable_staves_2:
+            value: 0
+            choices: [0, 1]
+            xml_path: ".//constant[@name='EcalBarrel_enable_staves_2']"
+
+          enable_staves_3:
+            value: 1
+            choices: [0, 1]
+            xml_path: ".//constant[@name='EcalBarrel_enable_staves_3']"
+
+          enable_staves_4:
+            value: 1
+            choices: [0, 1]
+            xml_path: ".//constant[@name='EcalBarrel_enable_staves_4']"
+
+          enable_staves_5:
+            value: 0
+            choices: [0, 1]
+            xml_path: ".//constant[@name='EcalBarrel_enable_staves_5']"
+
+          enable_staves_6:
+            value: 1
+            choices: [0, 1]
+            xml_path: ".//constant[@name='EcalBarrel_enable_staves_6']"
+
+  # ========================================================================
+  # OBJECTIVES: Define what we're optimizing for
+  # ========================================================================
+  # This a SINGLE objective: one run of the workflow
+  # will output the calculated eta resolution, which
+  # we want to minimize
+  objectives:
+    - name: "phi_resolution"
+      direction: "minimize"
+
+      # Objective-level scheduler (applies to this objective's execution)
+      scheduler:
+        runner_type: "JobLibRunner"
+        parameters:
+          n_jobs: -1        # Use all available cores
+          backend: "threading"
+      
+      # Objective plan: HOW to compute eta_resolution
+      # TODO this is the function to extract the objectives
+      #   -- should retrieve value from an output file (e.g. maybe a json file)
+      #      generated during workflow below
+      objective_plan:
+        script:
+          path: "scripts/<TODO IMPLEMENT>"
+          output_file: "photon_phi_resolution.json"
+          timeout_sec: 60  # should take no more than 1 min to extract
+      
+      # Metrics to extract from the objective plan output
+      metrics_keys: ["phi_resolution"]
+
+# SECTION 2: SCHEDULER CONFIGURATION
+# Global scheduler defaults (can be overridden at workflow/branch/stage level)
+# ============================================================================
+scheduler:
+  runner_type: "JobLibRunner"
+  parameters:
+    n_jobs: 4          # Use 4 parallel jobs by default
+    backend: "loky"    # Use process-based parallelism (default)
+
+# SECTION 3: WORKFLOW EXECUTION
+# How to execute the optimization (stages, parallelism, etc.)
+# NOTE: When objectives are simple (single script call), workflows are optional
+# ============================================================================
+# Here, we have only one workflow: optimize the number of Astropix layers
+# in the BIC. Multiple optimizations can be run in parallel, where each
+# one would have a corresponding workflow.
+workflows:
+  - name: "imaging_optimization"
+    description: "Optimize the number of AstroPix layers in the BIC"
+
+    # =========================================================================
+    # BRANCHES: parallel execution paths
+    # =========================================================================
+    # One optimization can have multiple branches which run in
+    # parallel. These should correspond to independent pipelines.
+    # For example, suppose we had 2 objectives,
+    #   1. one for single particle simulations and
+    #   2. another for an event generator.
+    # These could be run in parallel as separate branches.
+    branches:
+      -name: "electron_eta_resolution"
+       description: "Calculate eta resolution for single electrons"
+
+       # ======================================================================
+       # STAGES: groups of sequential computation steps
+       # ======================================================================
+       # The workflow below has 3 stages:
+       #  1. Run overlap checks on modified geometry
+       #  2. Run Geant4 simulation via npsim for 3 kinematic points in parallel
+       #  3. Merge npsim output, run eicrecon on merged output, and finally
+       #     run analysis on eicrecon output
+       stages:
+         epic_stages:
+
+           # Stage 1: run overlap checks
+           # ==================================================================
+           # NOTE: anything in {{ }} will be substituted during execution
+           - name: "geo"
+             description: "Check for overlaps in modified geomtry"
+             layers:
+               - epic_geo:
+                   outputs:
+                       - "{{context.execution_dir}}/geo.overlaps.txt"
+
+          # Stage 2: run Geant4 simulations
+          # ===================================================================
+          - name: "sim"
+            description: "Simulate single photons"
+            layers:
+              - epic_sim:
+                  inputs:
+                    - "inputs/central_photons_bin{{context.job_id}}.py"
+                  outputs:
+                    - "{{context.execution_dir}}/central_photons_bin{{context.job_id}}.edm4hep.root"
+
+            # now we're going to create 3 copies of the jobs with job IDs
+            # 0, 1, 2. These correspond to the 3 kinematic points to run,
+            # each of which is defined by a DD4hep steering file:
+            #   - central_electrons_bin0.py
+            #   - central_electrons_bin1.py
+            #   - central_electrons_bin2.py
+            job_factory:
+              type: "range"
+              params:
+                n: 3
+
+            # here we specify how many copies we can run in parallel
+            parallelism:
+              max_concurrent: 3
+              retry_max: 2
+              timeout_sec: 3600 # should take no more than 30 min. per kinematic point to run
+
+          # Stage 3: merge, run eicrecon, and do anslysis
+          # ===================================================================
+          # NOTE: the "ana" layers of the ePIC stack are for any sort of user
+          # provided code (running an analysis, compiling a plugin, etc.).
+          #
+          # NOTE: also that the {command}, {inputs}, {outputs}, and {arguments}
+          # fields in rule will be substituted accordingly during execution
+          - name: "rec_and_ana"
+            description: "Merge simulation output, run reconstruction and analysis"
+            layers:
+              - epic_ana:
+                  inputs:
+                    - "{{context.execution_dir}}/central_photons_bin0.edm4hep.root"
+                    - "{{context.execution_dir}}/central_photons_bin1.edm4hep.root"
+                    - "{{context.execution_dir}}/central_photons_bin2.edm4hep.root"
+                  outputs:
+                    - "{{context.execution_dir}}/central_photons.edm4hep.root"
+                  command: "hadd"
+                  rule: "{command} -f {outputs} {inputs}"
+              - epic_rec:
+                  inputs:
+                    - "{{context.exeuction_dir}}/central_photons.edm4hep.root"
+                  outputs:
+                    - "{{context.execution_dir}}/central_photons.edm4eic.root"
+                  arguments:
+                    - "-Pnthreads=8"
+                    - "-Peicrecon:LogLevel=debug"
+              - epic_ana:
+                  inputs:
+                    - "{{context.execution_dir}}/central_photons.edm4eic.root"
+                  outputs:
+                    - "{{context.execution_dir}}/central_photons.hist.root"
+                  arguments:
+                    - "-c phi"
+                    - "-s 22"
+                  command: "scripts/bic_angular_reso.py"
+                  rule: "python {command} -i {inputs} -o {outputs} {arguments}"

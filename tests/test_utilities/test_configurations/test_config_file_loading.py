@@ -8,7 +8,9 @@ from aid2e.utilities.configurations import (
     DesignConfigLoader,
     ProblemConfigLoader,
     load_config,
+    StackRegistry,
 )
+from aid2e.utilities.epic_utils import EpicEnvConfig
 
 
 def _fixture_dir() -> Path:
@@ -56,6 +58,50 @@ def test_problem_config_loader_with_fixture(tmp_path):
     assert config.problem_type == "toy"
     assert "DTLZ2_variables.x1" in config.design_config.get_parameter_names()
     assert len(config.objectives) == 2
+
+
+def test_problem_config_loader_stack_registry(tmp_path):
+    """Load problem config with stack_configurations and registry deserialization."""
+    fixture_dir = _fixture_dir()
+    design_dst = tmp_path / "design.params"
+    design_dst.write_text((fixture_dir / "design.params").read_text())
+
+    output_dir = tmp_path / "output" / "dtlz2"
+    work_dir = tmp_path / "work" / "dtlz2"
+    output_dir.mkdir(parents=True)
+    work_dir.mkdir(parents=True)
+
+    # minimal problem config inlined
+    design_data = yaml.safe_load((fixture_dir / "design.params").read_text())
+    problem_payload = {
+        "problem": {
+            "name": "DTLZ2 Multi-Objective Optimization",
+            "type": "toy",
+            "output_location": str(output_dir),
+            "work_location": str(work_dir),
+            "inline_design": {
+                "design_parameters": design_data["design_space"]["design_parameters"],
+                "parameter_constraints": design_data["design_space"].get("design_constraints", []),
+            },
+            "objectives": [
+                {"name": "f1", "minimize": True},
+                {"name": "f2", "minimize": True},
+            ],
+            "epic_environment": {
+                "singularity_image": "/home/eic/local/lib/eic_xl-nightly.sif",
+                "epic_install": "/home/eic/epic",
+                "epic_config": "epic_full",
+            }
+        }
+    }
+
+    # Write and load as YAML
+    config_path = tmp_path / "test.config.yml"
+    config_path.write_text(yaml.safe_dump(problem_payload))
+
+    problem_config = ProblemConfigLoader.load(str(config_path))
+    assert isinstance(problem_config.environment_config, EpicEnvConfig)
+    assert problem_config.environment_config.epic_install == "/home/eic/epic"
 
 
 def test_full_config_loader_combines_problem_and_optimization(tmp_path):

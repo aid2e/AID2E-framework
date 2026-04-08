@@ -1,5 +1,5 @@
 from typing import Dict, List, Optional, Tuple, Union, Literal, Any
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 # Base class for all design parameters
 class BaseParameter(BaseModel):
@@ -27,12 +27,24 @@ class RangeParameter(BaseParameter):
 
 class ChoiceParameter(BaseParameter):
     """Categorical parameter with discrete choices."""
-    value: str
-    choices: List[str]
+    value: Union[str, int]
+    choices: Union[List[str], List[int]]
 
     @property
     def type(self) -> Literal["choice"]:
         return "choice"
+
+    @model_validator(mode='after')
+    def check_value_choices_consistency(self) -> "ChoiceParameter":
+        value = self.value
+        choices = self.choices
+
+        for choice in choices:
+            is_same = type(value) == type(choice)
+            if not is_same:
+                raise ValueError("Type of each choice must match type of value ({type(value)}), but {choice} is a {type(choice)}")
+
+        return self
 
 
 # Generic parameter union (for simple use cases)

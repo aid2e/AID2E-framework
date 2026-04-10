@@ -63,9 +63,6 @@ from .execution_engine import (
 )
 from .execution_logger import ExecutionLogger
 
-from aid2e.utilities.epic_utils.epic_stack import EpicStack
-
-
 class DAGExecutor:
     """Executor for DAG-based workflow orchestration.
     
@@ -199,6 +196,7 @@ class DAGExecutor:
 
         try:
             if self.problem_config is not None and self.problem_config.design_config is not None:
+                from aid2e.utilities.epic_utils.epic_stack import EpicStack
                 stack = EpicStack()
                 prepared_geometry_dir = stack.prepare_workflow_geometry(
                     workflow_dir=str(self.output_dir),

@@ -148,51 +148,75 @@ class EpicStack(ExperimentStack):
     rec: EpicRecLayer = field(default_factory = EpicRecLayer)
     ana: EpicAnaLayer = field(default_factory = EpicAnaLayer)
 
-    def prepare_for_execution(self, **kwargs) -> Optional[str]:
+    def prepare_workflow_geometry(
+        self,
+        workflow_dir: str,
+        design_point: Dict[str, Any],
+        problem_config: Any,
+        workflow_id: str,
+    ) -> str:
         """
-        Prepare for running ePIC driver script.
+        Prepare geometry once for the whole workflow/design point.
+        Returns the prepared geometry directory.
         """
-        context = None
-        for arg, value in kwargs.items():
-            if isinstance(value, JobContext):
-                context = value
-
-        # JobContext must be provided to access execution dir
-        if context is None:
-            raise RuntimeError("No JobContext provided to EpicStack.prepare_for_execution")
-
-        # Need EpicDesignConfig to determine geometry modifications
-        if context.problem_config.design_config is None:
-            raise AttributeError("DesignConfig not present in job context.")
-        if not isinstance(context.problem_config.design_config, EpicDesignConfig):
+        if problem_config is None or problem_config.design_config is None:
+            raise AttributeError("DesignConfig not present in workflow context.")
+        if not isinstance(problem_config.design_config, EpicDesignConfig):
             raise TypeError("DesignConfig is not an instance of EpicDesignConfig.")
-        design = context.problem_config.design_config
 
-        # make sure a geometry directory has been defined as a template
         if 'EPIC_INSTALL' not in os.environ:
             raise EnvironmentError("Variable 'EPIC_INSTALL' not set. Must define epic_install.")
 
+        design = problem_config.design_config
         template_geo_dir = os.environ['EPIC_INSTALL']
-        trial_geo_dir = '/'.join([context.execution_dir, os.path.basename(template_geo_dir)])
+        trial_geo_dir = os.path.join(workflow_dir, os.path.basename(template_geo_dir))
+
         if not os.path.exists(trial_geo_dir):
             shutil.copytree(template_geo_dir, trial_geo_dir)
 
-        modifications = design.get_xml_modifications(context.design_point)
-        modify_xml_files(modifications)
-        context.add_log(f"Modified geometry in job {context.job_id}")
+        original_modifications = design.get_xml_modifications(design_point)
 
-        # list of commands to execute at start of driver script
-        commands = "\n".join([
-            "set -e\n",
-            f"if [ ! -f {trial_geo_dir}/compiled.log ]; then",
-            f"  cmake -B {trial_geo_dir}/build -S {trial_geo_dir} -DCMAKE_INSTALL_PREFIX={trial_geo_dir}/install",
-            f"  cmake --build {trial_geo_dir}/build",
-            f"  cmake --install {trial_geo_dir}/build\n",
-            "  time=$(date -u)",
-            f'  echo "Job {context.job_id} ' + 'geometry compiled at ${time}" > ' + f"{trial_geo_dir}/compiled.log",
-            "fi",
-        ])
-        return commands
+        remapped_modifications = {}
+        for src_file, params in original_modifications.items():
+            if src_file.startswith(template_geo_dir):
+                dst_file = src_file.replace(template_geo_dir, trial_geo_dir, 1)
+            else:
+                dst_file = src_file
+            remapped_modifications[dst_file] = params
+
+        modify_xml_files(remapped_modifications)
+
+        compiled_log = os.path.join(trial_geo_dir, "compiled.log")
+        if not os.path.exists(compiled_log):
+            os.system(
+                f"cmake -B {trial_geo_dir}/build -S {trial_geo_dir} "
+                f"-DCMAKE_INSTALL_PREFIX={trial_geo_dir}/install"
+            )
+            os.system(f"cmake --build {trial_geo_dir}/build")
+            os.system(f"cmake --install {trial_geo_dir}/build")
+            with open(compiled_log, "w") as f:
+                f.write(f"Workflow {workflow_id} geometry compiled\n")
+
+        return trial_geo_dir
+
+    def prepare_for_execution(self, **kwargs) -> Optional[str]:
+        context = None
+        for _, value in kwargs.items():
+            if isinstance(value, JobContext):
+                context = value
+
+        if context is None:
+            raise RuntimeError("No JobContext provided to EpicStack.prepare_for_execution")
+
+        if context.workflow_context is None:
+            raise RuntimeError("No workflow context provided to EpicStack.prepare_for_execution")
+
+        trial_geo_dir = context.workflow_context.parameters.get("prepared_geometry_dir")
+        if not trial_geo_dir:
+            raise RuntimeError("No prepared geometry directory found in workflow context")
+
+        context.add_log(f"Using pre-built geometry from {trial_geo_dir}")
+        return None
 
     def make_driver_script(
         self,
@@ -221,8 +245,14 @@ class EpicStack(ExperimentStack):
         # reconstruct geometry dir for job
         #   - FIXME this can be improved! We can likely make use
         #     of xcom to retrieve this
-        template_geo_dir = os.environ['EPIC_INSTALL']
-        trial_geo_dir = '/'.join([context.execution_dir, os.path.basename(template_geo_dir)])
+
+        # template_geo_dir = os.environ['EPIC_INSTALL']
+        # trial_geo_dir = '/'.join([context.execution_dir, os.path.basename(template_geo_dir)])
+        if context.workflow_context is None:
+            raise RuntimeError("No workflow context provided to EpicStack.make_driver_script")
+        trial_geo_dir = context.workflow_context.parameters.get("prepared_geometry_dir")
+        if not trial_geo_dir:
+            raise RuntimeError("No prepared geometry directory found in workflow context")
 
         # make sure a geometry config has been specififed
         if 'EPIC_CONFIG' not in os.environ:

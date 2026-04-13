@@ -97,7 +97,7 @@ class DAGExecutor:
         workflow: WorkflowDefinition,
         base_output_dir: str = "/tmp/aid2e_runs",
         log_level: str = "INFO",
-        problem_config: Optional[ProblemConfig] = None,
+        problem_config: Optional[ProblemConfiguration] = None,
         scheduler_config: Optional[Dict[str, Any]] = None,
     ):
         """Initialize DAG Executor.

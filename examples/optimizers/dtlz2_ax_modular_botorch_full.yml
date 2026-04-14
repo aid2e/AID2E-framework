@@ -1,0 +1,69 @@
+metadata:
+  project: AID2E
+  description: Full-config DTLZ2 Ax optimization using Modular BoTorch backend
+  version: 0.0.0
+  results_file: examples/optimizers/output/dtlz2_ax_modular_botorch_results.json
+
+problem:
+  name: "DTLZ2 Multi-Objective Optimization"
+  type: "toy"
+  output_location: "/tmp"
+  work_location: "/tmp"
+  design_parameters_file: "../basic/design.params"
+  objectives:
+    - name: "f1"
+      direction: "minimize"
+    - name: "f2"
+      direction: "minimize"
+
+optimization:
+  name: "dtlz2_ax_modular_botorch"
+  description: "Ax optimization with Modular BoTorch + JobLib scheduler"
+  optimizer:
+    name: "ax"
+    type: "bayesian"
+    parameters:
+      initialization_strategy: "center"   # valid: random | sobol | center
+      surrogate_model: "modular_botorch" # valid: modular_botorch | saasbo | gpei
+      acquisition_function: "qnehvi"
+      n_initial_samples: 6
+      n_iterations: 4
+      batch_size: 2
+      seed: 42
+  objectives:
+    - "minimize:f1"
+    - "minimize:f2"
+  constraints: []
+  n_iterations: 4
+  n_initial_samples: 6
+  parallel_evaluations: 2
+
+scheduler:
+  runner_type: "JobLibRunner"
+  parameters:
+    n_jobs: 2
+    backend: "loky"
+    timeout: 120
+    verbose: 0
+
+workflows:
+  workflows:
+    - name: "dtlz2_ax_modular_single_branch"
+      description: "Single-branch DTLZ2 workflow for Ax Modular BoTorch"
+      objectives:
+        - name: "f1"
+          direction: "minimize"
+        - name: "f2"
+          direction: "minimize"
+      branches:
+        - name: "main"
+          stages:
+            - name: "evaluate"
+              jobs:
+                - name: "compute_objectives"
+                  command: "python"
+                  payload:
+                    evaluator_type: "python"
+                    python_callable: "examples.evaluators.dtlz2:evaluate_both_objectives_wrapper"
+                    op_args: []
+                    op_kwargs: {}

@@ -17,16 +17,29 @@ try:
     from ax.core.search_space import SearchSpace as AxSearchSpace
     from ax.core.parameter import ChoiceParameter as AxChoiceParameter
     from ax.core.parameter import ParameterType, RangeParameter as AxRangeParameter
-    from ax.core.parameter_constraint import (
-        ParameterConstraint as AxParameterConstraint,
-        SumConstraint as AxSumConstraint,
-    )
+    from ax.core.parameter_constraint import ParameterConstraint as AxParameterConstraint
+    try:
+        from ax.core.parameter_constraint import SumConstraint as AxSumConstraint
+    except ImportError:
+        AxSumConstraint = None
     from ax.core.objective import MultiObjective, Objective
     from ax.core.optimization_config import MultiObjectiveOptimizationConfig, OptimizationConfig
     from ax.core.metric import Metric
     from ax.core.arm import Arm
     from ax.generation_strategy.generation_strategy import GenerationStrategy, GenerationStep
-    from ax.modelbridge.registry import Generators
+    try:
+        from ax.generation_strategy.center_generation_node import CenterGenerationNode
+        from ax.generation_strategy.transition_criterion import MinTrials
+        from ax.generation_strategy.generation_node import GenerationNode
+        from ax.generation_strategy.generator_spec import GeneratorSpec
+        AX_NODE_STRATEGY_AVAILABLE = True
+    except ImportError:
+        CenterGenerationNode = None
+        MinTrials = None
+        GenerationNode = None
+        GeneratorSpec = None
+        AX_NODE_STRATEGY_AVAILABLE = False
+    from ax.adapter.registry import Generators
     AX_AVAILABLE = True
 except ImportError as e:
     AX_AVAILABLE = False
@@ -46,9 +59,19 @@ except ImportError as e:
         GenerationStrategy = None
         AxParameterConstraint = None
         AxSumConstraint = None
+        CenterGenerationNode = None
+        MinTrials = None
+        GenerationNode = None
+        GeneratorSpec = None
+        AX_NODE_STRATEGY_AVAILABLE = False
     logger.warning(f"Ax not available: {e}. Install with: pip install ax-platform==1.0.0")
 
-from aid2e.optimizers.base import BaseOptimizer, SearchSpace, Trial
+from aid2e.optimizers.base import (
+    BaseOptimizer,
+    SearchSpace,
+    Trial,
+    TRIAL_STATUS_SUGGESTED,
+)
 from aid2e.utilities.configurations.base_models import (
     ChoiceParameter as DesignChoiceParameter,
     RangeParameter as DesignRangeParameter,
@@ -174,7 +197,7 @@ class AxOptimizer(BaseOptimizer):
     
     def _parse_constraint_to_ax(
         self, constraint
-    ) -> Optional[Union[AxParameterConstraint, AxSumConstraint]]:
+    ) -> Optional[Any]:
         """Parse a ParameterConstraint rule to an Ax constraint object.
         
         Args:
@@ -351,31 +374,46 @@ class AxOptimizer(BaseOptimizer):
         """Create Ax GenerationStrategy based on config.
         
         Returns:
-            Ax GenerationStrategy configured with Sobol + SAASBO/GPEI.
+            Ax GenerationStrategy configured with chosen initialization +
+            model-based optimization backend.
         
         Notes:
             Strategy has two steps:
-            1. Sobol initialization for n_initial_samples
-            2. Model-based optimization (SAASBO or GPEI) for remaining iterations
+            1. Initialization phase (random or Sobol; center handled explicitly).
+            2. Model-based optimization (SAASBO, GPEI, or Modular BoTorch).
+        """
+        if AX_NODE_STRATEGY_AVAILABLE:
+            return self._create_node_generation_strategy()
+
+        return self._create_step_generation_strategy()
+
+    def _create_step_generation_strategy(self):
+        """Create a legacy step-based generation strategy.
+
+        Notes:
+            This fallback is kept for Ax environments that do not expose the
+            newer node-based generation strategy API.
         """
         steps = []
-        
-        # Step 1: Sobol initialization
-        if self.config.initialization_strategy.lower() == "sobol":
+
+        init_strategy = self.config.initialization_strategy.lower()
+        init_trials = int(self.config.n_initial_samples)
+        if init_strategy == "center":
+            # Center point is emitted explicitly in suggest_candidates.
+            init_trials = max(0, init_trials - 1)
+
+        init_model = self._get_initialization_model()
+        if init_trials > 0:
             steps.append(
                 GenerationStep(
-                    model=Generators.SOBOL,
-                    num_trials=self.config.n_initial_samples,
+                    model=init_model,
+                    num_trials=init_trials,
                     max_parallelism=self.config.batch_size
                 )
             )
-        
+
         # Step 2: Model-based optimization
-        if self.config.surrogate_model.lower() == "saasbo":
-            model = Generators.SAASBO
-        else:
-            # Default to GPEI for other cases
-            model = Generators.GPEI
+        model = self._get_model_based_generator()
         
         steps.append(
             GenerationStep(
@@ -386,6 +424,302 @@ class AxOptimizer(BaseOptimizer):
         )
         
         return GenerationStrategy(steps=steps)
+
+    def _create_node_generation_strategy(self):
+        """Create a node-based generation strategy using the latest Ax APIs.
+
+        Notes:
+            This mirrors the modern Modular BoTorch tutorial pattern of chaining
+            CenterOfSearchSpace -> initializer node -> model-based node using
+            transition criteria such as MinTrials.
+        """
+        model_node_name = self._get_model_node_name()
+        model_node = GenerationNode(
+            name=model_node_name,
+            generator_specs=[
+                GeneratorSpec(
+                    generator_enum=self._get_model_based_generator_enum(),
+                    generator_kwargs=self._get_model_generator_kwargs(),
+                    generator_gen_kwargs=self._get_model_generator_gen_kwargs(),
+                )
+            ],
+        )
+
+        nodes = []
+        init_strategy = self.config.initialization_strategy.lower()
+        init_trials = int(self.config.n_initial_samples)
+
+        if init_strategy == "center":
+            remaining_init_trials = max(0, init_trials - 1)
+            next_node_name = model_node.name
+            if remaining_init_trials > 0:
+                init_node = self._build_initialization_node(
+                    node_name="Sobol",
+                    generator_enum=Generators.SOBOL,
+                    num_trials=remaining_init_trials,
+                    transition_to=model_node.name,
+                )
+                next_node_name = init_node.name
+                nodes.append(init_node)
+
+            nodes.insert(0, CenterGenerationNode(next_node_name=next_node_name))
+            nodes.append(model_node)
+            return GenerationStrategy(
+                name=f"Center+{next_node_name}+{model_node.name}",
+                nodes=nodes,
+            )
+
+        init_node = self._build_initialization_node(
+            node_name="Random" if init_strategy == "random" else "Sobol",
+            generator_enum=self._get_initialization_model_enum(),
+            num_trials=init_trials,
+            transition_to=model_node.name,
+        )
+
+        return GenerationStrategy(
+            name=f"{init_node.name}+{model_node.name}",
+            nodes=[init_node, model_node],
+        )
+
+    def _build_initialization_node(
+        self,
+        *,
+        node_name: str,
+        generator_enum: Any,
+        num_trials: int,
+        transition_to: str,
+    ):
+        """Build one initialization node for the node-based Ax API."""
+        return GenerationNode(
+            name=node_name,
+            generator_specs=[
+                GeneratorSpec(
+                    generator_enum=generator_enum,
+                    generator_kwargs=self._get_initialization_generator_kwargs(),
+                )
+            ],
+            transition_criteria=[
+                MinTrials(
+                    threshold=num_trials,
+                    transition_to=transition_to,
+                    use_all_trials_in_exp=True,
+                )
+            ],
+        )
+
+    def _get_initialization_model(self):
+        """Return Ax initializer generator for the configured strategy."""
+        return self._get_initialization_model_enum()
+
+    def _get_initialization_model_enum(self):
+        """Return Ax initializer generator enum for the configured strategy."""
+        init_strategy = self.config.initialization_strategy.lower()
+        if init_strategy == "random":
+            uniform = getattr(Generators, "UNIFORM", None)
+            if uniform is not None:
+                return uniform
+            logger.warning(
+                "Generators.UNIFORM is unavailable in this Ax version; "
+                "falling back to Sobol for initialization."
+            )
+        return Generators.SOBOL
+
+    def _get_initialization_generator_kwargs(self) -> Dict[str, Any]:
+        """Return generator kwargs for initialization nodes."""
+        if self.seed is None:
+            return {}
+        return {"seed": int(self.seed)}
+
+    def _get_model_based_generator(self):
+        """Return Ax model-based generator for configured surrogate backend."""
+        return self._get_model_based_generator_enum()
+
+    def _get_model_based_generator_enum(self):
+        """Return Ax model-based generator enum for configured surrogate backend."""
+        surrogate = self.config.surrogate_model.lower()
+        if surrogate == "saasbo":
+            return Generators.SAASBO
+        if surrogate == "gpei":
+            return Generators.GPEI
+        if surrogate == "modular_botorch":
+            modular = getattr(Generators, "BOTORCH_MODULAR", None)
+            if modular is not None:
+                return modular
+            logger.warning(
+                "Generators.BOTORCH_MODULAR is unavailable in this Ax version; "
+                "falling back to SAASBO."
+            )
+            return Generators.SAASBO
+
+        logger.warning("Unknown surrogate model '%s'; falling back to SAASBO.", surrogate)
+        return Generators.SAASBO
+
+    def _get_model_node_name(self) -> str:
+        """Return the display name for the active model-based generation node."""
+        surrogate = self.config.surrogate_model.lower()
+        if surrogate == "modular_botorch":
+            return "ModularBoTorch"
+        if surrogate == "gpei":
+            return "GPEI"
+        return "SAASBO"
+
+    def _get_model_generator_kwargs(self) -> Dict[str, Any]:
+        """Return generator kwargs for the chosen model-based backend.
+
+        Notes:
+            For Modular BoTorch we prefer the latest Ax dispatch defaults and
+            only set an explicit acquisition class when a modern matching class
+            is readily importable.
+        """
+        if self.config.surrogate_model.lower() != "modular_botorch":
+            return {}
+
+        kwargs: Dict[str, Any] = {}
+        acq = self.config.acquisition_function.lower()
+        try:
+            if len(self.objective_names) > 1 and acq in {"qnehvi", "qlognehvi"}:
+                from botorch.acquisition.multi_objective.logei import (
+                    qLogNoisyExpectedHypervolumeImprovement,
+                )
+
+                kwargs["botorch_acqf_class"] = qLogNoisyExpectedHypervolumeImprovement
+            elif acq in {"qlognei", "qnehvi", "qlognehvi"}:
+                from botorch.acquisition.logei import qLogNoisyExpectedImprovement
+
+                kwargs["botorch_acqf_class"] = qLogNoisyExpectedImprovement
+        except ImportError as exc:
+            logger.warning(
+                "Could not import requested BoTorch acquisition class for '%s': %s. "
+                "Using Ax Modular BoTorch defaults instead.",
+                acq,
+                exc,
+            )
+
+        return kwargs
+
+    def _get_model_generator_gen_kwargs(self) -> Dict[str, Any]:
+        """Return generation-time kwargs for model-based candidate generation."""
+        return {}
+
+    def _center_parameters(self) -> Dict[str, Any]:
+        """Construct center-of-search-space parameters for one trial."""
+        center: Dict[str, Any] = {}
+        for param_name, param in self.search_space.parameters.items():
+            if isinstance(param, DesignRangeParameter):
+                lo, hi = param.bounds
+                center[param_name] = (float(lo) + float(hi)) / 2.0
+            elif isinstance(param, DesignChoiceParameter):
+                if not param.choices:
+                    raise ValueError(f"Choice parameter '{param_name}' has no choices")
+                center[param_name] = param.choices[0]
+            else:
+                raise ValueError(
+                    f"Unsupported parameter type for center initialization: "
+                    f"{param.__class__.__name__}"
+                )
+        return center
+
+    def _split_generator_run(self, generator_run: Any) -> List[Any]:
+        """Split a possibly batched Ax generator run into per-arm runs.
+
+        Args:
+            generator_run: A generator run returned by Ax.
+
+        Returns:
+            List of single-arm generator runs.
+        """
+        if not hasattr(generator_run, "arms"):
+            raise TypeError(
+                "Expected an Ax generator run with an 'arms' attribute, got "
+                f"{type(generator_run).__name__}"
+            )
+
+        arms = list(generator_run.arms)
+        if len(arms) <= 1:
+            return [generator_run]
+
+        from ax.core.generator_run import GeneratorRun
+
+        weights = list(getattr(generator_run, "weights", []) or [])
+        single_runs: List[Any] = []
+        for index, arm in enumerate(arms):
+            weight = weights[index] if index < len(weights) else 1.0
+            single_run = GeneratorRun(arms=[arm], weights=[weight])
+            for attr_name in (
+                "_model_key",
+                "_generation_node_name",
+                "fit_time",
+                "gen_time",
+            ):
+                if hasattr(generator_run, attr_name):
+                    setattr(single_run, attr_name, getattr(generator_run, attr_name))
+            single_runs.append(single_run)
+
+        return single_runs
+
+    def _normalize_generator_runs(self, gen_result: Any) -> List[Any]:
+        """Normalize Ax generation output into per-arm generator runs.
+
+        Args:
+            gen_result: Value returned by ``generation_strategy.gen(...)``.
+
+        Returns:
+            List of single-arm generator runs.
+
+        Raises:
+            TypeError: If the return shape cannot be interpreted as generator
+                run output.
+
+        Notes:
+            Newer Ax internals may return wrapper/list-like structures around
+            generator runs. AID2E uses one Ax generation call per requested
+            batch and then splits the result into individual trial records.
+        """
+        if hasattr(gen_result, "arms"):
+            return self._split_generator_run(gen_result)
+
+        if isinstance(gen_result, (list, tuple)):
+            generator_runs: List[Any] = []
+            for item in gen_result:
+                generator_runs.extend(self._normalize_generator_runs(item))
+            return generator_runs
+
+        if hasattr(gen_result, "generator_run_structs"):
+            structs = getattr(gen_result, "generator_run_structs")
+            generator_runs: List[Any] = []
+            for struct in structs:
+                generator_runs.extend(self._normalize_generator_runs(struct))
+            return generator_runs
+
+        if hasattr(gen_result, "generator_run"):
+            return self._normalize_generator_runs(getattr(gen_result, "generator_run"))
+
+        raise TypeError(
+            "Unsupported Ax generation result type: "
+            f"{type(gen_result).__name__}"
+        )
+
+    def _get_generation_strategy_metadata(self) -> Dict[str, Any]:
+        """Return strategy progress metadata compatible across Ax APIs.
+
+        Returns:
+            Dictionary containing ``ax_step_index`` when available and
+            ``ax_node_name`` for node-based strategies.
+        """
+        metadata: Dict[str, Any] = {"ax_step_index": -1}
+
+        step_index = getattr(self.generation_strategy, "current_step_index", None)
+        if step_index is not None:
+            try:
+                metadata["ax_step_index"] = int(step_index)
+            except (TypeError, ValueError):
+                logger.debug("Unable to coerce Ax step index '%s' to int", step_index)
+
+        node_name = getattr(self.generation_strategy, "current_node_name", None)
+        if node_name is not None:
+            metadata["ax_node_name"] = str(node_name)
+
+        return metadata
     
     def suggest_candidates(self, n_candidates: int = 1) -> List[Dict[str, Any]]:
         """Suggest the next batch of parameter configurations to evaluate.
@@ -400,53 +734,89 @@ class AxOptimizer(BaseOptimizer):
             Constraints are handled natively by Ax when present in search_space.
             Ax enforces constraints during candidate generation automatically.
             
-            IMPLEMENTATION NOTE: This method generates n_candidates in a single
-            call to generation_strategy.gen(), but creates n separate trials
-            (one per candidate). While Ax supports batch trials natively, we use
-            individual trials for API simplicity - each evaluation gets its own
-            trial_index. This approach trades batch optimization benefits for
-            clearer sequential evaluation semantics that match the typical
-            optimization loop pattern.
+            IMPLEMENTATION NOTE: This method generates the requested batch in a
+            single Ax call whenever possible, then splits the resulting batch
+            into individual AID2E trial records so the rest of the framework can
+            keep using single-trial ``update_with_results`` semantics.
             
             The GenerationStrategy still properly tracks progress: after
             n_initial_samples individual trials complete (regardless of how
             they were generated), it automatically switches from Sobol to BO.
         """
 
-        # Generate n candidates using the generation strategy
-        # After n_initial_samples trials are completed (tracked in experiment),
-        # this will automatically switch from Sobol to SAASBO/GPEI
-        generator_run = self.generation_strategy.gen(
-            experiment=self.experiment,
-            n=n_candidates,
+        candidates = []
+        model_keys: List[str] = []
+
+        # Legacy center initialization: emit one deterministic center point first
+        # only when the newer node-based API is unavailable.
+        if (
+            not AX_NODE_STRATEGY_AVAILABLE
+            and
+            self.config.initialization_strategy.lower() == "center"
+            and len(self.experiment.trials) == 0
+            and n_candidates > 0
+        ):
+            center_params = self._center_parameters()
+            center_trial = self.experiment.new_trial(generator_run=None)
+            center_trial.add_arm(Arm(parameters=center_params))
+            center_trial.mark_running(no_runner_required=True)
+            self.set_trial_status(
+                trial_index=center_trial.index,
+                status=TRIAL_STATUS_SUGGESTED,
+                parameters=center_params,
+                metrics=None,
+                metadata={"ax_model_key": "CenterOfSearchSpace", "ax_step_index": -1},
+            )
+            candidates.append(center_params)
+            model_keys.append("CenterOfSearchSpace")
+
+        remaining_candidates = n_candidates - len(candidates)
+        if remaining_candidates > 0:
+            generator_run_result = self.generation_strategy.gen(
+                experiment=self.experiment,
+                n=remaining_candidates,
+            )
+            strategy_metadata = self._get_generation_strategy_metadata()
+            generator_runs = self._normalize_generator_runs(generator_run_result)
+            if len(generator_runs) < remaining_candidates:
+                raise RuntimeError(
+                    "Ax returned fewer generator runs than requested: "
+                    f"requested={remaining_candidates}, got={len(generator_runs)}"
+                )
+
+            for generator_run in generator_runs[:remaining_candidates]:
+                trial = self.experiment.new_trial(generator_run=generator_run)
+                trial.mark_running(no_runner_required=True)
+                arm = generator_run.arms[0]
+                candidate_params = dict(arm.parameters)
+                model_key = getattr(generator_run, "_model_key", "unknown")
+                self.set_trial_status(
+                    trial_index=trial.index,
+                    status=TRIAL_STATUS_SUGGESTED,
+                    parameters=candidate_params,
+                    metrics=None,
+                    metadata={
+                        "ax_model_key": model_key,
+                        **strategy_metadata,
+                    },
+                )
+                candidates.append(candidate_params)
+                model_keys.append(model_key)
+
+        self._trial_counter = max(self._trial_counter, len(self.experiment.trials))
+        strategy_metadata = self._get_generation_strategy_metadata()
+        strategy_ref = strategy_metadata.get(
+            "ax_node_name",
+            strategy_metadata.get("ax_step_index", -1),
         )
 
-        # Create individual trials for each arm
-        # This allows simple sequential evaluation: suggest() → evaluate() → update()
-        candidates = []
-        for arm in generator_run.arms:
-            # For each arm, create a single-arm trial
-            # We create a minimal generator_run for this specific arm
-            from ax.core.generator_run import GeneratorRun
-            
-            single_arm_gr = GeneratorRun(
-                arms=[arm],
-                weights=[1.0],
-            )
-            # Copy over critical metadata from the original generator_run
-            single_arm_gr._model_key = generator_run._model_key
-            
-            trial = self.experiment.new_trial(generator_run=single_arm_gr)
-            trial.mark_running(no_runner_required=True)
-            candidates.append(dict(arm.parameters))
-
         logger.debug(
-            "Generated %d candidates using %s (trials %d-%d, step=%d)",
+            "Generated %d candidates using %s (trials %d-%d, strategy=%s)",
             n_candidates,
-            getattr(generator_run, '_model_key', 'unknown'),
+            ",".join(model_keys) if model_keys else "unknown",
             len(self.experiment.trials) - n_candidates,
             len(self.experiment.trials) - 1,
-            self.generation_strategy.current_step_index
+            strategy_ref,
         )
         return candidates
     
@@ -499,6 +869,7 @@ class AxOptimizer(BaseOptimizer):
                     data_rows.append({
                         'trial_index': trial_index,
                         'metric_name': metric_name,
+                        'metric_signature': metric_name,
                         'arm_name': trial.arm.name if trial.arm else f"arm_{trial_index}",
                         'mean': float(metric_value),
                         'sem': 0.0  # Standard error of mean (0 for deterministic)
@@ -509,19 +880,13 @@ class AxOptimizer(BaseOptimizer):
                 data = Data(df=df)
                 self.experiment.attach_data(data)
         
-        # Update internal trial tracking
-        trial_obj = Trial(
-            index=trial_index,
+        # Update internal trial tracking through the base API
+        self.set_trial_status(
+            trial_index=trial_index,
+            status="completed",
             parameters=parameters,
-            metrics=metrics,
-            status="completed"
+            metrics={k: float(v) for k, v in metrics.items()},
         )
-        
-        # Update or append trial
-        while len(self._trials) <= trial_index:
-            self._trials.append(None)
-        self._trials[trial_index] = trial_obj
-        self._trial_counter = max(self._trial_counter, trial_index + 1)
         
         logger.debug(
             f"Updated trial {trial_index} with {len(metrics)} metrics"
@@ -649,6 +1014,7 @@ class AxOptimizer(BaseOptimizer):
                 )
         
         self._trial_counter = state.get("trial_counter", len(self._trials))
+        self._trial_counter = max(self._trial_counter, len(self.experiment.trials))
         
         logger.info(f"Loaded optimizer state with {len(self._trials)} trials")
     

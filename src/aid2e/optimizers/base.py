@@ -19,9 +19,39 @@ Entrypoints:
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple, Union
+import json
 import logging
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
+
+TRIAL_STATUS_PENDING = "pending"
+TRIAL_STATUS_SUGGESTED = "suggested"
+TRIAL_STATUS_RUNNING = "running"
+TRIAL_STATUS_COMPLETED = "completed"
+TRIAL_STATUS_FAILED = "failed"
+TRIAL_STATUS_ABORTED = "aborted"
+TRIAL_STATUS_CANCELLED = "cancelled"
+
+VALID_TRIAL_STATUSES = {
+    TRIAL_STATUS_PENDING,
+    TRIAL_STATUS_SUGGESTED,
+    TRIAL_STATUS_RUNNING,
+    TRIAL_STATUS_COMPLETED,
+    TRIAL_STATUS_FAILED,
+    TRIAL_STATUS_ABORTED,
+    TRIAL_STATUS_CANCELLED,
+}
+
+DISPLAY_STATUS_MAP = {
+    TRIAL_STATUS_PENDING: "Pending",
+    TRIAL_STATUS_SUGGESTED: "Suggested",
+    TRIAL_STATUS_RUNNING: "Running",
+    TRIAL_STATUS_COMPLETED: "Finished",
+    TRIAL_STATUS_FAILED: "Failed",
+    TRIAL_STATUS_ABORTED: "Aborted",
+    TRIAL_STATUS_CANCELLED: "Cancelled",
+}
 
 from aid2e.utilities.configurations.base_models import BaseParameter, parse_parameter
 from aid2e.utilities.configurations.design_config import (
@@ -182,9 +212,16 @@ class Trial:
     status: str = "pending"
 
     def __post_init__(self) -> None:
-        """Ensure metadata is always a dictionary after initialization."""
+        """Normalize metadata and status values after initialization."""
         if self.metadata is None:
             self.metadata = {}
+        normalized = str(self.status).strip().lower()
+        self.status = normalized if normalized else TRIAL_STATUS_PENDING
+        if self.status not in VALID_TRIAL_STATUSES:
+            logger.warning(
+                "Unknown trial status '%s'; keeping value as-is.",
+                self.status,
+            )
 
 
 def compute_pareto_front(
@@ -418,6 +455,100 @@ class BaseOptimizer(ABC):
             >>> done = [t for t in optimizer.get_trials() if t.status == "completed"]
         """
         return [t for t in self._trials if t is not None]
+
+    def set_trial_status(
+        self,
+        trial_index: int,
+        status: str,
+        *,
+        parameters: Optional[Dict[str, Any]] = None,
+        metrics: Optional[Dict[str, float]] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> Trial:
+        """Create or update a trial entry with a new lifecycle status.
+
+        Args:
+            trial_index: Unique trial identifier.
+            status: Trial lifecycle status (for example ``running``,
+                ``completed``, ``aborted``).
+            parameters: Optional parameter dictionary to store on the trial.
+            metrics: Optional objective dictionary to store on the trial.
+            metadata: Optional metadata to merge into existing metadata.
+
+        Returns:
+            The updated Trial object.
+
+        Raises:
+            ValueError: If ``trial_index`` is negative.
+        """
+        if trial_index < 0:
+            raise ValueError("trial_index must be >= 0")
+
+        normalized_status = str(status).strip().lower()
+        while len(self._trials) <= trial_index:
+            self._trials.append(None)
+
+        existing = self._trials[trial_index]
+        existing_parameters = existing.parameters if existing else {}
+        existing_metrics = existing.metrics if existing else None
+        existing_metadata = dict(existing.metadata) if existing and existing.metadata else {}
+
+        trial = Trial(
+            index=trial_index,
+            parameters=parameters if parameters is not None else existing_parameters,
+            metrics=metrics if metrics is not None else existing_metrics,
+            status=normalized_status,
+            metadata={**existing_metadata, **(metadata or {})},
+        )
+        self._trials[trial_index] = trial
+        self._trial_counter = max(self._trial_counter, trial_index + 1)
+        return trial
+
+    def get_optimization_results(self) -> Dict[str, Any]:
+        """Return a normalized optimization-results payload.
+
+        Returns:
+            Dictionary containing objective names and trial records with
+            parameters, metrics, and both raw and display status labels.
+        """
+        trials_payload: List[Dict[str, Any]] = []
+        for trial in self.get_trials():
+            trials_payload.append(
+                {
+                    "trial_index": trial.index,
+                    "status": trial.status,
+                    "display_status": DISPLAY_STATUS_MAP.get(
+                        trial.status,
+                        trial.status.title(),
+                    ),
+                    "design_parameters": dict(trial.parameters or {}),
+                    "objectives": dict(trial.metrics or {}),
+                    "metadata": dict(trial.metadata or {}),
+                }
+            )
+
+        return {
+            "objective_names": list(self.objective_names),
+            "n_objectives": self.n_objectives,
+            "n_trials": len(trials_payload),
+            "trials": trials_payload,
+        }
+
+    def save_optimization_results(self, output_path: Union[str, Path]) -> Path:
+        """Write optimization results to disk as pretty-printed JSON.
+
+        Args:
+            output_path: Target JSON path.
+
+        Returns:
+            Resolved path of the written file.
+        """
+        path = Path(output_path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        payload = self.get_optimization_results()
+        with path.open("w", encoding="utf-8") as handle:
+            json.dump(payload, handle, indent=2, sort_keys=True)
+        return path
 
     def seed_from_trials(
         self,

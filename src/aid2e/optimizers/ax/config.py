@@ -46,17 +46,27 @@ class AxOptimizerConfig(BaseModel):
         problems with multiple competing objectives.
     """
     
-    initialization_strategy: Literal["sobol"] = Field(
+    initialization_strategy: Literal["sobol", "random", "center"] = Field(
         default="sobol",
-        description="Initialization strategy for the search space (Sobol quasi-random)."
+        description=(
+            "Initialization strategy: 'sobol' for quasi-random initialization, "
+            "'random' for uniform random initialization, or 'center' for one "
+            "center point followed by additional initialization samples."
+        ),
     )
-    surrogate_model: Literal["saasbo"] = Field(
+    surrogate_model: Literal["saasbo", "gpei", "modular_botorch"] = Field(
         default="saasbo",
-        description="Surrogate model type (Scalable Asynchronous Adaptive Bayesian Optimization)."
+        description=(
+            "Surrogate model type: 'saasbo', 'gpei', or 'modular_botorch' "
+            "(Ax Modular BoTorch generator)."
+        ),
     )
-    acquisition_function: Literal["qnehvi"] = Field(
+    acquisition_function: Literal["qnehvi", "qlognehvi", "qlognei"] = Field(
         default="qnehvi",
-        description="Acquisition function for candidate selection (Batched Noisy Expected Hypervolume Improvement)."
+        description=(
+            "Acquisition function preference. For modular BoTorch mode, Ax may "
+            "dispatch to its compatible default if explicit mapping is unavailable."
+        ),
     )
     n_initial_samples: int = Field(
         default=10,

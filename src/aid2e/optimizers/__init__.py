@@ -18,14 +18,15 @@ Attributes:
 from aid2e import __MAIN_VERSION__
 from .base import BaseOptimizer, SearchSpace, Trial, compute_pareto_front
 from ._registry import register, get as get_optimizer_config
-
-# Import ax subpackage to trigger auto-registration
-from . import ax
 from .ax import AxOptimizer, AxOptimizerConfig
-
-# Import pymoo subpackage to trigger auto-registration
-from . import pymoo
 from .pymoo import AID2EProblem, PyMOOOptimizer, PyMOOOptimizerConfig
+
+# Explicit aliases avoid ambiguity with the third-party `ax` package and give
+# callers a stable parent-package import path for AID2E-specific optimizers.
+AID2EAxOptimizer = AxOptimizer
+AID2EAxOptimizerConfig = AxOptimizerConfig
+AID2EPyMOOOptimizer = PyMOOOptimizer
+AID2EPyMOOOptimizerConfig = PyMOOOptimizerConfig
 
 __version__ = __MAIN_VERSION__
 __all__ = [
@@ -35,12 +36,14 @@ __all__ = [
     "compute_pareto_front",
     "AxOptimizer",
     "AxOptimizerConfig",
+    "AID2EAxOptimizer",
+    "AID2EAxOptimizerConfig",
     "PyMOOOptimizer",
     "PyMOOOptimizerConfig",
+    "AID2EPyMOOOptimizer",
+    "AID2EPyMOOOptimizerConfig",
     "AID2EProblem",
     "register",
     "get_optimizer_config",
-    "ax",
-    "pymoo",
 ]
 

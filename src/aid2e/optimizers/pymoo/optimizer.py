@@ -24,16 +24,10 @@ repeatedly regardless of the backend.
 AID2EProblem
 ------------
 The public ``AID2EProblem`` class represents the search space as a proper
-PyMOO ``Problem``.  It has two modes:
-
-- **Ask/tell mode** (default, no ``eval_fn``): ``_evaluate`` raises
-  ``NotImplementedError`` because evaluations happen externally.  This is
-  what ``PyMOOOptimizer`` uses internally (stored as ``optimizer.problem``).
-- **Direct mode** (``eval_fn`` provided): ``_evaluate`` calls ``eval_fn``
-  for each individual.  Useful for synchronous local benchmarks or rapid
-  prototyping where you want to call ``pymoo.optimize.minimize()`` directly.
-
-Obtain a direct-mode problem via ``PyMOOOptimizer.make_pymoo_problem(eval_fn)``.
+PyMOO ``Problem``.  It is structural only (variables, bounds, objectives)
+and intentionally does not evaluate candidates.  Evaluations are always
+handled externally by workflow/scheduler components and reported back via
+``update_with_results``.
 
 Backend switching
 -----------------
@@ -49,7 +43,7 @@ Repository: https://github.com/aid2e/AID2E-framework.git
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union, TYPE_CHECKING
+from typing import Any, Dict, List, Optional, Tuple, Union, TYPE_CHECKING
 
 import numpy as np
 
@@ -93,17 +87,8 @@ from .config import PyMOOOptimizerConfig
 class AID2EProblem(Problem):
     """PyMOO Problem that wraps an AID2E ``SearchSpace``.
 
-    This class has two modes of operation:
-
-    - **Ask/tell mode** (no ``eval_fn``): ``_evaluate`` raises
-      ``NotImplementedError``.  This is the default path used by
-      ``PyMOOOptimizer`` internally.  Evaluations happen externally via
-      schedulers; results are fed back through ``update_with_results``.
-    - **Direct mode** (``eval_fn`` provided): ``_evaluate`` calls ``eval_fn``
-      synchronously for each individual vector.  Useful for local benchmarks
-      or prototyping with ``pymoo.optimize.minimize()``.
-
-    In both modes, ``decode_x`` translates PyMOO's float vectors into
+        This problem is structural-only for ask/tell workflows. ``decode_x``
+        translates PyMOO float vectors into
     human-readable AID2E parameter dicts — the same representation returned
     by ``suggest_candidates``.
 
@@ -114,18 +99,7 @@ class AID2EProblem(Problem):
         xu: Upper-bound array of shape ``(n_var,)``.
         param_items: Ordered list of ``(name, BaseParameter)`` pairs used for
             encoding/decoding.
-        objective_names: Ordered objective names matching ``eval_fn`` output.
-        eval_fn: Optional callable ``(params: dict) -> dict`` for direct
-            evaluation.  When ``None`` the problem operates in ask/tell mode.
-
-    Examples:
-        >>> # Direct-evaluation mode:
-        >>> problem = optimizer.make_pymoo_problem(
-        ...     lambda p: {"f1": p["x"]**2, "f2": (p["y"] - 1)**2}
-        ... )
-        >>> from pymoo.optimize import minimize
-        >>> from pymoo.algorithms.moo.nsga2 import NSGA2
-        >>> result = minimize(problem, NSGA2(pop_size=50), ("n_gen", 100))
+        objective_names: Ordered objective names.
     """
 
     def __init__(
@@ -136,13 +110,11 @@ class AID2EProblem(Problem):
         xu: np.ndarray,
         param_items: List[Tuple[str, Any]],
         objective_names: List[str],
-        eval_fn: Optional[Callable[[Dict[str, Any]], Dict[str, float]]] = None,
     ) -> None:
         """Initialise the AID2E problem with search-space metadata."""
         super().__init__(n_var=n_var, n_obj=n_obj, xl=xl, xu=xu)
         self._param_items = param_items
         self._objective_names = objective_names
-        self._eval_fn = eval_fn
 
     def decode_x(self, x_row: np.ndarray) -> Dict[str, Any]:
         """Translate a PyMOO float vector into an AID2E parameter dictionary.
@@ -168,29 +140,21 @@ class AID2EProblem(Problem):
     def _evaluate(
         self, x: np.ndarray, out: dict, *args: Any, **kwargs: Any
     ) -> None:
-        """Evaluate a batch of individuals.
-
-        In ask/tell mode raises ``NotImplementedError``.  In direct mode calls
-        ``eval_fn`` for each row of ``x``.
+        """Raise because AID2E always uses external evaluation.
 
         Args:
-            x: Population matrix of shape ``(pop_size, n_var)``.
-            out: PyMOO output dict; sets ``out["F"]`` to shape
-                ``(pop_size, n_obj)``.
+            x: Population matrix (unused).
+            out: Output dictionary (unused).
+
+        Raises:
+            NotImplementedError: Always, because evaluation belongs to the
+                workflow/scheduler layer in AID2E.
         """
-        if self._eval_fn is None:
-            raise NotImplementedError(
-                "AID2EProblem is in ask/tell mode — evaluations are handled "
-                "externally through PyMOOOptimizer.update_with_results(). "
-                "To use direct synchronous evaluation, construct the problem "
-                "via optimizer.make_pymoo_problem(eval_fn)."
-            )
-        F = []
-        for x_row in x:
-            params = self.decode_x(x_row)
-            metrics = self._eval_fn(params)
-            F.append([float(metrics[obj]) for obj in self._objective_names])
-        out["F"] = np.array(F, dtype=float)
+        raise NotImplementedError(
+            "AID2EProblem is structural-only in ask/tell mode. "
+            "Use PyMOOOptimizer.suggest_candidates() and "
+            "PyMOOOptimizer.update_with_results() with external evaluation."
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -314,8 +278,7 @@ class PyMOOOptimizer(BaseOptimizer):
         self._xl, self._xu = self._build_bounds()
         n_var = len(self._param_items)
 
-        # Public PyMOO problem — ask/tell mode (no eval_fn).
-        # For synchronous direct evaluation use make_pymoo_problem(eval_fn).
+        # Public PyMOO problem (structural-only ask/tell mode).
         self.problem: AID2EProblem = AID2EProblem(
             n_var=n_var,
             n_obj=self.n_objectives,
@@ -323,7 +286,6 @@ class PyMOOOptimizer(BaseOptimizer):
             xu=self._xu,
             param_items=self._param_items,
             objective_names=self.objective_names,
-            eval_fn=None,
         )
 
         # Create the PyMOO algorithm
@@ -572,52 +534,6 @@ class PyMOOOptimizer(BaseOptimizer):
                 "Call update_with_results() for all pending candidates first."
             )
         return super().seed_from_trials(trials, only_completed=only_completed)
-
-    def make_pymoo_problem(
-        self,
-        eval_fn: Callable[[Dict[str, Any]], Dict[str, float]],
-    ) -> "AID2EProblem":
-        """Create a direct-evaluation ``AID2EProblem`` from this optimizer's search space.
-
-        Returns an ``AID2EProblem`` in *direct mode*, meaning its
-        ``_evaluate`` calls ``eval_fn`` synchronously.  This lets you pass
-        the result to ``pymoo.optimize.minimize()`` for quick synchronous
-        runs or local benchmarks without touching the ask/tell machinery.
-
-        The ``optimizer.problem`` attribute (used by the ask/tell loop) is
-        **not** modified; the returned object is independent.
-
-        Args:
-            eval_fn: Callable that accepts a parameter dict (as returned by
-                ``suggest_candidates``) and returns a metrics dict mapping
-                every objective name to a float.
-
-        Returns:
-            A new ``AID2EProblem`` instance with ``eval_fn`` attached, ready
-            for use with PyMOO's synchronous ``minimize`` API.
-
-        Examples:
-            >>> problem = optimizer.make_pymoo_problem(
-            ...     lambda p: {"f1": p["x"]**2, "f2": (p["y"] - 1)**2}
-            ... )
-            >>> from pymoo.optimize import minimize
-            >>> from pymoo.algorithms.moo.nsga2 import NSGA2
-            >>> result = minimize(problem, NSGA2(pop_size=50), ("n_gen", 100))
-            >>> result.F  # Pareto-front objective values
-
-        Notes:
-            Use this path for unit tests, tutorials, and local benchmarks.
-            For distributed/HPC evaluation use the ask/tell path instead.
-        """
-        return AID2EProblem(
-            n_var=len(self._param_items),
-            n_obj=self.n_objectives,
-            xl=self._xl,
-            xu=self._xu,
-            param_items=self._param_items,
-            objective_names=self.objective_names,
-            eval_fn=eval_fn,
-        )
 
     def suggest_candidates(self, n_candidates: int = 1) -> List[Dict[str, Any]]:
         """Suggest the next batch of candidates to evaluate.
@@ -879,7 +795,6 @@ class PyMOOOptimizer(BaseOptimizer):
             xu=self._xu,
             param_items=self._param_items,
             objective_names=self.objective_names,
-            eval_fn=None,
         )
 
         # Try to restore the algorithm state from pickle

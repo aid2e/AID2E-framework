@@ -5,55 +5,46 @@ from __future__ import annotations
 import importlib
 from typing import Any, Dict, Optional, Sequence, Tuple, Union
 
-from .optimization_config import OptimizationConfiguration
+from .optimizer_config import OptimizerConfiguration
 from .problem_config import ProblemConfiguration
 from .scheduler_config import SchedulerConfiguration
 from .workflow_config import JobDefinition, WorkflowDefinition, WorkflowsConfiguration
 
 
-def infer_optimizer_backend(optimization_cfg: OptimizationConfiguration) -> str:
-    """Infer optimizer backend name from optimization configuration."""
-    name = (optimization_cfg.optimizer.name or "").strip().lower()
-    opt_type = (optimization_cfg.optimizer.type or "").strip().lower()
-    params = optimization_cfg.optimizer.parameters or {}
+def infer_optimizer_backend(optimizer_cfg: OptimizerConfiguration) -> str:
+    """Infer optimizer backend name from optimizer configuration."""
+    name = (optimizer_cfg.name or "").strip().lower()
+    opt_type = (optimizer_cfg.type or "").strip().lower()
+    params = optimizer_cfg.parameters or {}
     algorithm = str(params.get("algorithm", "")).strip().lower()
 
     tokens = {name, opt_type, algorithm}
     if tokens & {"ax", "bo", "mobo", "bayesian"}:
         return "ax"
-    if tokens & {"pymoo", "nsga2", "nsga3", "moead", "evolutionary"}:
+    if tokens & {"pymoo", "ga", "nsga2", "nsga3", "moead", "evolutionary"}:
         return "pymoo"
 
     raise ValueError(
-        "Could not infer optimizer backend from optimization config. "
+        "Could not infer optimizer backend from optimizer config. "
         "Use optimizer.name/type like 'ax' or 'pymoo'."
     )
 
 
 def build_optimizer_from_config(
     problem_cfg: ProblemConfiguration,
-    optimization_cfg: OptimizationConfiguration,
+    optimizer_cfg: OptimizerConfiguration,
     *,
     backend: Optional[str] = None,
 ):
     """Build a concrete optimizer from parsed configs."""
-    backend_name = (backend or infer_optimizer_backend(optimization_cfg)).lower()
-    objective_names = [obj.name for obj in optimization_cfg.objectives] or [
-        obj.name for obj in problem_cfg.objectives
-    ]
-
-    params = dict(optimization_cfg.optimizer.parameters or {})
+    backend_name = (backend or infer_optimizer_backend(optimizer_cfg)).lower()
+    objective_names = [obj.name for obj in problem_cfg.objectives]
+    params = dict(optimizer_cfg.parameters or {})
 
     if backend_name == "ax":
         from aid2e.optimizers.ax import AxOptimizer, AxOptimizerConfig
 
-        ax_payload = {
-            "n_initial_samples": optimization_cfg.n_initial_samples,
-            "n_iterations": optimization_cfg.n_iterations,
-            "batch_size": optimization_cfg.parallel_evaluations,
-            **params,
-        }
-        ax_cfg = AxOptimizerConfig(**ax_payload)
+        ax_cfg = AxOptimizerConfig(**params)
         return AxOptimizer(
             search_space=problem_cfg.design_config,
             config=ax_cfg,
@@ -64,10 +55,9 @@ def build_optimizer_from_config(
     if backend_name == "pymoo":
         from aid2e.optimizers.pymoo import PyMOOOptimizer, PyMOOOptimizerConfig
 
-        pymoo_payload = {**params}
-        if "seed" not in pymoo_payload:
-            pymoo_payload["seed"] = None
-        pymoo_cfg = PyMOOOptimizerConfig(**pymoo_payload)
+        if "seed" not in params:
+            params["seed"] = None
+        pymoo_cfg = PyMOOOptimizerConfig(**params)
         return PyMOOOptimizer(
             search_space=problem_cfg.design_config,
             config=pymoo_cfg,

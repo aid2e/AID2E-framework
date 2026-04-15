@@ -41,10 +41,3 @@ def list_registered() -> Dict[str, Type[BaseModel]]:
         Dict mapping runner type names to Pydantic config classes.
     """
     return _runner_config_registry.copy()
-
-
-# Backward-compatible aliases
-register_runner_config = register
-get_runner_config_model = get
-list_registered_runners = lambda: list(_runner_config_registry.keys())
-

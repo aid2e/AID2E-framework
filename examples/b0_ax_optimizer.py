@@ -141,8 +141,7 @@ def run_b0_ax():
         initialization_strategy="sobol",
         n_initial_samples=12,
         batch_size=3,
-        surrogate_model="saasbo",
-        acquisition_function="qnehvi", #qnehvi
+        generator="BOTORCH_MODULAR",
         seed=42,
     )
 

@@ -1,44 +1,31 @@
 metadata:
   project: AID2E
-  description: Full-config DTLZ2 Ax optimization using JobLib runner
-  version: 0.0.0
-  results_file: examples/optimizers/output/dtlz2_ax_joblib_full_results.json
+  description: Shared DTLZ2 framework configuration for optimizer-focused examples
 
 problem:
-  name: "DTLZ2 Multi-Objective Optimization"
+  name: "DTLZ2 Shared Framework Example"
   type: "toy"
   output_location: "/tmp"
   work_location: "/tmp"
-  design_parameters_file: "../basic/design.params"
+  design_parameters_file: "./dtlz2_design.params"
   objectives:
     - name: "f1"
       direction: "minimize"
     - name: "f2"
       direction: "minimize"
 
-optimizer:
-  name: "ax"
-  type: "bayesian"
-  parameters:
-    initialization_strategy: "sobol"
-    generator: "BOTORCH_MODULAR"
-    n_initial_samples: 6
-    n_iterations: 4
-    batch_size: 2
-    seed: 42
-
 scheduler:
   runner_type: "JobLibRunner"
   parameters:
-    n_jobs: 2
+    n_jobs: 1
     backend: "loky"
     timeout: 120
     verbose: 0
 
 workflows:
   workflows:
-    - name: "dtlz2_ax_joblib_single_branch"
-      description: "Single-branch DTLZ2 workflow from full config"
+    - name: "dtlz2_optimizer_framework"
+      description: "Single-branch DTLZ2 workflow shared by Ax and PyMOO examples"
       objectives:
         - name: "f1"
           direction: "minimize"

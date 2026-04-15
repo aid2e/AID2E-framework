@@ -162,7 +162,7 @@ class AID2EProblem(Problem):
 # ---------------------------------------------------------------------------
 
 class PyMOOOptimizer(BaseOptimizer):
-    """Evolutionary multi-objective optimizer backed by PyMOO algorithms.
+    """Evolutionary optimizer backed by PyMOO algorithms.
 
     Implements the ``BaseOptimizer`` interface using PyMOO's ask/tell protocol
     so that evaluations can be performed externally (e.g. via schedulers or
@@ -178,6 +178,7 @@ class PyMOOOptimizer(BaseOptimizer):
         # The next suggest_candidates() call produces the next generation.
 
     Supported algorithms:
+        - ``"ga"`` — Genetic Algorithm for single-objective optimisation.
         - ``"nsga2"`` — NSGA-II, recommended for 2–3 objectives.
         - ``"nsga3"`` — NSGA-III, recommended for 3+ objectives.
         - ``"moead"`` — MOEA/D, weight-decomposition approach.
@@ -195,12 +196,12 @@ class PyMOOOptimizer(BaseOptimizer):
         ...         "y": {"type": "range", "bounds": [0.0, 1.0]},
         ...     }
         ... )
-        >>> config = PyMOOOptimizerConfig(algorithm="nsga2", pop_size=20, seed=0)
-        >>> opt = PyMOOOptimizer(space, config, objective_names=["f1", "f2"])
+        >>> config = PyMOOOptimizerConfig(pop_size=20, seed=0)
+        >>> opt = PyMOOOptimizer(space, config, objective_names=["loss"])
         >>> candidates = opt.suggest_candidates()
         >>> for trial_idx, c in enumerate(candidates):
-        ...     opt.update_with_results(trial_idx, c, {"f1": c["x"], "f2": c["y"]})
-        >>> pareto = opt.get_pareto_front()
+        ...     opt.update_with_results(trial_idx, c, {"loss": c["x"] + c["y"]})
+        >>> best = opt.get_best_trial()
 
     Notes:
         - All objectives are treated as *minimisation* targets.  To maximise,
@@ -260,6 +261,7 @@ class PyMOOOptimizer(BaseOptimizer):
         )
 
         self.config = config
+        self.resolved_algorithm = self.config.resolve_algorithm(self.n_objectives)
 
         if self.search_space.constraints:
             logger.warning(
@@ -308,7 +310,7 @@ class PyMOOOptimizer(BaseOptimizer):
         logger.info(
             "PyMOOOptimizer initialised: algorithm=%s, pop_size=%d, "
             "n_params=%d, n_objectives=%d, seed=%s",
-            config.algorithm,
+            self.resolved_algorithm,
             config.pop_size,
             n_var,
             self.n_objectives,
@@ -387,14 +389,14 @@ class PyMOOOptimizer(BaseOptimizer):
             An uninitialised PyMOO ``Algorithm`` instance.
 
         Raises:
-            ValueError: If ``config.algorithm`` is not a supported identifier.
+            ValueError: If the resolved algorithm is not a supported identifier.
 
         Notes:
             Algorithm objects are created *before* ``setup()`` is called so
             that ``__init__`` can validate the config without triggering any
             sampling.
         """
-        alg = self.config.algorithm.lower()
+        alg = self.resolved_algorithm.lower()
         n_offsprings = self.config.n_offsprings  # None → pop_size default
 
         crossover = SBX(
@@ -403,6 +405,17 @@ class PyMOOOptimizer(BaseOptimizer):
         )
         mutation = PM(eta=self.config.mutation_eta)
         sampling = FloatRandomSampling()
+
+        if alg == "ga":
+            from pymoo.algorithms.soo.nonconvex.ga import GA  # type: ignore[import]
+
+            return GA(
+                pop_size=self.config.pop_size,
+                n_offsprings=n_offsprings,
+                crossover=crossover,
+                mutation=mutation,
+                sampling=sampling,
+            )
 
         if alg == "nsga2":
             from pymoo.algorithms.moo.nsga2 import NSGA2  # type: ignore[import]
@@ -451,8 +464,8 @@ class PyMOOOptimizer(BaseOptimizer):
             )
 
         raise ValueError(
-            f"Unknown PyMOO algorithm '{self.config.algorithm}'. "
-            "Supported: 'nsga2', 'nsga3', 'moead'."
+            f"Unknown PyMOO algorithm '{self.resolved_algorithm}'. "
+            "Supported: 'ga', 'nsga2', 'nsga3', 'moead'."
         )
 
     def _flush_generation(self) -> None:
@@ -727,6 +740,7 @@ class PyMOOOptimizer(BaseOptimizer):
             "objective_names": self.objective_names,
             "seed": self.seed,
             "config": self.config.model_dump(),
+            "resolved_algorithm": self.resolved_algorithm,
             "trials": [
                 {
                     "index": t.index,
@@ -778,6 +792,17 @@ class PyMOOOptimizer(BaseOptimizer):
         # Restore config, objectives, seed
         self.config = PyMOOOptimizerConfig(**state["config"])
         self.objective_names = list(state["objective_names"])
+        self.seed = state.get("seed", self.config.seed)
+        resolved_algorithm = self.config.resolve_algorithm(self.n_objectives)
+        stored_algorithm = state.get("resolved_algorithm")
+        if stored_algorithm and stored_algorithm != resolved_algorithm:
+            logger.warning(
+                "Stored resolved_algorithm '%s' does not match current resolved "
+                "algorithm '%s'; using current value.",
+                stored_algorithm,
+                resolved_algorithm,
+            )
+        self.resolved_algorithm = resolved_algorithm
 
         saved_space = state["search_space"]
         self.search_space = SearchSpace(
@@ -853,7 +878,8 @@ class PyMOOOptimizer(BaseOptimizer):
         self._result_buffer = {}
 
         logger.info(
-            "PyMOO optimizer state loaded: %d trials, %d generations completed.",
+            "PyMOO optimizer state loaded: algorithm=%s, %d trials, %d generations completed.",
+            self.resolved_algorithm,
             len(self._trials),
             self.n_gen_completed,
         )
@@ -871,7 +897,7 @@ class PyMOOOptimizer(BaseOptimizer):
         """
         return (
             f"PyMOOOptimizer("
-            f"algorithm={self.config.algorithm}, "
+            f"algorithm={self.resolved_algorithm}, "
             f"pop_size={self.config.pop_size}, "
             f"n_params={len(self.search_space.parameters)}, "
             f"n_objectives={self.n_objectives}, "

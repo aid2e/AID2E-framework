@@ -29,3 +29,13 @@ def test_from_optimizers_import():
     from aid2e import optimizers
     assert optimizers is not None
     assert hasattr(optimizers, '__version__')
+
+
+def test_legacy_optimizer_aliases_are_not_exported():
+    """Legacy parent-package optimizer aliases should be removed."""
+    import aid2e.optimizers as optimizers
+
+    assert not hasattr(optimizers, "AID2EAxOptimizer")
+    assert not hasattr(optimizers, "AID2EAxOptimizerConfig")
+    assert not hasattr(optimizers, "AID2EPyMOOOptimizer")
+    assert not hasattr(optimizers, "AID2EPyMOOOptimizerConfig")

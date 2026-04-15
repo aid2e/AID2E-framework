@@ -6,15 +6,14 @@ __version__ = __MAIN_VERSION__
 
 from .base_models import BaseParameter, RangeParameter, ChoiceParameter, Parameter, ContainerConfig
 from .design_config import DesignConfig, DesignParameters, ParameterGroup, ParameterConstraint, DesignConfigLoader
-from .problem_config import ProblemConfiguration, Objective, ProblemConfigLoader
-from .optimization_config import OptimizationConfiguration, OptimizerConfig
+from .problem_config import ProblemConfiguration, ProblemConfigLoader
+from .optimizer_config import OptimizerConfiguration
 from .objectives import (
     ObjectiveDirection,
     ObjectiveDefinition,
     ObjectivePlanSpec,
-    ObjectiveComputationSpec,
-    MultiStepPlanSpec,
     MultiStepStage,
+    MultiStepPlanSpec,
     ScriptObjective,
     InlineObjective,
     ObjectivesRegistry,
@@ -26,15 +25,14 @@ from .scheduler_cascade import (
     resolve_scheduler_cascade,
     create_scheduler_context,
 )
-from .scheduler_registry import register_runner_config, get_runner_config_model, list_registered_runners
+from .scheduler_registry import register, get, list_registered
 from .full_config import FullConfig, load_config
 from .loaders import (
 	load_raw_config,
 	load_problem_config,
-	load_optimization_config,
+	load_optimizer_config,
 	load_scheduler_config,
 	load_workflow_config,
-	validate_objective_alignment,
 )
 from .runtime_builders import (
 	infer_optimizer_backend,
@@ -71,18 +69,15 @@ __all__ = [
 	"DesignConfigLoader",
 	# Problem configuration
 	"ProblemConfiguration",
-	"Objective",
 	"ProblemConfigLoader",
-	# Optimization configuration
-	"OptimizationConfiguration",
-	"OptimizerConfig",
+	# Optimizer configuration
+	"OptimizerConfiguration",
 	# Objectives (unified across problem/optimization/workflow)
 	"ObjectiveDirection",
 	"ObjectiveDefinition",
 	"ObjectivePlanSpec",
-	"ObjectiveComputationSpec",
-	"MultiStepPlanSpec",
 	"MultiStepStage",
+	"MultiStepPlanSpec",
 	"ScriptObjective",
 	"InlineObjective",
 	"ObjectivesRegistry",
@@ -92,18 +87,17 @@ __all__ = [
 	"resolve_scheduler_cascade",
 	"create_scheduler_context",
 	# Scheduler registry
-	"register_runner_config",
-	"get_runner_config_model",
-	"list_registered_runners",
+	"register",
+	"get",
+	"list_registered",
 	# Full configuration
 	"FullConfig",
 	"load_config",
 	"load_raw_config",
 	"load_problem_config",
-	"load_optimization_config",
+	"load_optimizer_config",
 	"load_scheduler_config",
 	"load_workflow_config",
-	"validate_objective_alignment",
 	"infer_optimizer_backend",
 	"build_optimizer_from_config",
 	"build_scheduler_runtime_config",

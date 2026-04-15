@@ -93,14 +93,21 @@ class SearchSpace:
                 parsed = param
             elif isinstance(param, dict):
                 param_data = dict(param)
-                if "values" in param_data and "choices" not in param_data:
-                    param_data["choices"] = param_data.pop("values")
+                if "values" in param_data:
+                    raise ValueError(
+                        f"Parameter '{param_name}' uses retired key 'values'. "
+                        "Use 'choices'."
+                    )
                 if "bounds" in param_data and "value" not in param_data:
-                    lower, _ = param_data["bounds"]
-                    param_data["value"] = float(lower)
+                    raise ValueError(
+                        f"Range parameter '{param_name}' must define an explicit "
+                        "'value' alongside 'bounds'."
+                    )
                 if "choices" in param_data and "value" not in param_data:
-                    first_choice = param_data["choices"][0]
-                    param_data["value"] = first_choice
+                    raise ValueError(
+                        f"Choice parameter '{param_name}' must define an explicit "
+                        "'value' alongside 'choices'."
+                    )
                 parsed = parse_parameter(param_name, param_data)
             else:
                 raise TypeError(

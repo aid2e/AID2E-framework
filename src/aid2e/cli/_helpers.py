@@ -19,14 +19,14 @@ def detect_config_type(data: dict) -> str:
         data: Parsed YAML configuration data
         
     Returns:
-        Config type: 'full', 'problem', 'optimization', 'design', or 'unknown'
+        Config type: 'full', 'problem', 'optimizer', 'design', or 'unknown'
     """
-    if "problem" in data and "optimization" in data:
+    if "problem" in data and "optimizer" in data:
         return "full"
     elif "problem" in data:
         return "problem"
-    elif "optimization" in data:
-        return "optimization"
+    elif "optimizer" in data:
+        return "optimizer"
     elif "design_space" in data or "design_parameters" in data:
         return "design"
     else:
@@ -73,8 +73,8 @@ def format_description_text(data: dict, config_type: str, compact: bool, config_
         format_full_config(data, compact)
     elif config_type == "problem":
         format_problem_config(data, compact)
-    elif config_type == "optimization":
-        format_optimization_config(data, compact)
+    elif config_type == "optimizer":
+        format_optimizer_config(data, compact)
     elif config_type == "design":
         format_design_config(data, compact)
     else:
@@ -86,7 +86,8 @@ def format_description_text(data: dict, config_type: str, compact: bool, config_
 def format_full_config(data: dict, compact: bool):
     """Format full configuration for text output."""
     problem = data.get("problem", {})
-    optimization = data.get("optimization", {})
+    optimizer = data.get("optimizer", {})
+    parameters = optimizer.get("parameters", {})
     
     click.echo(click.style("PROBLEM", fg="green", bold=True))
     click.echo(f"  Name: {problem.get('name', 'N/A')}")
@@ -120,19 +121,18 @@ def format_full_config(data: dict, compact: bool):
             click.echo(f"    ... and {len(objectives) - 3} more")
     
     click.echo()
-    click.echo(click.style("OPTIMIZATION", fg="green", bold=True))
-    optimizer = optimization.get("optimizer", {})
+    click.echo(click.style("OPTIMIZER", fg="green", bold=True))
     click.echo(f"  Algorithm: {optimizer.get('name', 'N/A')} ({optimizer.get('type', 'N/A')})")
-    click.echo(f"  Iterations: {optimization.get('n_iterations', 'N/A')}")
-    click.echo(f"  Initial Samples: {optimization.get('n_initial_samples', 'N/A')}")
-    click.echo(f"  Parallel: {optimization.get('parallel_evaluations', 1)}")
+    click.echo(f"  Iterations: {parameters.get('n_iterations', 'N/A')}")
+    click.echo(f"  Initial Samples: {parameters.get('n_initial_samples', 'N/A')}")
+    click.echo(f"  Batch Size: {parameters.get('batch_size', 1)}")
     
-    if not compact and optimizer.get("parameters"):
+    if not compact and parameters:
         click.echo("  Parameters:")
-        for key, val in list(optimizer["parameters"].items())[:5]:
+        for key, val in list(parameters.items())[:5]:
             click.echo(f"    {key}: {val}")
-        if len(optimizer["parameters"]) > 5:
-            click.echo(f"    ... and {len(optimizer['parameters']) - 5} more")
+        if len(parameters) > 5:
+            click.echo(f"    ... and {len(parameters) - 5} more")
 
 
 def format_problem_config(data: dict, compact: bool):
@@ -156,19 +156,19 @@ def format_problem_config(data: dict, compact: bool):
         click.echo(f"Design Source: inline ({param_count} parameters)")
 
 
-def format_optimization_config(data: dict, compact: bool):
-    """Format optimization-only config for text output."""
-    opt = data.get("optimization", data)
-    optimizer = opt.get("optimizer", {})
+def format_optimizer_config(data: dict, compact: bool):
+    """Format optimizer-only config for text output."""
+    optimizer = data.get("optimizer", data)
+    parameters = optimizer.get("parameters", {})
     
-    click.echo(f"Name: {opt.get('name', 'N/A')}")
+    click.echo(f"Name: {optimizer.get('name', 'N/A')}")
     click.echo(f"Algorithm: {optimizer.get('name', 'N/A')} ({optimizer.get('type', 'N/A')})")
-    click.echo(f"Iterations: {opt.get('n_iterations', 'N/A')}")
-    click.echo(f"Objectives: {', '.join(opt.get('objectives', []))}")
+    click.echo(f"Iterations: {parameters.get('n_iterations', 'N/A')}")
+    click.echo(f"Initial Samples: {parameters.get('n_initial_samples', 'N/A')}")
     
-    if not compact and optimizer.get("parameters"):
+    if not compact and parameters:
         click.echo("\nParameters:")
-        for key, val in optimizer["parameters"].items():
+        for key, val in parameters.items():
             click.echo(f"  {key}: {val}")
 
 
@@ -212,12 +212,13 @@ def extract_description_data(data: dict, config_type: str) -> dict:
     
     if config_type == "full":
         problem = data.get("problem", {})
-        optimization = data.get("optimization", {})
+        optimizer = data.get("optimizer", {})
+        parameters = optimizer.get("parameters", {})
         description["summary"] = {
             "problem_name": problem.get("name"),
             "problem_type": problem.get("type", problem.get("problem_type")),
-            "optimizer": optimization.get("optimizer", {}).get("name"),
-            "n_iterations": optimization.get("n_iterations"),
+            "optimizer": optimizer.get("name"),
+            "n_iterations": parameters.get("n_iterations"),
             "n_objectives": len(problem.get("objectives", []))
         }
     elif config_type == "problem":
@@ -227,12 +228,12 @@ def extract_description_data(data: dict, config_type: str) -> dict:
             "type": problem.get("type", problem.get("problem_type")),
             "n_objectives": len(problem.get("objectives", []))
         }
-    elif config_type == "optimization":
-        opt = data.get("optimization", data)
+    elif config_type == "optimizer":
+        optimizer = data.get("optimizer", data)
         description["summary"] = {
-            "name": opt.get("name"),
-            "optimizer": opt.get("optimizer", {}).get("name"),
-            "n_iterations": opt.get("n_iterations")
+            "name": optimizer.get("name"),
+            "optimizer": optimizer.get("name"),
+            "n_iterations": optimizer.get("parameters", {}).get("n_iterations"),
         }
     elif config_type == "design":
         design_space = data.get("design_space", data)
@@ -253,7 +254,7 @@ def inspect_full_config(config, section: str):
     
     Args:
         config: Loaded FullConfig object
-        section: Section to display ('all', 'problem', 'design', 'optimization')
+        section: Section to display ('all', 'problem', 'design', 'optimizer')
     """
     click.echo(click.style("=" * 70, bold=True))
     click.echo(click.style(f"Configuration: {config.problem.name}", bold=True))
@@ -300,30 +301,15 @@ def inspect_full_config(config, section: str):
                     click.echo(f"    Description: {constraint.description}")
         click.echo()
     
-    if section in ["all", "optimization"]:
-        click.echo(click.style("OPTIMIZATION CONFIGURATION", fg="cyan", bold=True))
-        click.echo(f"  Name: {config.optimization.name}")
-        if config.optimization.description:
-            click.echo(f"  Description: {config.optimization.description}")
-        click.echo(f"  Optimizer: {config.optimization.optimizer.name} ({config.optimization.optimizer.type})")
-        click.echo(f"  Iterations: {config.optimization.n_iterations}")
-        click.echo(f"  Initial Samples: {config.optimization.n_initial_samples}")
-        click.echo(f"  Parallel Evaluations: {config.optimization.parallel_evaluations}")
-        
-        if config.optimization.objectives:
+    if section in ["all", "optimizer"]:
+        click.echo(click.style("OPTIMIZER CONFIGURATION", fg="cyan", bold=True))
+        click.echo(f"  Name: {config.optimizer.name}")
+        click.echo(f"  Type: {config.optimizer.type}")
+
+        if config.optimizer.parameters:
             click.echo()
-            click.echo(f"  Objectives ({len(config.optimization.objectives)}):")
-            for obj in config.optimization.objectives:
-                try:
-                    directive = obj.to_directive()
-                except AttributeError:
-                    directive = str(obj)
-                click.echo(f"    - {directive}")
-        
-        if config.optimization.optimizer.parameters:
-            click.echo()
-            click.echo("  Optimizer Parameters:")
-            for key, value in config.optimization.optimizer.parameters.items():
+            click.echo("  Parameters:")
+            for key, value in config.optimizer.parameters.items():
                 click.echo(f"    - {key}: {value}")
         click.echo()
     

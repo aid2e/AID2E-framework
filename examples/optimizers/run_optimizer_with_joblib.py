@@ -2,7 +2,7 @@
 
 This example consumes a single full configuration in the same style as
 ``examples/configurations/dtlz2_ax_panda_multiple.yml`` with sections for
-problem, optimization, scheduler, and workflows.
+problem, optimizer, scheduler, and workflows.
 
 Usage:
     python examples/optimizers/run_optimizer_with_joblib.py \
@@ -21,12 +21,11 @@ from aid2e.utilities.configurations import (
     build_optimizer_from_config,
     build_workflow_executor_from_config,
     infer_optimizer_backend,
-    load_optimization_config,
+    load_optimizer_config,
     load_problem_config,
     load_raw_config,
     load_scheduler_config,
     load_workflow_config,
-    validate_objective_alignment,
 )
 
 
@@ -64,12 +63,12 @@ def _resolve_results_path(config_path: Path, raw_config: Dict[str, Any]) -> Path
     return Path(candidate).resolve()
 
 
-def _infer_batch_size(optimizer: Any, optimization_cfg: Any) -> int:
+def _infer_batch_size(optimizer: Any, optimizer_cfg: Any) -> int:
     """Infer evaluation batch size from optimizer/config settings.
 
     Args:
         optimizer: Concrete optimizer instance.
-        optimization_cfg: Parsed optimization configuration.
+        optimizer_cfg: Parsed optimizer configuration.
 
     Returns:
         Positive batch size integer.
@@ -78,7 +77,7 @@ def _infer_batch_size(optimizer: Any, optimization_cfg: Any) -> int:
     if value is None:
         value = getattr(getattr(optimizer, "config", None), "pop_size", None)
     if value is None:
-        value = optimization_cfg.parallel_evaluations
+        value = getattr(optimizer_cfg, "parameters", {}).get("batch_size")
     if value is None:
         value = 1
     return max(1, int(value))
@@ -149,16 +148,15 @@ def run_from_full_config(config_file: str, workflow_name: Optional[str] = None) 
     raw = load_raw_config(str(config_path))
 
     problem_cfg = load_problem_config(str(config_path))
-    optimization_cfg = load_optimization_config(str(config_path))
+    optimizer_cfg = load_optimizer_config(str(config_path))
     scheduler_cfg = load_scheduler_config(str(config_path))
     workflows_cfg = load_workflow_config(str(config_path))
 
     if workflows_cfg is None:
         raise ValueError("Config must include 'workflows' or 'workflow' section")
 
-    validate_objective_alignment(problem_cfg, optimization_cfg)
-    backend = infer_optimizer_backend(optimization_cfg)
-    optimizer = build_optimizer_from_config(problem_cfg, optimization_cfg, backend=backend)
+    backend = infer_optimizer_backend(optimizer_cfg)
+    optimizer = build_optimizer_from_config(problem_cfg, optimizer_cfg, backend=backend)
 
     executor = build_workflow_executor_from_config(
         workflows_cfg,
@@ -168,9 +166,9 @@ def run_from_full_config(config_file: str, workflow_name: Optional[str] = None) 
         log_level="WARNING",
     )
 
-    batch_size = _infer_batch_size(optimizer, optimization_cfg)
+    batch_size = _infer_batch_size(optimizer, optimizer_cfg)
     n_initial_samples = int(getattr(getattr(optimizer, "config", None), "n_initial_samples", 0) or 0)
-    n_iterations = int(optimization_cfg.n_iterations)
+    n_iterations = int(optimizer_cfg.parameters.get("n_iterations", 0) or 0)
 
     print(f"Backend: {backend}")
     print(f"Workflow: {executor.workflow.name}")

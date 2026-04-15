@@ -142,4 +142,8 @@ Thumbs.db
 *work
 migrating_src
 
-*CODEX*.md
+*CODEX*
+*.codex*
+*.experimental*
+*experimental_tests*
+*__pycache__*

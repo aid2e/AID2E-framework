@@ -181,8 +181,7 @@ def run_pool_optimization(
         initialization_strategy="sobol",
         n_initial_samples=n_initial_samples,
         batch_size=1,
-        surrogate_model="saasbo",
-        acquisition_function="qnehvi",
+        generator="BOTORCH_MODULAR",
         seed=42,
     )
 
@@ -346,8 +345,7 @@ def run_case_2_separate_branches():
         initialization_strategy="sobol",
         n_initial_samples=10,
         batch_size=3,
-        surrogate_model="saasbo",
-        acquisition_function="qnehvi",
+        generator="BOTORCH_MODULAR",
         seed=42,  # Same seed for reproducibility
     )
     
@@ -361,8 +359,7 @@ def run_case_2_separate_branches():
     
     print(f"\n✓ Optimizer: Ax Bayesian Optimizer")
     print(f"  Initialization: {ax_config.initialization_strategy} ({ax_config.n_initial_samples} points)")
-    print(f"  Surrogate Model: {ax_config.surrogate_model}")
-    print(f"  Acquisition: {ax_config.acquisition_function}")
+    print(f"  Generator: {ax_config.generator}")
     print(f"  Batch Size: {ax_config.batch_size}")
     print(f"  Total Iterations: 10 Bayesian iterations")
     

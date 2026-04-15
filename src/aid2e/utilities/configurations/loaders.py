@@ -1,8 +1,7 @@
 """Configuration loader wrappers for AID2E.
 
 These helpers provide section-level loading APIs on top of the existing
-``load_config`` flow so callers can incrementally adopt a declarative
-configuration pipeline without restructuring the repository.
+``load_config`` flow so callers can load canonical config sections directly.
 """
 
 from __future__ import annotations
@@ -14,7 +13,7 @@ from typing import Any, Dict, Optional
 import yaml
 
 from .full_config import _normalize_full_config_data
-from .optimization_config import OptimizationConfiguration
+from .optimizer_config import OptimizerConfiguration
 from .problem_config import ProblemConfiguration
 from .scheduler_config import SchedulerConfiguration
 from .workflow_config import WorkflowDefinition, WorkflowsConfiguration
@@ -51,7 +50,7 @@ def load_raw_config(config_file: str) -> Dict[str, Any]:
 
 
 def _normalize_sections(config_file: str) -> Dict[str, Any]:
-    """Normalize legacy/full config content into canonical sections."""
+    """Normalize full config content into canonical sections."""
     path = Path(config_file)
     raw = load_raw_config(config_file)
     return _normalize_full_config_data(raw, path)
@@ -63,18 +62,16 @@ def load_problem_config(config_file: str) -> ProblemConfiguration:
     return normalized["problem"]
 
 
-def load_optimization_config(config_file: str) -> OptimizationConfiguration:
-    """Load only the optimization section from a full config file."""
+def load_optimizer_config(config_file: str) -> OptimizerConfiguration:
+    """Load only the optimizer section from a full config file."""
     normalized = _normalize_sections(config_file)
-    return normalized["optimization"]
+    return normalized["optimizer"]
 
 
 def load_scheduler_config(config_file: str) -> Optional[SchedulerConfiguration]:
     """Load only the scheduler section from a full config file.
 
-    Supports both canonical scheduler payloads with ``parameters`` and
-    legacy payloads that place runner-specific blocks under keys like
-    ``joblib`` or ``pandaidds``.
+    Accepts only canonical scheduler payloads with ``parameters``.
     """
     path = Path(config_file)
     raw = load_raw_config(config_file)
@@ -86,18 +83,13 @@ def load_scheduler_config(config_file: str) -> Optional[SchedulerConfiguration]:
     if not isinstance(scheduler_raw, dict):
         raise ValueError("'scheduler' section must be a mapping")
 
-    if "parameters" not in scheduler_raw:
-        runner_type = scheduler_raw.get("runner_type")
-        if runner_type == "JobLibRunner" and "joblib" in scheduler_raw:
-            scheduler_raw = {**scheduler_raw, "parameters": scheduler_raw["joblib"]}
-        elif runner_type == "PanDAiDDSRunner":
-            panda_payload = (
-                scheduler_raw.get("pandaidds")
-                or scheduler_raw.get("panda")
-                or scheduler_raw.get("panDAiDDS")
-            )
-            if panda_payload:
-                scheduler_raw = {**scheduler_raw, "parameters": panda_payload}
+    legacy_runner_blocks = {"joblib", "pandaidds", "panda", "panDAiDDS"}
+    used_legacy_blocks = sorted(legacy_runner_blocks.intersection(scheduler_raw))
+    if used_legacy_blocks:
+        raise ValueError(
+            "Legacy nested scheduler runner blocks are no longer supported: "
+            + ", ".join(used_legacy_blocks)
+        )
 
     return SchedulerConfiguration(**scheduler_raw)
 
@@ -105,52 +97,8 @@ def load_scheduler_config(config_file: str) -> Optional[SchedulerConfiguration]:
 def load_workflow_config(config_file: str) -> Optional[WorkflowsConfiguration]:
     """Load workflow configuration from full config if present.
 
-    Accepted layouts:
+    Accepted layout:
         - ``workflows: {workflows: [...]}``
-        - ``workflows: [...]``
-        - ``workflow: {...}`` (single workflow)
     """
-    raw = load_raw_config(config_file)
-
-    workflows_raw = raw.get("workflows")
-    if workflows_raw is None:
-        single = raw.get("workflow")
-        if single is None:
-            return None
-        return WorkflowsConfiguration(workflows=[WorkflowDefinition(**single)])
-
-    if isinstance(workflows_raw, list):
-        return WorkflowsConfiguration(
-            workflows=[WorkflowDefinition(**item) for item in workflows_raw]
-        )
-
-    if isinstance(workflows_raw, dict):
-        if "workflows" in workflows_raw:
-            return WorkflowsConfiguration(**workflows_raw)
-        return WorkflowsConfiguration(workflows=[WorkflowDefinition(**workflows_raw)])
-
-    raise ValueError("'workflows' section must be a list or mapping")
-
-
-def validate_objective_alignment(
-    problem_cfg: ProblemConfiguration,
-    optimization_cfg: OptimizationConfiguration,
-) -> None:
-    """Validate that optimization objectives align with problem objectives.
-
-    Raises:
-        ValueError: If optimization references objectives not defined by
-            problem configuration.
-    """
-    problem_names = {obj.name for obj in problem_cfg.objectives}
-    opt_names = {obj.name for obj in optimization_cfg.objectives}
-
-    if not opt_names:
-        return
-
-    missing = sorted(opt_names - problem_names)
-    if missing:
-        raise ValueError(
-            "Optimization objectives must reference problem objectives. "
-            f"Missing in problem section: {missing}"
-        )
+    normalized = _normalize_sections(config_file)
+    return normalized.get("workflows")

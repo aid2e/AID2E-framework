@@ -22,7 +22,7 @@ import yaml
 import numpy as np
 from pathlib import Path
 from aid2e.optimizers import BaseOptimizer, SearchSpace, AxOptimizer, AxOptimizerConfig
-from aid2e.utilities.configurations import OptimizationConfiguration
+from aid2e.utilities.configurations import OptimizerConfiguration
 
 
 def dtlz2(x_dict, n_objectives=2):
@@ -79,24 +79,28 @@ def main():
     print(f"   Config file: {config_path.name}")
     print(f"   Problem: {config_data['name']}")
     
-    # 2. Parse configuration using OptimizationConfiguration
+    # 2. Parse configuration using OptimizerConfiguration
     print("\n2. Parsing optimization configuration...")
-    opt_config = OptimizationConfiguration(**config_data)
+    optimizer_payload = config_data.get("optimizer", config_data)
+    opt_config = OptimizerConfiguration(**optimizer_payload)
+    objective_names = config_data.get("objectives", [])
+    n_iterations = config_data.get("n_iterations", 30)
     
-    print(f"   Optimizer: {opt_config.optimizer.name}")
-    print(f"   Strategy: {opt_config.optimizer.parameters.get('initialization_strategy', 'sobol')}")
-    print(f"   Model: {opt_config.optimizer.parameters.get('surrogate_model', 'saasbo')}")
-    print(f"   Acquisition: {opt_config.optimizer.parameters.get('acquisition_function', 'qnehvi')}")
+    print(f"   Optimizer: {opt_config.name}")
+    print(f"   Strategy: {opt_config.parameters.get('initialization_strategy', 'sobol')}")
+    print(f"   Generator: {opt_config.parameters.get('generator', 'BOTORCH_MODULAR')}")
     
     # 3. Create AxOptimizerConfig from parsed parameters
     print("\n3. Creating AxOptimizerConfig...")
-    optimizer_params = opt_config.optimizer.parameters
+    optimizer_params = opt_config.parameters
     ax_config = AxOptimizerConfig(
         initialization_strategy=optimizer_params.get('initialization_strategy', 'sobol'),
-        surrogate_model=optimizer_params.get('surrogate_model', 'saasbo'),
-        acquisition_function=optimizer_params.get('acquisition_function', 'qnehvi'),
-        n_initial_samples=optimizer_params.get('n_initial_samples', opt_config.n_initial_samples),
-        n_iterations=config_data.get('n_iterations', 30),
+        generator=optimizer_params.get('generator', 'BOTORCH_MODULAR'),
+        generator_kwargs=optimizer_params.get('generator_kwargs', {}),
+        generator_gen_kwargs=optimizer_params.get('generator_gen_kwargs', {}),
+        objective_thresholds=optimizer_params.get('objective_thresholds'),
+        n_initial_samples=optimizer_params.get('n_initial_samples', 10),
+        n_iterations=n_iterations,
         batch_size=optimizer_params.get('batch_size', 3),
         seed=optimizer_params.get('seed', 42)
     )
@@ -123,11 +127,11 @@ def main():
     optimizer = AxOptimizer(
         search_space=search_space,
         config=ax_config,
-        objective_names=opt_config.objectives,
+        objective_names=objective_names,
         seed=ax_config.seed
     )
     print(f"   Optimizer: {optimizer}")
-    print(f"   Objectives: {opt_config.objectives}")
+    print(f"   Objectives: {objective_names}")
     print(f"   Inherits from BaseOptimizer: {isinstance(optimizer, BaseOptimizer)}")
     
     # 6. Run multi-objective optimization loop
@@ -147,7 +151,7 @@ def main():
         # Evaluate candidates using DTLZ2
         for idx, candidate in enumerate(candidates):
             # Evaluate DTLZ2
-            objectives = dtlz2(candidate, n_objectives=len(opt_config.objectives))
+            objectives = dtlz2(candidate, n_objectives=len(objective_names))
             
             # Update optimizer with results
             trial_idx = trial_start_idx + idx
@@ -159,8 +163,8 @@ def main():
             
             # Display results
             x_vals = [f"{candidate[f'x{i+1}']:.3f}" for i in range(3)]  # Show first 3
-            obj_vals = [f"{objectives[obj]:.4f}" for obj in opt_config.objectives]
-            print(f"     Trial {trial_idx}: x=[{', '.join(x_vals)}, ...] → {dict(zip(opt_config.objectives, obj_vals))}")
+            obj_vals = [f"{objectives[obj]:.4f}" for obj in objective_names]
+            print(f"     Trial {trial_idx}: x=[{', '.join(x_vals)}, ...] → {dict(zip(objective_names, obj_vals))}")
     
     # 7. Get Pareto front
     print("\n7. Retrieving Pareto front...")
@@ -170,8 +174,8 @@ def main():
     if pareto_front:
         print("\n   Pareto-optimal solutions:")
         for i, trial in enumerate(pareto_front[:5]):  # Show first 5
-            obj_vals = [f"{trial.metrics[obj]:.4f}" for obj in opt_config.objectives]
-            print(f"     Solution {i+1}: {dict(zip(opt_config.objectives, obj_vals))}")
+            obj_vals = [f"{trial.metrics[obj]:.4f}" for obj in objective_names]
+            print(f"     Solution {i+1}: {dict(zip(objective_names, obj_vals))}")
         
         if len(pareto_front) > 5:
             print(f"     ... and {len(pareto_front) - 5} more solutions")
@@ -195,7 +199,7 @@ def main():
     optimizer2 = AxOptimizer(
         search_space=search_space,
         config=ax_config,
-        objective_names=opt_config.objectives,
+        objective_names=objective_names,
         seed=ax_config.seed
     )
     optimizer2.load_state(state)

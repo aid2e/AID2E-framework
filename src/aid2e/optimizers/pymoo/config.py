@@ -2,6 +2,7 @@
 
 Supported algorithms and their best use cases:
 
+- ``ga``: Single-objective Genetic Algorithm.
 - ``nsga2``: NSGA-II — fast, well-tested, good for 2-3 objectives.
 - ``nsga3``: NSGA-III — structured reference directions, 3+ objectives.
 - ``moead``: MOEA/D — weight-decomposition, highly customisable, 3+ objectives.
@@ -20,18 +21,25 @@ from pydantic import BaseModel, Field
 from aid2e.optimizers._registry import register
 
 
+PyMOOAlgorithm = Literal["ga", "nsga2", "nsga3", "moead"]
+
+
 class PyMOOOptimizerConfig(BaseModel):
     """Configuration for PyMOO-based evolutionary optimizers.
 
     Attributes:
-        algorithm: Evolutionary algorithm identifier.  Defaults to ``"nsga2"``.
+        algorithm: Optional evolutionary algorithm identifier. If omitted,
+            AID2E infers ``"ga"`` for single-objective problems and
+            ``"nsga2"`` for multi-objective problems.
         pop_size: Population size (number of individuals per generation).
         n_offsprings: Number of offspring generated each generation.  ``None``
-            defaults to ``pop_size`` (standard for NSGA-II).
+            defaults to ``pop_size``.
         crossover_prob: Simulated Binary Crossover (SBX) probability.
         crossover_eta: SBX distribution index — larger values produce offspring
             closer to the parents.
         mutation_eta: Polynomial mutation distribution index.
+        n_iterations: Number of generations to run when using this config in
+            declarative/runtime-driven flows.
         n_partitions: Reference-direction partitions for NSGA-III and MOEA/D.
             The total number of reference directions grows combinatorially with
             this value and ``n_objectives``.  Ignored for NSGA-II.
@@ -41,15 +49,15 @@ class PyMOOOptimizerConfig(BaseModel):
 
     Examples:
         >>> config = PyMOOOptimizerConfig(
-        ...     algorithm="nsga2",
         ...     pop_size=100,
         ...     seed=42,
         ... )
-        >>> config.algorithm
-        'nsga2'
+        >>> config.algorithm is None
+        True
         >>> config2 = PyMOOOptimizerConfig(algorithm="nsga3", n_partitions=12)
 
     Notes:
+        - ``ga`` is the recommended default for single-objective problems.
         - NSGA-II is the recommended default for 2-objective problems.
         - For 3+ objectives consider NSGA-III or MOEA/D — their reference
           direction structures are better suited to high-dimensional fronts.
@@ -57,9 +65,12 @@ class PyMOOOptimizerConfig(BaseModel):
           start with 12 for 2-3 objectives and reduce for 4+ objectives.
     """
 
-    algorithm: Literal["nsga2", "nsga3", "moead"] = Field(
-        default="nsga2",
-        description="Evolutionary algorithm: 'nsga2', 'nsga3', or 'moead'.",
+    algorithm: Optional[PyMOOAlgorithm] = Field(
+        default=None,
+        description=(
+            "Optional evolutionary algorithm. If omitted, AID2E infers 'ga' "
+            "for single-objective problems and 'nsga2' for multi-objective problems."
+        ),
     )
     pop_size: int = Field(
         default=100,
@@ -90,6 +101,11 @@ class PyMOOOptimizerConfig(BaseModel):
         gt=0.0,
         description="Polynomial mutation distribution index.",
     )
+    n_iterations: int = Field(
+        default=50,
+        ge=1,
+        description="Number of generations for runtime-driven optimization loops.",
+    )
     n_partitions: int = Field(
         default=12,
         ge=1,
@@ -106,6 +122,39 @@ class PyMOOOptimizerConfig(BaseModel):
         default=False,
         description="Print per-generation statistics to stdout.",
     )
+
+    def resolve_algorithm(self, n_objectives: int) -> PyMOOAlgorithm:
+        """Resolve the algorithm for the given objective count.
+
+        Args:
+            n_objectives: Number of objectives in the optimization problem.
+
+        Returns:
+            Concrete PyMOO algorithm identifier.
+
+        Raises:
+            ValueError: If the configured explicit algorithm is incompatible
+                with the objective count.
+        """
+        if n_objectives < 1:
+            raise ValueError("n_objectives must be >= 1")
+
+        if self.algorithm is None:
+            return "ga" if n_objectives == 1 else "nsga2"
+
+        if self.algorithm == "ga" and n_objectives != 1:
+            raise ValueError(
+                "PyMOO algorithm 'ga' only supports single-objective problems. "
+                f"Received {n_objectives} objectives."
+            )
+
+        if self.algorithm in {"nsga2", "nsga3", "moead"} and n_objectives == 1:
+            raise ValueError(
+                f"PyMOO algorithm '{self.algorithm}' requires a multi-objective "
+                "problem. Use 'ga' or omit 'algorithm' for single-objective optimization."
+            )
+
+        return self.algorithm
 
 
 # Auto-register with the optimizer config registry

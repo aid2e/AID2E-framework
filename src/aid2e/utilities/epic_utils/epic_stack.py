@@ -186,14 +186,21 @@ class EpicStack(ExperimentStack):
 
         modify_xml_files(remapped_modifications)
 
+        compile_commands = (
+            f"cmake -B {trial_geo_dir}/build -S {trial_geo_dir}\n"
+            f"-DCMAKE_INSTALL_PREFIX={trial_geo_dir}/install\n"
+            f"cmake --build {trial_geo_dir}/build\n"
+            f"cmake --install {trial_geo_dir}/build\n"
+        )
+        compile_script = os.path.join(trial_geo_dir, "compile_geo.sh")
+        with open(compile_script, "w") as script:
+            script.writelines(compile_commands)
+        os.chmod(compile_script, 0o777)
+
         compiled_log = os.path.join(trial_geo_dir, "compiled.log")
+        do_compiling = self.make_driver_command(compile_script)
         if not os.path.exists(compiled_log):
-            os.system(
-                f"cmake -B {trial_geo_dir}/build -S {trial_geo_dir} "
-                f"-DCMAKE_INSTALL_PREFIX={trial_geo_dir}/install"
-            )
-            os.system(f"cmake --build {trial_geo_dir}/build")
-            os.system(f"cmake --install {trial_geo_dir}/build")
+            os.system(f"{do_compiling}")
             with open(compiled_log, "w") as f:
                 f.write(f"Workflow {workflow_id} geometry compiled\n")
 

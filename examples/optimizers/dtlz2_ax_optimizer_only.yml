@@ -28,7 +28,7 @@ optimizer:
     objective_thresholds:
       f1: 1.0
       f2: 1.0
-    n_initial_samples: 4
-    n_iterations: 3
-    batch_size: 2
+    n_initial_samples: 10
+    n_iterations: 20
+    batch_size: 4
     seed: 42

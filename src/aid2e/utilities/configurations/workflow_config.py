@@ -79,13 +79,13 @@ class ArtifactSpec(BaseModel):
     
     Attributes:
         path: File path pattern (e.g., "objectives_*.json").
-        format: File format ("json", "yaml", or "csv").
+        format: File format ("json", "yaml", "csv", or "root").
         
     Example:
         >>> artifact = ArtifactSpec(path="objectives_*.json", format="json")
     """
     path: str = Field(..., description="File path pattern (e.g., 'output_*.json')")
-    format: str = Field(default="json", pattern="^(json|yaml|csv)$", description="File format")
+    format: str = Field(default="json", pattern="^(json|yaml|csv|root)$", description="File format")
 
 
 class JobDefinition(BaseModel):

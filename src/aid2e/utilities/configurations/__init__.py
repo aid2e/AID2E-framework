@@ -6,8 +6,14 @@ __version__ = __MAIN_VERSION__
 
 from .base_models import BaseParameter, RangeParameter, ChoiceParameter, Parameter, ContainerConfig
 from .design_config import DesignConfig, DesignParameters, ParameterGroup, ParameterConstraint, DesignConfigLoader
-from .problem_config import ProblemConfiguration, ProblemConfigLoader
-from .optimizer_config import OptimizerConfiguration
+from .env_config import (
+    EnvironmentConfig,
+    EnvironmentConfigLoader,
+)
+from .experimental_stack_config import StackLayerConfig, StackJobDefinition, StackStageDefinition
+from .problem_config import ProblemConfiguration, Objective, ProblemConfigLoader
+from .stack_registry import StackRegistry
+from .optimization_config import OptimizationConfiguration, OptimizerConfig
 from .objectives import (
     ObjectiveDirection,
     ObjectiveDefinition,
@@ -60,11 +66,21 @@ __all__ = [
 	"ParameterGroup",
 	"ParameterConstraint",
 	"DesignConfigLoader",
+        # Environment configuration
+	"EnvironmentConfig",
+	"EnvironmentConfigLoader",
+	# Experimental stack configuration
+	"StackLayerConfig",
+        "StackJobDefinition",
+        "StackStageDefinition",
 	# Problem configuration
 	"ProblemConfiguration",
 	"ProblemConfigLoader",
-	# Optimizer configuration
-	"OptimizerConfiguration",
+	# Experimental stack registry
+	"StackRegistry",
+	# Optimization configuration
+	"OptimizationConfiguration",
+	"OptimizerConfig",
 	# Objectives (unified across problem/optimization/workflow)
 	"ObjectiveDirection",
 	"ObjectiveDefinition",

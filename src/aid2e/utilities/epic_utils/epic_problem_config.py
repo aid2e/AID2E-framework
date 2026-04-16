@@ -4,8 +4,8 @@ from typing import Optional
 from pydantic import BaseModel
 
 from aid2e.utilities.configurations.problem_config import ProblemConfiguration
-from aid2e.utilities.epic_utils.epic_env_config import EpicConfiguration
-from aid2e.utilities.epic_utils.epic_design_config import EpicDesignConfig
+from .epic_design_config import EpicDesignConfig
+from .epic_env_config import EpicEnvConfig
 
 
 class EpicProblemConfiguration(ProblemConfiguration):
@@ -23,5 +23,6 @@ class EpicProblemConfiguration(ProblemConfiguration):
           `ProblemConfiguration` logic.
     """
 
-    # Narrow type for design_config to EpicDesignConfig for ePIC workflows
+    # Narrow design and environment types for ePIC-specific workflows
     design_config: EpicDesignConfig  # type: ignore[assignment]
+    environment_config: EpicEnvConfig

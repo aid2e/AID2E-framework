@@ -34,6 +34,9 @@ import json
 import logging
 from datetime import datetime
 
+from aid2e.utilities.configurations.problem_config import (
+    ProblemConfiguration,
+)
 from .workflow_config import (
     WorkflowDefinition,
     BranchDefinition,
@@ -52,6 +55,7 @@ from .execution_engine import (
     BashExecutionEngine,
     PythonExecutionEngine,
     ContainerExecutionEngine,
+    StackExecutionEngine,
     JobContext,
     StageContext,
     BranchContext,
@@ -76,6 +80,9 @@ class DAGExecutor:
         base_output_dir: Base directory for all execution outputs.
         logger: Execution logger for checkpoints and logs.
         global_xcom: Shared XCom storage across all jobs.
+        problem_config: Problem configuration for accessing stack-
+                        dependent design space and environment
+                        configuration (optional)
         
     Example:
         >>> workflow = WorkflowDefinition(name="dtlz2_eval", ...)
@@ -90,6 +97,7 @@ class DAGExecutor:
         workflow: WorkflowDefinition,
         base_output_dir: str = "/tmp/aid2e_runs",
         log_level: str = "INFO",
+        problem_config: Optional[ProblemConfiguration] = None,
         scheduler_config: Optional[Dict[str, Any]] = None,
     ):
         """Initialize DAG Executor.
@@ -105,6 +113,7 @@ class DAGExecutor:
         self.workflow = workflow
         self.base_output_dir = Path(base_output_dir)
         self.log_level = log_level
+        self.problem_config = problem_config
         self.scheduler_config = scheduler_config or {}
         
         # Create workflow-specific output directory
@@ -112,6 +121,11 @@ class DAGExecutor:
         workflow_dir.mkdir(parents=True, exist_ok=True)
         self.output_dir = workflow_dir
         
+        # If provided, activate environment variables
+        if self.problem_config is not None:
+            if self.problem_config.environment_config is not None:
+                self.problem_config.environment_config.activate()
+
         # Initialize logger
         self.logger = ExecutionLogger(
             job_name=f"executor_{workflow.name}",
@@ -664,6 +678,7 @@ class DAGExecutor:
             xcom=self.global_xcom,
             stage_context=stage_context,
             execution_dir=str(self.output_dir / "jobs" / job_id),
+            problem_config=self.problem_config,
         )
         
         # Ensure job execution directory exists
@@ -744,6 +759,23 @@ class DAGExecutor:
                 python_callable=python_callable,
                 op_args=job.payload.get("op_args", ()),
                 op_kwargs=job.payload.get("op_kwargs", {}),
+            )
+        elif evaluator_type == "stack":
+            # StackExecutionEngine (requires stack_type in payload and layers in job)
+            stack_type = job.payload.get("stack_type")
+            if not stack_type:
+                raise ValueError(
+                    f"Job {job_id} specifies evaluator_type='stack' but is missing 'stack_type'"
+                )
+            layers = getattr(job, 'layers', [])
+            if not layers:
+                raise RuntimeError(
+                    f"Job {job_id} specifies evaluator_type='stack' but is missing the layer configurations"
+                )
+            return StackExecutionEngine(
+                job_id=job_id,
+                stack_type=stack_type,
+                layers=layers,
             )
         else:
             # Default to BashExecutionEngine

@@ -18,7 +18,8 @@ def _sample_epic_design_payload() -> dict:
                     "thickness": {
                         "value": 0.2,
                         "bounds": (0.1, 0.3),
-                        "xml_path": "//constant[@name='tracker_thickness']/@value",
+                        "xml_path": "//constant[@name='tracker_thickness']",
+                        "attribute": "value",
                         "unit": "cm",
                     }
                 },
@@ -39,8 +40,8 @@ def test_epic_design_config_getters(monkeypatch):
 
     modifications = config.get_xml_modifications({"tracker.thickness": 0.25})
     assert "/detector/tracker.xml" in modifications
-    xml_path, unit, new_value = modifications["/detector/tracker.xml"][0]
-    assert xml_path == "//constant[@name='tracker_thickness']/@value"
+    xml_path, attribute, unit, new_value = modifications["/detector/tracker.xml"][0]
+    assert xml_path == "//constant[@name='tracker_thickness']"
     assert unit == "cm"
     assert new_value == 0.25
 

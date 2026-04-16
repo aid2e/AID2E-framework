@@ -23,6 +23,12 @@ def test_epic_utils_module_structure():
     assert epic.__name__ == 'aid2e.utilities.epic_utils'
 
 
+def test_epic_env_config_import():
+    """Test that epic_env_config can be imported."""
+    from aid2e.utilities.epic_utils import epic_env_config
+    assert epic_env_config is not None
+
+
 def test_epic_design_config_import():
     """Test that epic_design_config can be imported."""
     from aid2e.utilities.epic_utils import epic_design_config
@@ -39,3 +45,9 @@ def test_epic_stack_import():
     """Test that epic_stack can be imported."""
     from aid2e.utilities.epic_utils import epic_stack
     assert epic_stack is not None
+
+
+def test_epic_stack_config_import():
+    """Test that epic_stack_config can be imported."""
+    from aid2e.utilities.epic_utils import epic_stack_config
+    assert epic_stack_config is not None

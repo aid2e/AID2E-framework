@@ -6,7 +6,7 @@ from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from aid2e.optimizers._registry import register
+from aid2e.utilities.configurations.optimization_registry import register
 
 from ._resolver import validate_generator_name
 

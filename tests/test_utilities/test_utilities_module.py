@@ -26,3 +26,20 @@ def test_utilities_structure():
     import aid2e.utilities
     assert hasattr(aid2e.utilities, '__name__')
     assert aid2e.utilities.__name__ == 'aid2e.utilities'
+
+
+def test_utilities_exports_runtime_builders():
+    """Runtime builder functions should be exported from utilities."""
+    from aid2e.utilities import (
+        infer_optimizer_backend,
+        build_optimizer_from_config,
+        build_scheduler_runtime_config,
+        build_scheduler_from_config,
+        build_workflow_executor_from_config,
+    )
+
+    assert callable(infer_optimizer_backend)
+    assert callable(build_optimizer_from_config)
+    assert callable(build_scheduler_runtime_config)
+    assert callable(build_scheduler_from_config)
+    assert callable(build_workflow_executor_from_config)

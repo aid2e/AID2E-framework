@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 import importlib
-from typing import Any, Dict, Optional, Sequence, Tuple, Union
+from typing import Any, Dict, Optional, Union
 
-from .optimizer_config import OptimizerConfiguration
-from .problem_config import ProblemConfiguration
-from .scheduler_config import SchedulerConfiguration
-from .workflow_config import JobDefinition, WorkflowDefinition, WorkflowsConfiguration
+from aid2e.utilities.configurations.optimizer_config import OptimizerConfiguration
+from aid2e.utilities.configurations.problem_config import ProblemConfiguration
+from aid2e.utilities.configurations.scheduler_config import SchedulerConfiguration
+from aid2e.utilities.configurations.workflow_config import (
+    JobDefinition,
+    WorkflowDefinition,
+    WorkflowsConfiguration,
+)
 
 
 def infer_optimizer_backend(optimizer_cfg: OptimizerConfiguration) -> str:
@@ -129,7 +133,9 @@ def _resolve_callable(spec: str):
     return getattr(module, symbol_name)
 
 
-def _resolve_workflow_python_callables(workflow: WorkflowDefinition) -> WorkflowDefinition:
+def _resolve_workflow_python_callables(
+    workflow: WorkflowDefinition,
+) -> WorkflowDefinition:
     """Resolve string payload callable references for workflow jobs."""
     wf = workflow.model_copy(deep=True)
     for branch in wf.branches:
@@ -182,7 +188,7 @@ def build_workflow_executor_from_config(
     workflow_name: Optional[str] = None,
     base_output_dir: str = "/tmp/aid2e_runs",
     log_level: str = "INFO",
-) -> DAGExecutor:
+):
     """Build a DAGExecutor from workflow + scheduler configuration."""
     from aid2e.utilities.workflows import DAGExecutor
 
@@ -190,8 +196,12 @@ def build_workflow_executor_from_config(
     resolved = _resolve_workflow_python_callables(workflow)
 
     runtime_scheduler_cfg = build_scheduler_runtime_config(scheduler_cfg)
-    if runtime_scheduler_cfg is None and isinstance(workflows_cfg, WorkflowsConfiguration):
-        runtime_scheduler_cfg = build_scheduler_runtime_config(workflows_cfg.global_scheduler)
+    if runtime_scheduler_cfg is None and isinstance(
+        workflows_cfg, WorkflowsConfiguration
+    ):
+        runtime_scheduler_cfg = build_scheduler_runtime_config(
+            workflows_cfg.global_scheduler
+        )
 
     return DAGExecutor(
         workflow=resolved,

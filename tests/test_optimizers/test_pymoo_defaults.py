@@ -6,10 +6,8 @@ import pytest
 
 from aid2e.optimizers.base import SearchSpace
 from aid2e.optimizers.pymoo import PyMOOOptimizer, PyMOOOptimizerConfig
-from aid2e.utilities.configurations import (
-    OptimizerConfiguration,
-    build_optimizer_from_config,
-)
+from aid2e.utilities import build_optimizer_from_config
+from aid2e.utilities.configurations import OptimizerConfiguration
 from aid2e.utilities.configurations.problem_config import ProblemConfigLoader
 
 

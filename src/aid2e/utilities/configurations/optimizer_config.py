@@ -12,7 +12,7 @@ from typing import Any, Dict, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from .optimization_registry import get_algorithm_config_model
+from .optimization_registry import get
 
 
 class OptimizerConfiguration(BaseModel):
@@ -29,7 +29,7 @@ class OptimizerConfiguration(BaseModel):
 
     def parse_algorithm_params(self) -> Optional[BaseModel]:
         """Parse registered backend-specific parameters if a model exists."""
-        model = get_algorithm_config_model(self.name)
+        model = get(self.name)
         if model:
             return model(**(self.parameters or {}))
         return None

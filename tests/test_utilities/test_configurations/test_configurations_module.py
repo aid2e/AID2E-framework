@@ -44,3 +44,14 @@ def test_legacy_configuration_aliases_are_not_exported():
     assert not hasattr(config, "register_runner_config")
     assert not hasattr(config, "get_runner_config_model")
     assert not hasattr(config, "list_registered_runners")
+
+
+def test_runtime_builders_are_not_exported_from_configurations():
+    """Runtime builder helpers belong to aid2e.utilities, not configurations."""
+    import aid2e.utilities.configurations as config
+
+    assert not hasattr(config, "infer_optimizer_backend")
+    assert not hasattr(config, "build_optimizer_from_config")
+    assert not hasattr(config, "build_scheduler_runtime_config")
+    assert not hasattr(config, "build_scheduler_from_config")
+    assert not hasattr(config, "build_workflow_executor_from_config")

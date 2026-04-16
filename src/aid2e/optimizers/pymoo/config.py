@@ -7,8 +7,8 @@ Supported algorithms and their best use cases:
 - ``nsga3``: NSGA-III — structured reference directions, 3+ objectives.
 - ``moead``: MOEA/D — weight-decomposition, highly customisable, 3+ objectives.
 
-Auto-registration with the optimizer registry happens at import time so that
-``get_optimizer_config("pymoo")`` works immediately after importing this package.
+Auto-registration with the canonical optimizer config registry happens at
+import time so configuration utilities can resolve ``"pymoo"`` lazily.
 
 Project: AID2E v0.0.0 — AI assisted Detector Design for EIC
 Homepage: https://aid2e.github.io/AID2E-framework
@@ -18,7 +18,7 @@ Repository: https://github.com/aid2e/AID2E-framework.git
 from typing import Literal, Optional
 from pydantic import BaseModel, Field
 
-from aid2e.optimizers._registry import register
+from aid2e.utilities.configurations.optimization_registry import register
 
 
 PyMOOAlgorithm = Literal["ga", "nsga2", "nsga3", "moead"]

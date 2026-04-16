@@ -39,3 +39,11 @@ def test_legacy_optimizer_aliases_are_not_exported():
     assert not hasattr(optimizers, "AID2EAxOptimizerConfig")
     assert not hasattr(optimizers, "AID2EPyMOOOptimizer")
     assert not hasattr(optimizers, "AID2EPyMOOOptimizerConfig")
+
+
+def test_optimizer_registry_helpers_are_not_exported():
+    """Config registry helpers should not be exported from aid2e.optimizers."""
+    import aid2e.optimizers as optimizers
+
+    assert not hasattr(optimizers, "register")
+    assert not hasattr(optimizers, "get_optimizer_config")

@@ -1,5 +1,8 @@
 """Smoke tests for canonical full configurations built in-memory."""
 
+from pathlib import Path
+import py_compile
+
 import yaml
 
 from aid2e.utilities.configurations import load_config
@@ -57,3 +60,28 @@ def test_canonical_full_config_loads(tmp_path):
         "minimize:f1",
         "maximize:f2",
     ]
+
+
+def test_optimizer_only_example_configs_load() -> None:
+    """New optimizer-only example YAMLs should load as canonical full configs."""
+    example_paths = [
+        Path("examples/optimizers/dtlz2_ax_optimizer_only.yml"),
+        Path("examples/optimizers/dtlz2_pymoo_optimizer_only.yml"),
+    ]
+
+    for cfg_path in example_paths:
+        config = load_config(str(cfg_path))
+        assert config.problem.problem_type == "toy"
+        assert config.problem.design_config.get_parameter_names()
+        assert config.optimizer.parameters
+
+
+def test_optimizer_only_example_scripts_compile() -> None:
+    """New optimizer-only example scripts should compile cleanly."""
+    script_paths = [
+        Path("examples/optimizers/run_ax_optimizer_only_example.py"),
+        Path("examples/optimizers/run_pymoo_optimizer_only_example.py"),
+    ]
+
+    for script_path in script_paths:
+        py_compile.compile(str(script_path), doraise=True)

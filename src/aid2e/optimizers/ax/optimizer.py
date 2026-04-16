@@ -29,7 +29,10 @@ try:
         from ax.generation_strategy.transition_criterion import MinTrials
         from ax.generation_strategy.generation_node import GenerationNode
         from ax.generation_strategy.generator_spec import GeneratorSpec
-        AX_NODE_STRATEGY_AVAILABLE = hasattr(GenerationStrategy, "nodes")
+        # Treat successful imports as the compatibility gate. In the Ax build
+        # shipped in env_AID2E, the node-based APIs exist and work even though
+        # `GenerationStrategy` does not expose `nodes` as a class attribute.
+        AX_NODE_STRATEGY_AVAILABLE = True
     except ImportError:
         CenterGenerationNode = None
         MinTrials = None

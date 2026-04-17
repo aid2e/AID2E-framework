@@ -167,7 +167,7 @@ class AxOptimizer(BaseOptimizer):
         self.config = config
         # self.objective_names and self.n_objectives are inherited from BaseOptimizer
         
-        # Version check removed for now
+        # TODO Version check removed for now, re-enable when ready
         
         # Create Ax search space
         self.ax_search_space = self._create_ax_search_space()

@@ -12,10 +12,50 @@ from ._resolver import validate_generator_name
 
 
 class AxOptimizerConfig(BaseModel):
-    """Configuration for the AID2E Ax backend."""
+    """Configure the Ax optimizer backend for AID2E.
 
+    Define the tuning parameters used by the Ax-based Bayesian optimization
+    workflow, including initialization behavior, model-generation settings, and
+    core iteration controls.
+
+    Attributes:
+        initialization_strategy: Choose how the initial design points are drawn
+            before model-based generation begins. Supported values are
+            ``"sobol"``, ``"uniform"``, and ``"center"``.
+        generator: Specify the Ax generator enum name used for model-based
+            candidate generation. The default is ``"BOTORCH_MODULAR"``.
+        generator_kwargs: Provide keyword arguments for Ax ``GeneratorSpec``
+            setup (for example, model configuration details).
+        generator_gen_kwargs: Provide generation-time keyword arguments passed
+            into Ax candidate generation (for example,
+            ``model_gen_options`` budgets).
+        objective_thresholds: Optionally map objective metric names to
+            threshold values for multi-objective optimization.
+        n_initial_samples: Set the number of initialization trials.
+        n_iterations: Set the total optimization iteration budget.
+        batch_size: Set the number of candidates proposed per iteration.
+        seed: Set an optional random seed for reproducibility.
+
+    Examples:
+        >>> config = AxOptimizerConfig(
+        ...     initialization_strategy="sobol",
+        ...     generator="BOTORCH_MODULAR",
+        ...     generator_kwargs={"fit_out_of_design": False},
+        ...     generator_gen_kwargs={"model_gen_options": {"acqf_optimizer_kwargs": {"num_restarts": 8}}},
+        ...     n_initial_samples=12,
+        ...     n_iterations=60,
+        ...     batch_size=2,
+        ...     seed=42,
+        ... )
+        >>> config.generator
+        'BOTORCH_MODULAR'
+
+    Notes:
+        Legacy fields such as ``surrogate_model`` and
+        ``acquisition_function`` are explicitly rejected.
+    """
+    # TODO: Remove the extra fields once the legacy config surface is fully retired.
     model_config = ConfigDict(extra="forbid")
-
     initialization_strategy: Literal["sobol", "uniform", "center"] = Field(
         default="sobol",
         description=(

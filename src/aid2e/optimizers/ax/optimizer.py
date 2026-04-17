@@ -2,7 +2,7 @@
 
 from copy import deepcopy
 from typing import List, Dict, Any, Optional, TYPE_CHECKING, Union
-import logging
+import logging, sys
 import numpy as np
 
 logger = logging.getLogger(__name__)
@@ -252,7 +252,7 @@ class AxOptimizer(BaseOptimizer):
             coeff = 1.0 if sign != '-' else -1.0
             constraint_dict[param_name.strip()] = coeff
         
-        strict_epsilon = 1e-12
+        strict_epsilon = sys.float_info.epsilon # this is the smallest representable positive number such that 1.0 + eps != 1.0, used to convert strict inequalities to non-strict
 
         # Determine if upper or lower bound based on operator
         # sum <= bound or sum < bound: upper bound

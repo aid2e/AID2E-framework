@@ -144,6 +144,6 @@ migrating_src
 
 *CODEX*
 *.codex*
-*.experimental*
+*__experimental__*
 *experimental_tests*
 *__pycache__*

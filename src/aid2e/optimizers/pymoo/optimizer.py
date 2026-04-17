@@ -21,9 +21,9 @@ The ``_flush_generation`` mechanism is entirely internal. Callers never need
 to think in terms of "generations" — they simply call the same two methods
 repeatedly regardless of the backend.
 
-AID2EProblem
+PyMOOProblem
 ------------
-The public ``AID2EProblem`` class represents the search space as a proper
+The public ``PyMOOProblem`` class represents the search space as a proper
 PyMOO ``Problem``.  It is structural only (variables, bounds, objectives)
 and intentionally does not evaluate candidates.  Evaluations are always
 handled externally by workflow/scheduler components and reported back via
@@ -43,6 +43,7 @@ Repository: https://github.com/aid2e/AID2E-framework.git
 from __future__ import annotations
 
 import logging
+import warnings
 from typing import Any, Dict, List, Optional, Tuple, Union, TYPE_CHECKING
 
 import numpy as np
@@ -84,7 +85,7 @@ from .config import PyMOOOptimizerConfig
 # Public PyMOO problem class
 # ---------------------------------------------------------------------------
 
-class AID2EProblem(Problem):
+class PyMOOProblem(Problem):
     """PyMOO Problem that wraps an AID2E ``SearchSpace``.
 
         This problem is structural-only for ask/tell workflows. ``decode_x``
@@ -111,7 +112,7 @@ class AID2EProblem(Problem):
         param_items: List[Tuple[str, Any]],
         objective_names: List[str],
     ) -> None:
-        """Initialise the AID2E problem with search-space metadata."""
+        """Initialise the PyMOO problem with search-space metadata."""
         super().__init__(n_var=n_var, n_obj=n_obj, xl=xl, xu=xu)
         self._param_items = param_items
         self._objective_names = objective_names
@@ -151,10 +152,25 @@ class AID2EProblem(Problem):
                 workflow/scheduler layer in AID2E.
         """
         raise NotImplementedError(
-            "AID2EProblem is structural-only in ask/tell mode. "
+            "PyMOOProblem is structural-only in ask/tell mode. "
             "Use PyMOOOptimizer.suggest_candidates() and "
             "PyMOOOptimizer.update_with_results() with external evaluation."
         )
+
+
+class AID2EProblem(PyMOOProblem):
+    """Deprecated compatibility alias for ``PyMOOProblem``."""
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        """Warn and delegate to ``PyMOOProblem``."""
+        warnings.warn(
+            "AID2EProblem is deprecated and will be removed in the next "
+            "iteration. Use PyMOOProblem instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        # TODO: Remove this compatibility alias in the next iteration.
+        super().__init__(*args, **kwargs)
 
 
 # ---------------------------------------------------------------------------
@@ -281,7 +297,7 @@ class PyMOOOptimizer(BaseOptimizer):
         n_var = len(self._param_items)
 
         # Public PyMOO problem (structural-only ask/tell mode).
-        self.problem: AID2EProblem = AID2EProblem(
+        self.problem: PyMOOProblem = PyMOOProblem(
             n_var=n_var,
             n_obj=self.n_objectives,
             xl=self._xl,
@@ -813,7 +829,7 @@ class PyMOOOptimizer(BaseOptimizer):
 
         self._param_items = list(self.search_space.parameters.items())
         self._xl, self._xu = self._build_bounds()
-        self.problem = AID2EProblem(
+        self.problem = PyMOOProblem(
             n_var=len(self._param_items),
             n_obj=self.n_objectives,
             xl=self._xl,

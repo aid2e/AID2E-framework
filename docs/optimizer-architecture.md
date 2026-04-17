@@ -15,6 +15,7 @@ The current public export surface is:
 - `compute_pareto_front`
 - `AxOptimizer`
 - `AxOptimizerConfig`
+- `PyMOOProblem`
 - `PyMOOOptimizer`
 - `PyMOOOptimizerConfig`
 - `AID2EProblem`
@@ -237,9 +238,9 @@ count:
 - `ga` only for single-objective problems
 - `nsga2`, `nsga3`, and `moead` only for multi-objective problems
 
-### `AID2EProblem`
+### `PyMOOProblem`
 
-`AID2EProblem` is the public PyMOO `Problem` wrapper for the AID2E search space.
+`PyMOOProblem` is the public PyMOO `Problem` wrapper for the AID2E search space.
 It is structural only:
 
 - `decode_x()` converts a PyMOO float vector back into an AID2E parameter dict
@@ -247,6 +248,9 @@ It is structural only:
 
 The class is used for ask/tell workflows where evaluation happens outside the
 optimizer, not inside the PyMOO problem object.
+
+`AID2EProblem` remains available temporarily as a deprecated compatibility
+alias. Ax does not expose an equivalent public `Problem` wrapper.
 
 Choice parameters are encoded as continuous indices and rounded back to the
 nearest valid choice during decoding. Range parameters are passed through as

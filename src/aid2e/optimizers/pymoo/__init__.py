@@ -4,11 +4,17 @@ This subpackage provides GA, NSGA-II, NSGA-III, and MOEA/D via the PyMOO
 library, integrated with the AID2E ``BaseOptimizer`` interface using PyMOO's
 ask/tell protocol for external evaluation.
 
-``AID2EProblem`` is the public PyMOO Problem class for this search space and
-is structural-only for ask/tell workflows in AID2E.
+``PyMOOProblem`` is the public PyMOO Problem class for this search space and
+is structural-only for ask/tell workflows in AID2E. ``AID2EProblem`` remains
+available as a deprecated compatibility alias for one iteration.
 """
 
 from .config import PyMOOOptimizerConfig
-from .optimizer import AID2EProblem, PyMOOOptimizer
+from .optimizer import AID2EProblem, PyMOOOptimizer, PyMOOProblem
 
-__all__ = ["AID2EProblem", "PyMOOOptimizer", "PyMOOOptimizerConfig"]
+__all__ = [
+    "PyMOOProblem",
+    "AID2EProblem",
+    "PyMOOOptimizer",
+    "PyMOOOptimizerConfig",
+]

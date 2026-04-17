@@ -6,6 +6,8 @@ optimization problems, including:
 - BaseOptimizer: Abstract base class defining the common optimizer interface.
 - AxOptimizer: Bayesian optimization using Ax with Sobol initialization,
   SAASBO surrogate model, and qNEHVI acquisition function.
+- PyMOOProblem: PyMOO-only public ``Problem`` wrapper for structural ask/tell
+  integrations. Ax does not expose an equivalent public problem wrapper.
 - PyMOOOptimizer: Evolutionary optimization (GA, NSGA-II, NSGA-III, MOEA/D)
   via PyMOO's ask/tell interface for external evaluation.
 - compute_pareto_front: Backend-agnostic Pareto front utility.
@@ -17,7 +19,7 @@ Attributes:
 from aid2e import __MAIN_VERSION__
 from .base import BaseOptimizer, SearchSpace, Trial, compute_pareto_front
 from .ax import AxOptimizer, AxOptimizerConfig
-from .pymoo import AID2EProblem, PyMOOOptimizer, PyMOOOptimizerConfig
+from .pymoo import AID2EProblem, PyMOOOptimizer, PyMOOOptimizerConfig, PyMOOProblem
 
 __version__ = __MAIN_VERSION__
 __all__ = [
@@ -27,6 +29,7 @@ __all__ = [
     "compute_pareto_front",
     "AxOptimizer",
     "AxOptimizerConfig",
+    "PyMOOProblem",
     "PyMOOOptimizer",
     "PyMOOOptimizerConfig",
     "AID2EProblem",

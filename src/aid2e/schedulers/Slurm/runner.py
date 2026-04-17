@@ -109,10 +109,12 @@ class SlurmScheduler(BaseScheduler):
             job_root.mkdir(parents=True, exist_ok=True)
 
             script_path = job_root / "job.sbatch"
-            stdout_path = job_root / "stdout.log" if self.config.capture_stdout else None
-            stderr_path = job_root / "stderr.log" if self.config.capture_stderr else None
             runtime_dir = self._resolve_runtime_dir(job_def, job_root)
+            output_dir = self._resolve_output_dir(job_def, job_root)
             runtime_dir.mkdir(parents=True, exist_ok=True)
+            output_dir.mkdir(parents=True, exist_ok=True)
+            stdout_path = output_dir / "stdout.log" if self.config.capture_stdout else None
+            stderr_path = output_dir / "stderr.log" if self.config.capture_stderr else None
 
             script_text = self._build_batch_script(
                 job_id=job_id,
@@ -131,6 +133,7 @@ class SlurmScheduler(BaseScheduler):
                 "job_name": job_name,
                 "job_root": str(job_root),
                 "runtime_dir": str(runtime_dir),
+                "output_dir": str(output_dir),
                 "script_path": str(script_path),
                 "stdout_path": str(stdout_path) if stdout_path else None,
                 "stderr_path": str(stderr_path) if stderr_path else None,
@@ -270,6 +273,13 @@ class SlurmScheduler(BaseScheduler):
         if execution_dir:
             return Path(str(execution_dir)).expanduser().resolve()
 
+        return default_job_root.resolve()
+
+    def _resolve_output_dir(self, job_def: Dict[str, Any], default_job_root: Path) -> Path:
+        payload = job_def.get("payload") or {}
+        output_dir = payload.get("output_dir")
+        if output_dir:
+            return Path(str(output_dir)).expanduser().resolve()
         return default_job_root.resolve()
 
     def _resolve_job_resources(self, job_def: Dict[str, Any]) -> Dict[str, Any]:
@@ -468,7 +478,7 @@ class SlurmScheduler(BaseScheduler):
         if cached is not None:
             return cached
 
-        runtime_dir = Path(job_state["runtime_dir"])
+        output_dir = Path(job_state.get("output_dir") or job_state["runtime_dir"])
         collected: Dict[str, Any] = {}
         for output_spec in job_state.get("outputs", []):
             output_path = self._get_output_spec_value(output_spec, "path")
@@ -476,7 +486,7 @@ class SlurmScheduler(BaseScheduler):
                 continue
 
             path_obj = Path(str(output_path))
-            full_path = path_obj if path_obj.is_absolute() else runtime_dir / path_obj
+            full_path = path_obj if path_obj.is_absolute() else output_dir / path_obj
             if not full_path.exists():
                 self.logger.warning("Expected output artifact missing for %s: %s", job_state["job_id"], full_path)
                 continue

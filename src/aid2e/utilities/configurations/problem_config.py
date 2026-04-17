@@ -265,11 +265,19 @@ class ProblemConfigLoader:
                 env_config = config_loader.load(env_data=problem)
 
         # Build ProblemConfiguration
+        output_location = Path(problem["output_location"]).expanduser()
+        if base_dir and not output_location.is_absolute():
+            output_location = (base_dir / output_location).resolve()
+
+        work_location = Path(problem["work_location"]).expanduser()
+        if base_dir and not work_location.is_absolute():
+            work_location = (base_dir / work_location).resolve()
+
         return ProblemConfiguration(
             name=problem["name"],
             problem_type=problem["problem_type"],
-            output_location=problem["output_location"],
-            work_location=problem["work_location"],
+            output_location=str(output_location),
+            work_location=str(work_location),
             design_config=design_config,
             objectives=objectives_raw,
             observations=problem.get("observations"),

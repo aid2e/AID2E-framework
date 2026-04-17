@@ -79,6 +79,8 @@ def build_scheduler_runtime_config(
     if scheduler_cfg is None:
         return None
 
+    # TODO(scheduler-cascade): honor workflow/branch/stage scheduler overrides via
+    # resolve_scheduler_cascade() instead of using only the global scheduler.
     runner_type = scheduler_cfg.runner_type
     params = dict(scheduler_cfg.parameters or {})
 
@@ -93,6 +95,10 @@ def build_scheduler_runtime_config(
         from aid2e.schedulers.JobLib import JobLibRunnerConfig
 
         cfg = JobLibRunnerConfig(**params)
+    elif runner_type == "SlurmRunner":
+        from aid2e.schedulers.Slurm import SlurmRunnerConfig
+
+        cfg = SlurmRunnerConfig(**params)
     elif runner_type == "PanDAiDDSRunner":
         from aid2e.schedulers.PanDAiDDS import PanDAiDDSRunnerConfig
 
@@ -115,6 +121,10 @@ def build_scheduler_from_config(scheduler_cfg: Optional[SchedulerConfiguration])
         from aid2e.schedulers.JobLib import JobLibScheduler
 
         return JobLibScheduler(config=cfg_obj)
+    if runner_type == "SlurmRunner":
+        from aid2e.schedulers.Slurm import SlurmScheduler
+
+        return SlurmScheduler(config=cfg_obj)
     if runner_type == "PanDAiDDSRunner":
         from aid2e.schedulers.PanDAiDDS import PanDAiDDSScheduler
 
@@ -184,6 +194,7 @@ def select_workflow(
 def build_workflow_executor_from_config(
     workflows_cfg: Union[WorkflowDefinition, WorkflowsConfiguration],
     *,
+    problem_cfg: Optional[ProblemConfiguration] = None,
     scheduler_cfg: Optional[SchedulerConfiguration] = None,
     workflow_name: Optional[str] = None,
     base_output_dir: str = "/tmp/aid2e_runs",
@@ -193,7 +204,14 @@ def build_workflow_executor_from_config(
     from aid2e.utilities.workflows import DAGExecutor
 
     workflow = select_workflow(workflows_cfg, workflow_name=workflow_name)
+    if problem_cfg is not None and workflow.objectives:
+        raise ValueError(
+            "Canonical full-config workflows must not repeat 'workflows[].objectives'. "
+            "Use 'problem.objectives' as the single source of truth."
+        )
     resolved = _resolve_workflow_python_callables(workflow)
+    if problem_cfg is not None:
+        resolved.objectives = list(problem_cfg.objectives)
 
     runtime_scheduler_cfg = build_scheduler_runtime_config(scheduler_cfg)
     if runtime_scheduler_cfg is None and isinstance(
@@ -207,5 +225,6 @@ def build_workflow_executor_from_config(
         workflow=resolved,
         base_output_dir=base_output_dir,
         log_level=log_level,
+        problem_config=problem_cfg,
         scheduler_config=runtime_scheduler_cfg,
     )

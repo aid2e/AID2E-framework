@@ -4,6 +4,8 @@ from typing import List, Optional
 
 from pydantic import BaseModel, Field
 
+from aid2e.utilities.configurations.scheduler_registry import register as register_runner_config
+
 
 class SlurmRunnerConfig(BaseModel):
     """Configuration for Slurm command-job execution."""
@@ -43,3 +45,6 @@ class SlurmRunnerConfig(BaseModel):
     )
     capture_stdout: bool = Field(default=True, description="Capture stdout into a scheduler-owned log file.")
     capture_stderr: bool = Field(default=True, description="Capture stderr into a scheduler-owned log file.")
+
+
+register_runner_config("SlurmRunner", SlurmRunnerConfig)

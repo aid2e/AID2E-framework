@@ -230,6 +230,25 @@ class Trial:
                 self.status,
             )
 
+    def save_to_json(self, output_path: Union[str, Path]) -> Path:
+        """Write the trial's design parameters to disk as pretty-printed JSON.
+
+        This helper is intentionally design-point focused: it serializes only
+        ``parameters`` so command-line evaluators can consume the resulting file
+        as an input payload without needing optimizer metadata.
+
+        Args:
+            output_path: Target JSON path.
+
+        Returns:
+            Resolved path of the written file.
+        """
+        path = Path(output_path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("w", encoding="utf-8") as handle:
+            json.dump(dict(self.parameters or {}), handle, indent=2, sort_keys=True)
+        return path
+
 
 def compute_pareto_front(
     trials: List["Trial"],

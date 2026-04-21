@@ -111,7 +111,7 @@ package-dir = {"" = "src"}
 
 [tool.black]
 line-length = 88
-target-version = ['py310', 'py311']
+target-version = ['py311']
 include = '\.pyi?$'
 extend-exclude = '''
 /(
@@ -134,7 +134,7 @@ multi_line_mode = 3
 include_trailing_comma = true
 
 [tool.mypy]
-python_version = "3.10"
+python_version = "3.11"
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = false

@@ -183,7 +183,25 @@ class DAGExecutor:
             raise ValueError(f"Scheduler {runner_type} not available: {e}") from e
         
     def execute(self, design_point: Dict[str, Any]) -> Dict[str, float]:
-        """Execute workflow for a given design point."""
+        """Execute workflow for a given design point.
+        
+        This is the main entry point for workflow execution. It orchestrates
+        the entire workflow from start to finish and returns computed objectives.
+
+        Args:
+            design_point: Design point parameters (e.g., {"x1": 0.5, "x2": 0.7}).
+            
+        Returns:
+            objectives: Computed objectives as {objective_name: value}.
+            
+        Raises:
+            ValueError: If workflow is invalid or execution fails.
+            
+        Example:
+            >>> design_point = {"x1": 0.5, "x2": 0.7, "x3": 0.3}
+            >>> objectives = executor.execute(design_point)
+            >>> print(objectives)  # {"f1": 0.234, "f2": 0.876}
+        """
 
         self.logger.checkpoint(
             "workflow_start",

@@ -62,6 +62,7 @@ from .execution_engine import (
     WorkflowSharedContext,
 )
 from .execution_logger import ExecutionLogger
+from aid2e.utilities.configurations.stack_registry import StackRegistry
 
 class DAGExecutor:
     """Executor for DAG-based workflow orchestration.
@@ -213,9 +214,13 @@ class DAGExecutor:
         self.workflow_context = WorkflowSharedContext()
 
         try:
-            if self.problem_config is not None and self.problem_config.design_config is not None:
-                from aid2e.utilities.epic_utils.epic_stack import EpicStack
-                stack = EpicStack()
+            if (
+                self.problem_config is not None
+                and self.problem_config.design_config is not None
+                and self.workflow.stack_type is not None
+            ):
+                stack_class = StackRegistry.get_experimental_stack(self.workflow.stack_type)
+                stack = stack_class()
                 prepared_geometry_dir = stack.prepare_workflow_geometry(
                     workflow_dir=str(self.output_dir),
                     design_point=design_point,

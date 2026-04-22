@@ -243,6 +243,7 @@ class WorkflowDefinition(BaseModel):
     """
     name: str = Field(..., description="Workflow name")
     description: Optional[str] = Field(default=None, description="Workflow description")
+    stack_type: Optional[str] = Field(default=None,description="Experimental stack type for workflow-level geometry prep")
     branches: List[BranchDefinition] = Field(default_factory=list, description="Workflow branches (optional)")
     objectives: List[ObjectiveDefinition] = Field(
         default_factory=list,

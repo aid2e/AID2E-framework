@@ -229,6 +229,14 @@ class DAGExecutor:
                 self._execute_branch(branch, design_point)
 
             objectives = self._compute_objectives()
+
+            self.logger.checkpoint(
+                "workflow_complete",
+                "success",
+                f"Workflow execution completed. Objectives: {objectives}",
+                context={"objectives": objectives},
+            )
+
             return objectives
             
         except Exception as e:

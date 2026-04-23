@@ -7,10 +7,10 @@ name = "aid2e"
 version = "0.0.1"
 description = "AID2E Framework: AI assisted Detector Design for EIC"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 license = {text = "MIT"}
 authors = [
-    {name = "AID2E Team", email = "ksuresh@wm.edu"}
+    {name = "AID2E Team"}
 ]
 keywords = [
     "optimization",
@@ -26,7 +26,6 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Topic :: Scientific/Engineering",
 ]
@@ -38,19 +37,14 @@ dependencies = [
     "scikit-learn>=0.24",
     "pymoo>=0.6",
     "joblib>=1.0",
-    "ax-platform<=0.2.10; python_version < '3.9'",
-    "ax-platform==0.3.7; python_version >= '3.9' and python_version < '3.11'",
-    "ax-platform==1.0.0; python_version >= '3.11'",
+    "ax-platform>=1.0.0; python_version >= '3.11'",
 ]
 
 [project.optional-dependencies]
+ax = ["ax-platform>=1.0.0; python_version >= '3.11'"]
 mobo = ["scikit-learn>=0.24"]
 moea = ["pymoo>=0.6"]
 joblib = ["joblib>=1.0"]
-slurm = [
-    "submitit>=1.4",
-    "pyclusters>=1.0",
-]
 panda = [
     "wheel",
     "idds-common>=2.5.5",
@@ -74,6 +68,27 @@ docs = [
     "mkdocstrings-python>=1.0.0",
 ]
 
+all = [
+    "ax-platform>=1.0.0; python_version >= '3.11'",
+    "scikit-learn>=0.24",
+    "pymoo>=0.6",
+    "joblib>=1.0",
+    "wheel",
+    "idds-common>=2.5.5",
+    "idds-workflow>=2.5.5",
+    "panda-client>=1.6.0",
+    "pytest>=6.0",
+    "pytest-cov>=2.12",
+    "black>=21.0",
+    "flake8>=3.9",
+    "isort>=5.9",
+    "mypy>=0.910",
+    "mkdocs>=1.2",
+    "mkdocs-material>=7.1",
+    "mkdocstrings>=0.18",
+    "mkdocstrings-python>=1.0.0",
+]
+
 [project.urls]
 Homepage = "https://aid2e.github.io/aid2e"
 Documentation = "https://aid2e.github.io/AID2E-framework"
@@ -84,7 +99,7 @@ Issues = "https://github.com/aid2e/AID2E-framework/issues"
 aid2e = "aid2e.cli.aid2e_cli:cli"
 
 [tool.setuptools]
-packages = ["aid2e", "aid2e.cli", "aid2e.optimizers", "aid2e.schedulers", "aid2e.utilities", "aid2e.utilities.configurations", "aid2e.utilities.epic_utils"]
+packages = ["aid2e", "aid2e.cli", "aid2e.optimizers", "aid2e.optimizers.ax", "aid2e.optimizers.pymoo", "aid2e.schedulers", "aid2e.utilities", "aid2e.utilities.configurations", "aid2e.utilities.epic_utils"]
 package-dir = {"" = "src"}
 
 [tool.setuptools.package-data]
@@ -96,7 +111,7 @@ package-dir = {"" = "src"}
 
 [tool.black]
 line-length = 88
-target-version = ['py310', 'py311']
+target-version = ['py311']
 include = '\.pyi?$'
 extend-exclude = '''
 /(
@@ -119,7 +134,7 @@ multi_line_mode = 3
 include_trailing_comma = true
 
 [tool.mypy]
-python_version = "3.10"
+python_version = "3.11"
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = false

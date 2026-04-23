@@ -1,24 +1,53 @@
-"""Registry for algorithm-specific optimization config models.
+"""Canonical registry for optimizer parameter-schema models.
 
-Optimizers can register their Pydantic models keyed by algorithm name.
-Utilities can look up the model to parse `optimizer.parameters`.
+Optimizer backends register their Pydantic config models here, and config
+utilities use the registry to validate ``optimizer.parameters`` payloads.
+Built-in backends are loaded lazily so schema lookup works even before their
+config modules have been imported elsewhere.
 """
-from typing import Dict, Type, Optional
+
+from __future__ import annotations
+
+import importlib
+from typing import Callable, Dict, Optional, Type
+
 from pydantic import BaseModel
 
 _algorithm_configs: Dict[str, Type[BaseModel]] = {}
+_algorithm_config_loaders: Dict[str, Callable[[], None]] = {
+    "ax": lambda: importlib.import_module("aid2e.optimizers.ax.config"),
+    "pymoo": lambda: importlib.import_module("aid2e.optimizers.pymoo.config"),
+}
 
 
-def register_algorithm_config(name: str, model: Type[BaseModel]) -> None:
-    """Register a Pydantic model for an optimization algorithm.
+def register(name: str, model: Type[BaseModel]) -> None:
+    """Register an optimizer config model by backend name."""
+    key = name.lower()
+    if key in _algorithm_configs:
+        raise ValueError(
+            f"Configuration for '{name}' is already registered. "
+            f"Cannot register '{model.__name__}' as replacement."
+        )
+    _algorithm_configs[key] = model
 
-    Args:
-        name: Algorithm identifier (e.g., "nsga2", "mobo").
-        model: Pydantic model class that validates algorithm-specific params.
-    """
-    _algorithm_configs[name.lower()] = model
+
+def get(name: str) -> Optional[Type[BaseModel]]:
+    """Retrieve a registered optimizer config model, loading built-ins lazily."""
+    key = name.lower()
+    if key in _algorithm_configs:
+        return _algorithm_configs[key]
+
+    loader = _algorithm_config_loaders.get(key)
+    if loader is None:
+        return None
+
+    loader()
+    return _algorithm_configs.get(key)
 
 
-def get_algorithm_config_model(name: str) -> Optional[Type[BaseModel]]:
-    """Retrieve a registered algorithm config model by name."""
-    return _algorithm_configs.get(name.lower())
+def list_registered() -> Dict[str, Type[BaseModel]]:
+    """Return registered optimizer config models after loading built-ins."""
+    for name, loader in _algorithm_config_loaders.items():
+        if name not in _algorithm_configs:
+            loader()
+    return _algorithm_configs.copy()

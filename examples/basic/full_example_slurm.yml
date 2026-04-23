@@ -4,6 +4,8 @@
 problem:
   name: "DTLZ2 Multi-Objective Optimization on HPC"
   type: "toy"
+  output_location: "/tmp"
+  work_location: "/tmp"
 
   objectives:
     - name: "f1"
@@ -27,27 +29,15 @@ problem:
     path: "design.params"
 
 optimizer:
-  kind: "BO"
-  max_iterations: 100
-
-  bo:
-    surrogate_model:
-      name: "GaussianProcess"
-      kernel: "matern52"
-      noise_level: 1.0e-6
-      normalize_y: true
-
-    acquisition_function:
-      name: "qEHVI"
-      parameters:
-        num_mc_samples: 128
-        objective_thresholds: [0.0, 0.0]
-
-    parameters:
-      initial_design: "lhs"
-      n_initial_samples: 24
-      batch_size: 4
-      parallel_evaluations: 4
+  name: "ax"
+  type: "bayesian"
+  parameters:
+    initialization_strategy: "sobol"
+    generator: "BOTORCH_MODULAR"
+    n_initial_samples: 24
+    n_iterations: 100
+    batch_size: 4
+    seed: 42
 
 # Scheduler configuration for HPC execution using SLURM
 scheduler:

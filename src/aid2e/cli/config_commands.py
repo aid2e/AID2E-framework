@@ -33,7 +33,7 @@ def describe(config_file: str, format: str, compact: bool):
     """
     Describe the contents and structure of a configuration file.
     
-    Automatically detects config type (design/problem/optimization/full)
+    Automatically detects config type (design/problem/optimizer/full)
     and displays relevant information in a human-readable format.
     
     Examples:
@@ -66,7 +66,7 @@ def describe(config_file: str, format: str, compact: bool):
 
 @click.command(name="inspect")
 @click.argument("config_file", type=click.Path(exists=True))
-@click.option("--section", type=click.Choice(["problem", "optimization", "design", "all"]), default="all", help="Section to inspect")
+@click.option("--section", type=click.Choice(["problem", "optimizer", "design", "all"]), default="all", help="Section to inspect")
 def inspect(config_file: str, section: str):
     """
     Display detailed information about a configuration file.
@@ -75,7 +75,7 @@ def inspect(config_file: str, section: str):
     
     Examples:
         aid2e inspect config.yml
-        aid2e inspect config.yml --section optimization
+        aid2e inspect config.yml --section optimizer
         aid2e inspect config.yml --section design
     """
     try:
@@ -137,10 +137,10 @@ def validate(config_file: str):
         elif config_type == "design":
             from aid2e.utilities.configurations import DesignConfigLoader
             config = DesignConfigLoader.load(config_file)
-        elif config_type == "optimization":
-            from aid2e.utilities.configurations import OptimizationConfiguration
-            opt = data.get("optimization", data)
-            config = OptimizationConfiguration(**opt)
+        elif config_type == "optimizer":
+            from aid2e.utilities.configurations import OptimizerConfiguration
+            opt = data.get("optimizer", data)
+            config = OptimizerConfiguration(**opt)
         else:
             click.echo(click.style("⚠ Unknown configuration type, performing basic YAML validation only", fg="yellow"))
             click.echo(click.style("✓ YAML syntax is valid", fg="green"))

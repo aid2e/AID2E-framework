@@ -1,9 +1,8 @@
 """Design configuration models for detector parameter spaces.
 
-This module provides a flexible framework for defining and managing design parameter
-spaces, including parameter groups, constraints, and constraint validation. It supports
-loading configurations from YAML files with options for file-based or inline parameter
-definitions.
+This module provides a framework for defining and managing design parameter
+spaces, including parameter groups, constraints, and constraint validation.
+It accepts only the canonical ``design_space`` schema.
 
 Key Classes:
     - ParameterGroup: Container for related parameters with shared properties.
@@ -432,15 +431,11 @@ class DesignConfig(BaseModel):
 
 
 class DesignConfigLoader:
-    """Load design configurations from YAML files with flexible resolution.
+    """Load design configurations from YAML files with canonical resolution.
     
-    Handles both file-based and inline design parameter definitions. Supports
-    path-based loading (external file) or inline definition within the YAML
-    structure, with comprehensive validation and error reporting.
-    
-    The loader normalizes legacy schema formats for backward compatibility while
-    supporting the new design_space structure with design_parameters and
-    design_constraints.
+    Supports either an external file referenced by ``design_space.path`` or an
+    inline ``design_space`` block containing ``design_parameters`` and optional
+    ``parameter_constraints``.
     
     Example:
         >>> # Load from file with external design.params
@@ -460,39 +455,32 @@ class DesignConfigLoader:
     
     @staticmethod
     def _extract_design_space_payload(raw: Dict[str, Any]) -> Dict[str, Any]:
-        """Extract and normalize design space payload from loaded data.
-        
-        Handles both new design_space schema and legacy formats, extracting
-        design_parameters and design_constraints/parameter_constraints into
-        a normalized dictionary.
+        """Extract canonical design space payload from loaded data.
         
         Args:
             raw: Dictionary loaded from YAML file or inline config.
         
         Returns:
-            Dictionary with keys 'design_parameters' and optionally
-            'parameter_constraints'.
+            Dictionary with keys ``design_parameters`` and optionally
+            ``parameter_constraints``.
         
         Raises:
-            ValueError: If raw data is not a dict or lacks design_parameters.
-        
-        Notes:
-            - Supports both 'design_space' (new) and direct keys (legacy).
-            - Maps 'design_constraints' → 'parameter_constraints'.
-            - Provides clear error messages for missing required fields.
+            ValueError: If raw data is not a dict or is not canonical.
         """
         if not isinstance(raw, dict):
             raise ValueError("Design space content must be a mapping.")
-        space = raw.get('design_space', raw)
-        design_parameters = space.get('design_parameters') or raw.get('design_parameters')
-        if design_parameters is None:
+        space = raw.get("design_space", raw)
+        if not isinstance(space, dict):
+            raise ValueError("'design_space' must be a mapping.")
+        if "design_constraints" in space or "design_constraints" in raw:
+            raise ValueError(
+                "Legacy key 'design_constraints' is no longer supported. "
+                "Use 'parameter_constraints'."
+            )
+        if "design_parameters" not in space:
             raise ValueError("design_space must include 'design_parameters'.")
-        parameter_constraints = (
-            space.get('design_constraints')
-            or space.get('parameter_constraints')
-            or raw.get('design_constraints')
-            or raw.get('parameter_constraints')
-        )
+        design_parameters = space["design_parameters"]
+        parameter_constraints = space.get("parameter_constraints")
         payload: Dict[str, Any] = {"design_parameters": design_parameters}
         if parameter_constraints is not None:
             payload["parameter_constraints"] = parameter_constraints
@@ -502,19 +490,13 @@ class DesignConfigLoader:
     def _resolve_design_space(design_space: Dict[str, Any], config_dir: str = ".") -> Dict[str, Any]:
         """Resolve design space from file path or inline definition.
         
-        Intelligently resolves design space configuration from either:
-        1. An external file referenced by 'path' key, or
-        2. Inline parameter definitions in the design_space dict.
-        
-        Enforces that both path and inline definitions cannot coexist.
-        
         Args:
             design_space: Dictionary containing 'path' and/or inline definitions.
             config_dir: Base directory for relative path resolution.
         
         Returns:
-            Normalized dictionary with 'design_parameters' and optionally
-            'parameter_constraints'.
+            Dictionary with ``design_parameters`` and optional
+            ``parameter_constraints``.
         
         Raises:
             ValueError: If both 'path' and inline definitions are present.
@@ -542,7 +524,8 @@ class DesignConfigLoader:
 
         if has_path and has_inline:
             raise ValueError(
-                "Cannot define both 'path' and inline design_space. Specify either a file path or inline groups." 
+                "Cannot define both 'path' and inline design_space. Specify "
+                "either a file path or inline canonical design parameters."
             )
 
         if has_path:
@@ -558,7 +541,8 @@ class DesignConfigLoader:
             return DesignConfigLoader._extract_design_space_payload(design_space)
 
         raise ValueError(
-            "Design space must define either a 'path' to a file or inline design_parameters/design_constraints."
+            "Design space must define either a 'path' to a file or inline "
+            "'design_parameters'."
         )
 
     @staticmethod
@@ -566,9 +550,7 @@ class DesignConfigLoader:
         """Load design configuration from a YAML file.
         
         Loads a configuration file and returns a DesignConfig instance.
-        Supports both new 'design_space' schema and legacy 'design_parameters'
-        formats. Handles file-based (external file reference) and inline
-        parameter definitions seamlessly.
+        Accepts only the canonical ``design_space`` schema.
         
         Args:
             file_path: Path to the YAML configuration file. Relative paths
@@ -590,9 +572,8 @@ class DesignConfigLoader:
         
         Notes:
             - The configuration file must be valid YAML.
-            - Must contain either 'design_space' or 'design_parameters' key.
+            - Must contain a top-level ``design_space`` key.
             - Directory of config_file is used as base for relative paths.
-            - Backward compatible with pre-design_space YAML files.
         """
         path = Path(file_path)
         if not path.exists():
@@ -602,21 +583,22 @@ class DesignConfigLoader:
         with open(path, 'r') as f:
             data = yaml.safe_load(f)
 
-        if 'design_space' in data:
-            design_space = data['design_space']
-        elif 'design_parameters' in data:
-            # Backward compatibility: promote old schema
-            design_space = {
-                'design_parameters': data['design_parameters'],
-            }
-            if 'parameter_constraints' in data:
-                design_space['design_constraints'] = data['parameter_constraints']
-        else:
-            raise ValueError(f"Invalid configuration file format: {file_path}. Missing 'design_space'.")
+        if "design_space" not in data:
+            if "design_parameters" in data:
+                raise ValueError(
+                    "Top-level 'design_parameters' is no longer supported. "
+                    "Wrap design content under 'design_space'."
+                )
+            raise ValueError(
+                f"Invalid configuration file format: {file_path}. Missing "
+                "'design_space'."
+            )
+
+        design_space = data["design_space"]
 
         resolved = DesignConfigLoader._resolve_design_space(design_space, config_dir=str(config_dir))
-        data['design_parameters'] = resolved['design_parameters']
-        if 'parameter_constraints' in resolved:
-            data['parameter_constraints'] = resolved['parameter_constraints']
+        data["design_parameters"] = resolved["design_parameters"]
+        if "parameter_constraints" in resolved:
+            data["parameter_constraints"] = resolved["parameter_constraints"]
 
         return DesignConfig(**data)

@@ -108,7 +108,6 @@ class MultiStepStage(BaseModel):
         inputs: Optional input bindings for this stage (free-form mapping).
         outputs: Optional output bindings for this stage (free-form mapping).
         extra_args: Additional args/metadata for the stage executor.
-        jobs: Free-form job definitions (legacy/executor-specific payloads).
         produces_objective: Whether this stage emits the objective value.
         depends_on: Names of upstream stages this stage depends on.
     """
@@ -122,7 +121,6 @@ class MultiStepStage(BaseModel):
     inputs: Dict[str, Any] = Field(default_factory=dict, description="Input bindings for this stage")
     outputs: Dict[str, Any] = Field(default_factory=dict, description="Output bindings for this stage")
     extra_args: Dict[str, Any] = Field(default_factory=dict, description="Extra args/metadata for the stage executor")
-    jobs: List[Dict[str, Any]] = Field(default_factory=list, description="Job definitions (executor-specific)")
     produces_objective: bool = Field(default=False, description="Whether this stage emits the objective value")
     depends_on: List[str] = Field(default_factory=list, description="Upstream stage dependencies")
 
@@ -130,25 +128,14 @@ class MultiStepStage(BaseModel):
     def validate_action(self) -> "MultiStepStage":
         """Ensure stage has a valid execution definition.
         
-        A stage must have one of:
-        - script: Script-based execution
-        - inline: Inline Python callable
-        - jobs: Legacy job definitions (for backward compatibility)
-        
-        Only one of script/inline can be set. Jobs can coexist with either.
+        A stage must choose exactly one execution method: script or inline.
         """
         has_script = self.script is not None
         has_inline = self.inline is not None
-        has_jobs = bool(self.jobs)
-        
-        # script and inline are mutually exclusive
-        if has_script and has_inline:
-            raise ValueError("Stage must choose exactly one of script or inline, not both")
-        
-        # At least one execution method must be defined
-        if not has_script and not has_inline and not has_jobs:
-            raise ValueError("Stage must define at least one of: script, inline, or jobs")
-        
+
+        if has_script == has_inline:
+            raise ValueError("Stage must define exactly one of: script or inline")
+
         return self
 
     @field_validator('depends_on')
@@ -231,50 +218,28 @@ class ObjectivePlanSpec(BaseModel):
 
     multi_steps: MultiStepPlanSpec = Field(
         ...,
-        alias="multi-steps",
         description="DAG-style multi-stage plan for the objective",
     )
 
     @model_validator(mode="before")
-    def coerce_single_step(cls, values: Any) -> Any:
-        """Allow single script/inline definitions by wrapping into a one-step plan."""
+    def reject_legacy_shapes(cls, values: Any) -> Any:
+        """Reject retired objective plan schema variants."""
         if not isinstance(values, dict):
             return values
-        if values.get("multi_steps") or values.get("multi-steps"):
-            return values
-
-        script = values.pop("script", None)
-        inline = values.pop("inline", None)
-
-        if script and inline:
-            raise ValueError("Provide either script or inline, not both, for objective_plan")
-        if not script and not inline:
-            return values  # will fail later because multi_steps missing
-
-        stage_payload: Dict[str, Any] = {
-            "name": "objective_step",
-            "produces_objective": True,
-        }
-        if script:
-            stage_payload["script"] = script
-        if inline:
-            stage_payload["inline"] = inline
-
-        values["multi_steps"] = {
-            "stages": [stage_payload],
-            "produces_from_stage": "objective_step",
-        }
+        if "multi-steps" in values:
+            raise ValueError(
+                "Legacy key 'multi-steps' is no longer supported. Use 'multi_steps'."
+            )
+        if "script" in values or "inline" in values:
+            raise ValueError(
+                "Single-step objective plans are no longer supported. Wrap the "
+                "step under 'multi_steps.stages'."
+            )
         return values
 
     def is_multi_steps(self) -> bool:
         """Return True if this plan is a multi-step DAG (always true for canonical form)."""
         return self.multi_steps is not None
-
-
-# Compatibility aliases for in-flight refactors; prefer ObjectivePlanSpec.
-MultiStepComputationSpec = MultiStepPlanSpec
-ObjectiveComputationSpec = ObjectivePlanSpec
-
 
 class ObjectiveDefinition(BaseModel):
     """Complete objective specification: name, direction, and objective plan.

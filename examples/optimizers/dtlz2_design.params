@@ -1,0 +1,19 @@
+design_space:
+  design_parameters:
+    DTLZ2_variables:
+      parameters:
+        x1:
+          value: 0.5
+          bounds: [0.0, 1.0]
+        x2:
+          value: 0.5
+          bounds: [0.0, 1.0]
+        x3:
+          value: 0.5
+          bounds: [0.0, 1.0]
+        x4:
+          value: 0.5
+          bounds: [0.0, 1.0]
+        x5:
+          value: 0.5
+          bounds: [0.0, 1.0]

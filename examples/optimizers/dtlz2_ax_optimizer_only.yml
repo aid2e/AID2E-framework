@@ -1,0 +1,34 @@
+problem:
+  name: "DTLZ2 Optimizer-Only Ax Example"
+  problem_type: "toy"
+  output_location: "/tmp"
+  work_location: "/tmp"
+  design_parameters_file: "./dtlz2_design.params"
+  objectives:
+    - name: "f1"
+      direction: "minimize"
+    - name: "f2"
+      direction: "minimize"
+
+optimizer:
+  name: "ax"
+  type: "bayesian"
+  parameters:
+    initialization_strategy: "sobol"
+    generator: "BOTORCH_MODULAR"
+    generator_kwargs:
+      botorch_acqf_class: "qLogNoisyExpectedHypervolumeImprovement"
+      acquisition_options:
+        prune_baseline: true
+    generator_gen_kwargs:
+      model_gen_options:
+        optimizer_kwargs:
+          sequential: false
+          num_restarts: 10
+    objective_thresholds:
+      f1: 1.0
+      f2: 1.0
+    n_initial_samples: 10
+    n_iterations: 20
+    batch_size: 4
+    seed: 42

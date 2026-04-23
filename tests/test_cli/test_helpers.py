@@ -16,22 +16,22 @@ class TestConfigTypeDetection:
     """Test automatic configuration type detection."""
     
     def test_detect_full_config(self):
-        """Full config has both problem and optimization."""
+        """Full config has both problem and optimizer."""
         data = {
             "problem": {"name": "test"},
-            "optimization": {"name": "test"}
+            "optimizer": {"name": "test"}
         }
         assert detect_config_type(data) == "full"
     
     def test_detect_problem_only(self):
-        """Problem-only config has problem but no optimization."""
+        """Problem-only config has problem but no optimizer."""
         data = {"problem": {"name": "test"}}
         assert detect_config_type(data) == "problem"
     
-    def test_detect_optimization_only(self):
-        """Optimization-only config has optimization but no problem."""
-        data = {"optimization": {"name": "test"}}
-        assert detect_config_type(data) == "optimization"
+    def test_detect_optimizer_only(self):
+        """Optimizer-only config has optimizer but no problem."""
+        data = {"optimizer": {"name": "test"}}
+        assert detect_config_type(data) == "optimizer"
     
     def test_detect_design_with_design_space(self):
         """Design config has design_space key."""
@@ -120,9 +120,9 @@ class TestDescriptionExtraction:
                 "type": "toy",
                 "objectives": [{"name": "f1"}, {"name": "f2"}]
             },
-            "optimization": {
-                "optimizer": {"name": "ax"},
-                "n_iterations": 50
+            "optimizer": {
+                "name": "ax",
+                "parameters": {"n_iterations": 50}
             }
         }
         result = extract_description_data(data, "full")
@@ -150,24 +150,24 @@ class TestDescriptionExtraction:
         assert result["summary"]["type"] == "custom"
         assert result["summary"]["n_objectives"] == 1
     
-    def test_extract_optimization_description(self):
-        """Extract description from optimization config."""
+    def test_extract_optimizer_description(self):
+        """Extract description from optimizer config."""
         data = {
-            "optimization": {
-                "name": "Test Opt",
-                "optimizer": {"name": "ax"},
-                "n_iterations": 100
+            "optimizer": {
+                "name": "ax",
+                "type": "Bayesian",
+                "parameters": {"n_iterations": 100}
             }
         }
-        result = extract_description_data(data, "optimization")
+        result = extract_description_data(data, "optimizer")
         
-        assert result["type"] == "optimization"
-        assert result["summary"]["name"] == "Test Opt"
+        assert result["type"] == "optimizer"
+        assert result["summary"]["name"] == "ax"
         assert result["summary"]["optimizer"] == "ax"
         assert result["summary"]["n_iterations"] == 100
     
     def test_extract_design_description(self):
-        """Extract description from design config."""
+        """Extract description from canonical design config."""
         data = {
             "design_space": {
                 "design_parameters": {
@@ -178,7 +178,7 @@ class TestDescriptionExtraction:
                         "parameters": {"y1": {}}
                     }
                 },
-                "design_constraints": [
+                "parameter_constraints": [
                     {"name": "c1"},
                     {"name": "c2"}
                 ]
@@ -191,8 +191,8 @@ class TestDescriptionExtraction:
         assert result["summary"]["n_constraints"] == 2
         assert set(result["summary"]["groups"]) == {"group1", "group2"}
     
-    def test_extract_with_alternative_constraint_key(self):
-        """Handle alternative parameter_constraints key."""
+    def test_extract_with_parameter_constraints_key(self):
+        """Handle canonical parameter_constraints key."""
         data = {
             "design_space": {
                 "design_parameters": {

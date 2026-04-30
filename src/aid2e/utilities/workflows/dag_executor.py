@@ -59,9 +59,10 @@ from .execution_engine import (
     JobContext,
     StageContext,
     BranchContext,
+    WorkflowSharedContext,
 )
 from .execution_logger import ExecutionLogger
-
+from aid2e.utilities.configurations.stack_registry import StackRegistry
 
 class DAGExecutor:
     """Executor for DAG-based workflow orchestration.
@@ -97,7 +98,7 @@ class DAGExecutor:
         workflow: WorkflowDefinition,
         base_output_dir: str = "/tmp/aid2e_runs",
         log_level: str = "INFO",
-        problem_config: Optional[ProblemConfig] = None,
+        problem_config: Optional[ProblemConfiguration] = None,
         scheduler_config: Optional[Dict[str, Any]] = None,
     ):
         """Initialize DAG Executor.
@@ -181,13 +182,13 @@ class DAGExecutor:
                 f"Make sure the scheduler module is installed."
             )
             raise ValueError(f"Scheduler {runner_type} not available: {e}") from e
-    
+        
     def execute(self, design_point: Dict[str, Any]) -> Dict[str, float]:
         """Execute workflow for a given design point.
         
         This is the main entry point for workflow execution. It orchestrates
         the entire workflow from start to finish and returns computed objectives.
-        
+
         Args:
             design_point: Design point parameters (e.g., {"x1": 0.5, "x2": 0.7}).
             
@@ -202,28 +203,45 @@ class DAGExecutor:
             >>> objectives = executor.execute(design_point)
             >>> print(objectives)  # {"f1": 0.234, "f2": 0.876}
         """
+
         self.logger.checkpoint(
             "workflow_start",
             "start",
             f"Starting workflow execution for design point: {design_point}",
             context={"design_point": design_point},
         )
-        
+
+        self.workflow_context = WorkflowSharedContext()
+
         try:
-            # Execute all branches in the workflow
+            if (
+                self.problem_config is not None
+                and self.problem_config.design_config is not None
+                and self.workflow.stack_type is not None
+            ):
+                stack_class = StackRegistry.get_experimental_stack(self.workflow.stack_type)
+                stack = stack_class()
+                prepared_geometry_dir = stack.prepare_workflow_geometry(
+                    workflow_dir=str(self.output_dir),
+                    design_point=design_point,
+                    problem_config=self.problem_config,
+                    workflow_id=self.workflow.name,
+                )
+                self.workflow_context.parameters["prepared_geometry_dir"] = prepared_geometry_dir
+                self.logger.log_info(f"Prepared geometry once at: {prepared_geometry_dir}")
+
             for branch in self._get_branches():
                 self._execute_branch(branch, design_point)
-            
-            # Compute objectives from outputs
+
             objectives = self._compute_objectives()
-            
+
             self.logger.checkpoint(
                 "workflow_complete",
                 "success",
                 f"Workflow execution completed. Objectives: {objectives}",
                 context={"objectives": objectives},
             )
-            
+
             return objectives
             
         except Exception as e:
@@ -440,6 +458,8 @@ class DAGExecutor:
                 xcom=self.global_xcom,
                 stage_context=stage_context,
                 execution_dir=str(self.output_dir / "jobs" / job_id),
+                problem_config=self.problem_config,
+                workflow_context=self.workflow_context,
             )
             
             # Ensure job execution directory exists
@@ -679,6 +699,7 @@ class DAGExecutor:
             stage_context=stage_context,
             execution_dir=str(self.output_dir / "jobs" / job_id),
             problem_config=self.problem_config,
+            workflow_context=self.workflow_context,
         )
         
         # Ensure job execution directory exists

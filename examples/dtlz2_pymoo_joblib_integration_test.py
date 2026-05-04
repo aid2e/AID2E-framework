@@ -28,7 +28,7 @@ from typing import Any, Dict, List
 
 # Add AID2E framework to path
 REPO_ROOT = Path(__file__).resolve().parents[1]
-AID2E_ROOT = REPO_ROOT / "AID2E-framework"
+AID2E_ROOT = REPO_ROOT
 if str(AID2E_ROOT) not in sys.path:
     sys.path.insert(0, str(AID2E_ROOT))
 
@@ -158,8 +158,8 @@ def run_pymoo_joblib_integration_test():
         raise RuntimeError("No registered optimizer config model found for PyMOO.")
     
     # Override for smaller test
-    test_generations = 3
-    test_population = 6
+    test_generations = optimizer_config.n_iterations
+    test_population =  optimizer_config.pop_size
     
     print(f"  Algorithm: {optimizer_config.algorithm or 'auto'}")
     print(f"  Population: {test_population} (overridden for testing)")
@@ -364,30 +364,12 @@ if __name__ == "__main__":
     )
     
     try:
-        print("🚀 Starting PyMOO + JobLib Integration Test...")
-        print("⏱️  Expected runtime: ~30-60 seconds")
-        
+        print("🚀 Starting PyMOO + JobLib Integration Test...")        
         optimizer, executor, validation_results = run_pymoo_joblib_integration_test()
         
         print(f"\n" + "="*80)
         print("✅ LOCAL INTEGRATION TEST COMPLETE!")
         print("="*80)
-        print("Validated Patterns:")
-        print("  • PyMOO evolutionary optimization ✓")
-        print("  • JobLib local parallel execution ✓") 
-        print("  • DAGExecutor workflow system ✓")
-        print("  • JobContext evaluator pattern ✓")
-        print("  • Generation-based optimization loop ✓")
-        
     except ImportError as e:
         print(f"\n❌ Missing dependencies: {e}")
         print("Ensure PyMOO and AID2E are properly installed in .pymoo environment")
-        
-    except Exception as e:
-        print(f"\n❌ Integration test failed: {e}")
-        import traceback
-        traceback.print_exc()
-        print("\n💡 Common issues:")
-        print("  - Check bash + .pymoo environment is active")
-        print("  - Verify AID2E framework path is correct")
-        print("  - Ensure PyMOO is installed: pip install pymoo")

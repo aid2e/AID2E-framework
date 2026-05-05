@@ -385,20 +385,20 @@ if __name__ == "__main__":
     )
     
     try:
-        print("🚀 Starting PyMOO + PanDAiDDS Distributed Optimization Showcase...")        
+        print("Starting PyMOO + PanDAiDDS Distributed Optimization Showcase...")        
         optimizer, executor = run_pymoo_panda_showcase()
         
         print(f"\n" + "="*80)
-        print("✅ PYMOO + PANDAIDDS SHOWCASE COMPLETE!")
+        print("PYMOO + PANDAIDDS SHOWCASE COMPLETE!")
         print("="*80)
-        print("🎉 Evolutionary optimization with distributed grid execution validated!")
-        print("🎯 Ready to integrate with dRICH-MOBO detector optimization workflows!")
+        print("Evolutionary optimization with distributed grid execution validated!")
+        print("Ready to integrate with dRICH-MOBO detector optimization workflows!")
         print("="*80)
         
     except ImportError as e:
-        print(f"\n❌ Missing dependencies: {e}")
+        print(f"\nMissing dependencies: {e}")
         print("Ensure PyMOO and AID2E are properly installed")
         print("Also ensure PanDA client is available for distributed execution")
     except Exception as e:
-        print(f"\n❌ Execution error: {e}")
+        print(f"Execution error: {e}")
         print("Check configuration files and PanDA connectivity")

@@ -352,22 +352,22 @@ def run_pymoo_panda_showcase():
     print(f"  Job execution pattern: Generation-based (full populations)")
     
     if successful_jobs > 0:
-        print(f"\n✅ DISTRIBUTED OPTIMIZATION SUCCESS!")
+        print(f" DISTRIBUTED OPTIMIZATION SUCCESS!")
         print(f"   ✓ PyMOO evolutionary algorithm converged")
         print(f"   ✓ PanDA distributed execution validated")
         print(f"   ✓ Generation-based parallelism working")
         print(f"   ✓ Multi-objective Pareto front obtained")
         print(f"   ✓ Ready for production dRICH-MOBO workflows")
         
-        print(f"\n📋 Next Steps for dRICH Integration:")
+        print(f"\nNext Steps for dRICH Integration:")
         print(f"   1. Replace DTLZ2 evaluator → dRICH simulation evaluator")
         print(f"   2. Update configuration → dRICH parameter bounds & objectives")
         print(f"   3. Configure PanDA → ePIC-specific init_env and resources")
         print(f"   4. Test with multi-step workflows → simreco → ana → final")
         print(f"   5. Scale up → larger populations and longer optimizations")
     else:
-        print(f"\n⚠️  DISTRIBUTED EXECUTION ISSUES DETECTED")
-        print(f"   Check PanDA configuration, grid connectivity, and job logs")
+        print(f" DISTRIBUTED EXECUTION ISSUES DETECTED")
+        print(f" Check PanDA configuration, grid connectivity, and job logs")
     
     return optimizer, executor
 

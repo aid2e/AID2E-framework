@@ -82,7 +82,7 @@ def test_problem_config_loader_stack_registry(tmp_path):
     problem_payload = {
         "problem": {
             "name": "DTLZ2 Multi-Objective Optimization",
-            "type": "toy",
+            "problem_type": "toy",
             "output_location": str(output_dir),
             "work_location": str(work_dir),
             "inline_design": {
@@ -90,8 +90,8 @@ def test_problem_config_loader_stack_registry(tmp_path):
                 "parameter_constraints": design_data["design_space"].get("design_constraints", []),
             },
             "objectives": [
-                {"name": "f1", "minimize": True},
-                {"name": "f2", "minimize": True},
+                {"name": "f1", "direction": "minimize"},
+                {"name": "f2", "direction": "minimize"},
             ],
             "epic_environment": {
                 "singularity_image": "/home/eic/local/lib/eic_xl-nightly.sif",

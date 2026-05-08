@@ -102,8 +102,8 @@ class AbstractOptimizerTestSuite(ABC):
         """
         return SearchSpace(
             parameters={
-                "x": {"type": "range", "bounds": [0.0, 1.0]},
-                "y": {"type": "range", "bounds": [0.0, 1.0]},
+                "x": {"type": "range", "value": 0.5, "bounds": [0.0, 1.0]},
+                "y": {"type": "range", "value": 0.5, "bounds": [0.0, 1.0]},
             }
         )
     
@@ -411,6 +411,12 @@ class TestAxOptimizer(AbstractOptimizerTestSuite):
     def setup_class(cls):
         """Setup test class by importing AxOptimizer."""
         from aid2e.optimizers.ax import AxOptimizer, AxOptimizerConfig
+        from aid2e.optimizers.ax import optimizer as ax_optimizer_module
+        if not ax_optimizer_module.AX_NODE_STRATEGY_AVAILABLE:
+            pytest.skip(
+                "Installed Ax runtime lacks required node-based generation APIs.",
+                allow_module_level=False,
+            )
         cls.ax_optimizer_class = AxOptimizer
         cls.config_class = AxOptimizerConfig
     

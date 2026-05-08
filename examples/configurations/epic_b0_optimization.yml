@@ -60,21 +60,13 @@ problem:
         - "b0_tracker.layer3_z_cm"
         - "b0_tracker.layer4_z_cm"
 
-optimization:
-  name: "ePIC B0 MOBO"
-  description: "Multi-objective optimization of ePIC B0 tracker design"
-
-  optimizer:
-    name: "MOBO"
-    type: "Bayesian"
-    parameters:
-      acquisition_function: "EHVI"
-      kernel: "matern52"
-      n_restarts_optimizer: 5
-      batch_size: 4
-  
-  constraints: []
-  
-  n_iterations: 50
-  n_initial_samples: 10
-  parallel_evaluations: 4
+optimizer:
+  name: "ax"
+  type: "bayesian"
+  parameters:
+    initialization_strategy: "sobol"
+    generator: "BOTORCH_MODULAR"
+    n_initial_samples: 10
+    n_iterations: 50
+    batch_size: 4
+    seed: 42

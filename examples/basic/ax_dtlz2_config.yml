@@ -1,5 +1,5 @@
 # AID2E Ax Optimizer Configuration for DTLZ2
-# Multi-objective optimization example with Sobol + SAASBO + qNEHVI
+# Multi-objective optimization example with Sobol + Modular BoTorch
 
 # Optimization configuration
 name: "DTLZ2 Multi-Objective Bayesian Optimization"
@@ -11,8 +11,7 @@ optimizer:
   type: "Bayesian"
   parameters:
     initialization_strategy: "sobol"
-    surrogate_model: "saasbo"
-    acquisition_function: "qnehvi"
+    generator: "BOTORCH_MODULAR"
     n_initial_samples: 10
     batch_size: 3
     seed: 42

@@ -27,36 +27,9 @@ from .env_config import EnvironmentConfig, EnvironmentConfigLoader
 from .objectives import (
     ObjectiveDirection,
     ObjectiveDefinition,
-    ObjectiveComputationSpec,
+    ObjectivePlanSpec,
 )
 from .stack_registry import StackRegistry
-
-
-class Objective(BaseModel):
-    """Backward-compatible minimal objective specification.
-
-    This class preserves the legacy shape (name + minimize) while allowing
-    optional computation details. Use ``to_definition`` to obtain the unified
-    :class:`ObjectiveDefinition` model.
-    """
-
-    name: str
-    minimize: bool = True
-    computation: Optional[ObjectiveComputationSpec] = None
-    metrics_keys: List[str] = Field(default_factory=list)
-
-    def to_objective_direction(self) -> ObjectiveDirection:
-        """Convert to ObjectiveDirection enum."""
-        return ObjectiveDirection.MINIMIZE if self.minimize else ObjectiveDirection.MAXIMIZE
-
-    def to_definition(self) -> ObjectiveDefinition:
-        """Convert to unified ObjectiveDefinition."""
-        return ObjectiveDefinition(
-            name=self.name,
-            direction=self.to_objective_direction(),
-            computation=self.computation,
-            metrics_keys=self.metrics_keys,
-        )
 
 
 class ProblemConfiguration(BaseModel):
@@ -96,10 +69,6 @@ class ProblemConfiguration(BaseModel):
                 normalized.append(entry)
                 continue
 
-            if isinstance(entry, Objective):
-                normalized.append(entry.to_definition())
-                continue
-
             if isinstance(entry, dict):
                 normalized.append(cls._objective_from_dict(entry))
                 continue
@@ -136,18 +105,18 @@ class ProblemConfiguration(BaseModel):
         return self
 
     @staticmethod
-    def _parse_computation(computation: Any) -> Optional[ObjectiveComputationSpec]:
-        """Convert computation payload to ObjectiveComputationSpec."""
+    def _parse_computation(computation: Any) -> Optional[ObjectivePlanSpec]:
+        """Convert computation payload to ObjectivePlanSpec."""
         if computation is None:
             return None
-        if isinstance(computation, ObjectiveComputationSpec):
+        if isinstance(computation, ObjectivePlanSpec):
             return computation
         if isinstance(computation, dict):
-            payload = dict(computation)
-            if "multi-steps" in payload and "multi_steps" not in payload:
-                payload["multi_steps"] = payload.pop("multi-steps")
-            return ObjectiveComputationSpec(**payload)
-        raise ValueError("Invalid computation block for objective; expected mapping or ObjectiveComputationSpec")
+            return ObjectivePlanSpec(**dict(computation))
+        raise ValueError(
+            "Invalid computation block for objective; expected mapping or "
+            "ObjectivePlanSpec"
+        )
 
     @classmethod
     def _objective_from_dict(cls, payload: Dict[str, Any]) -> ObjectiveDefinition:
@@ -160,15 +129,18 @@ class ProblemConfiguration(BaseModel):
 
         name = payload["name"]
 
-        if "direction" in payload:
-            direction_raw = payload["direction"]
-            if isinstance(direction_raw, ObjectiveDirection):
-                direction = direction_raw
-            else:
-                direction = ObjectiveDirection(str(direction_raw).lower())
+        if "minimize" in payload:
+            raise ValueError(
+                "Legacy key 'minimize' is no longer supported. Use 'direction'."
+            )
+        if "direction" not in payload:
+            raise ValueError("Objective entry missing required field 'direction'")
+
+        direction_raw = payload["direction"]
+        if isinstance(direction_raw, ObjectiveDirection):
+            direction = direction_raw
         else:
-            minimize = payload.get("minimize", True)
-            direction = ObjectiveDirection.MINIMIZE if minimize else ObjectiveDirection.MAXIMIZE
+            direction = ObjectiveDirection(str(direction_raw).lower())
 
         computation = cls._parse_computation(payload.get("computation"))
         metrics_keys = payload.get("metrics_keys", []) or []
@@ -176,7 +148,7 @@ class ProblemConfiguration(BaseModel):
         return ObjectiveDefinition(
             name=name,
             direction=direction,
-            computation=computation,
+            objective_plan=computation,
             metrics_keys=metrics_keys,
         )
 
@@ -216,10 +188,21 @@ class ProblemConfigLoader:
         Supports design source via either a file path ('design_parameters_file')
         or inline design payload ('inline_design'). Exactly one must be provided.
         """
+        if "type" in problem:
+            raise ValueError(
+                "Legacy key 'type' is no longer supported in 'problem'. "
+                "Use 'problem_type'."
+            )
+        if "design_space" in problem:
+            raise ValueError(
+                "Legacy key 'design_space' is no longer supported in 'problem'. "
+                "Use 'design_parameters_file' or 'inline_design'."
+            )
+
         # Required scalar fields
         required_scalar = [
             "name",
-            "type",
+            "problem_type",
             "output_location",
             "work_location",
             "objectives",
@@ -250,16 +233,27 @@ class ProblemConfigLoader:
             # Use design loader on file
             design_config = DesignConfigLoader.load(str(design_params_path))
         else:
-            # Inline design payload, pass through design resolver
+            # Inline design payload must already be canonical
             inline = problem["inline_design"]
             if not isinstance(inline, dict):
                 raise ValueError("'inline_design' must be a mapping with design parameters")
-            resolved = DesignConfigLoader._resolve_design_space(inline, config_dir=str(base_dir or Path('.')))
+            if "path" in inline or "design_space" in inline:
+                raise ValueError(
+                    "'inline_design' must contain canonical inline design data, "
+                    "not a nested design-space reference."
+                )
+            if "design_constraints" in inline:
+                raise ValueError(
+                    "Legacy key 'design_constraints' is no longer supported. "
+                    "Use 'parameter_constraints'."
+                )
+            if "design_parameters" not in inline:
+                raise ValueError("'inline_design' must include 'design_parameters'")
             payload: Dict[str, Any] = {
-                "design_parameters": resolved["design_parameters"],
+                "design_parameters": inline["design_parameters"],
             }
-            if "parameter_constraints" in resolved:
-                payload["parameter_constraints"] = resolved["parameter_constraints"]
+            if "parameter_constraints" in inline:
+                payload["parameter_constraints"] = inline["parameter_constraints"]
             design_config = DesignConfig(**payload)
 
         # Parse environment config if any present
@@ -271,11 +265,19 @@ class ProblemConfigLoader:
                 env_config = config_loader.load(env_data=problem)
 
         # Build ProblemConfiguration
+        output_location = Path(problem["output_location"]).expanduser()
+        if base_dir and not output_location.is_absolute():
+            output_location = (base_dir / output_location).resolve()
+
+        work_location = Path(problem["work_location"]).expanduser()
+        if base_dir and not work_location.is_absolute():
+            work_location = (base_dir / work_location).resolve()
+
         return ProblemConfiguration(
             name=problem["name"],
-            problem_type=problem["type"],
-            output_location=problem["output_location"],
-            work_location=problem["work_location"],
+            problem_type=problem["problem_type"],
+            output_location=str(output_location),
+            work_location=str(work_location),
             design_config=design_config,
             objectives=objectives_raw,
             observations=problem.get("observations"),

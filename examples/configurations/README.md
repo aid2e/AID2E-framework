@@ -59,21 +59,14 @@ problem:
     singularity_image: "path/to/image.sif"
     epic_install: "path/to/epic"
 
-optimization:
-  name: "Optimization Name"
-  description: "Description"
-  
-  optimizer:
-    name: "MOBO"  # or "Genetic", "RandomSearch", etc.
-    type: "Bayesian"  # or "evolutionary", "grid", etc.
-    parameters: {...}
-  
-  objectives: [...]
-  constraints: [...]
-  
-  n_iterations: 100
-  n_initial_samples: 20
-  parallel_evaluations: 4
+optimizer:
+  name: "ax"  # or "pymoo"
+  type: "bayesian"  # or "evolutionary"
+  parameters:
+    n_iterations: 100
+    n_initial_samples: 20
+    batch_size: 4
+    # backend-specific settings also live here
 ```
 
 ## Testing Configurations

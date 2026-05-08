@@ -105,6 +105,7 @@ class JobContext:
     artifacts: Dict[str, str] = field(default_factory=dict)
     logs: List[str] = field(default_factory=list)
     execution_dir: Optional[str] = None
+    output_dir: Optional[str] = None
     stage_context: Optional[StageContext] = None
     problem_config: Optional[ProblemConfiguration] = None
     workflow_context: Optional[WorkflowSharedContext] = None

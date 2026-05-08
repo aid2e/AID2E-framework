@@ -1,4 +1,4 @@
-"""Full configuration loader - combines problem, optimization, and scheduler payloads."""
+"""Full configuration loader for canonical AID2E config files."""
 
 from pathlib import Path
 from typing import Dict, Optional, Any
@@ -7,69 +7,85 @@ import yaml
 from pydantic import BaseModel
 
 from .problem_config import ProblemConfiguration, ProblemConfigLoader
-from .optimization_config import OptimizationConfiguration
+from .optimizer_config import OptimizerConfiguration
 from .scheduler_config import SchedulerConfiguration
+from .workflow_config import WorkflowDefinition, WorkflowsConfiguration
 
 
 class FullConfig(BaseModel):
-    """Complete configuration combining problem, optimization, and scheduler settings."""
+    """Complete configuration combining problem, optimizer, scheduler, and workflows."""
     problem: ProblemConfiguration
-    optimization: OptimizationConfiguration
+    optimizer: OptimizerConfiguration
     scheduler: Optional[SchedulerConfiguration] = None
+    workflows: Optional[WorkflowsConfiguration] = None
+
+
+def _normalize_workflows_data(data: Dict[str, Any]) -> Optional[WorkflowsConfiguration]:
+    """Normalize canonical workflow payloads to a WorkflowsConfiguration model."""
+    if "workflow" in data:
+        raise ValueError(
+            "Legacy top-level 'workflow' is no longer supported. Use "
+            "'workflows: { workflows: [...] }'."
+        )
+
+    workflows_raw = data.get("workflows")
+    if workflows_raw is None:
+        return None
+
+    if not isinstance(workflows_raw, dict) or "workflows" not in workflows_raw:
+        raise ValueError(
+            "'workflows' must use the canonical wrapper form "
+            "'workflows: { workflows: [...] }'."
+        )
+
+    return WorkflowsConfiguration(**workflows_raw)
 
 
 def _normalize_full_config_data(data: Dict[str, Any], config_path: Path) -> Dict[str, Any]:
-    """Normalize loosely structured YAML into a FullConfig-friendly dict."""
+    """Normalize canonical YAML into a FullConfig-friendly dict."""
     if "problem" not in data:
         raise ValueError("Config must contain a 'problem' section")
+    if "optimization" in data:
+        raise ValueError(
+            "Config uses retired 'optimization' section. "
+            "Use top-level 'optimizer' with fields 'name', 'type', and 'parameters'."
+        )
+    if "optimizer" not in data:
+        raise ValueError("Config must contain a top-level 'optimizer' section")
 
     base_dir = config_path.parent
     problem_raw = dict(data.get("problem", {}))
 
-    type_val = problem_raw.get("type") or problem_raw.get("problem_type") or ""
-    problem_raw["type"] = type_val
-    problem_raw["problem_type"] = type_val
+    if "type" in problem_raw:
+        raise ValueError(
+            "Config uses retired 'problem.type'. Use 'problem.problem_type'."
+        )
+    if "design_space" in problem_raw:
+        raise ValueError(
+            "Config uses retired 'problem.design_space'. Use "
+            "'design_parameters_file' or 'inline_design'."
+        )
 
     problem_raw.setdefault("output_location", str(base_dir / "output"))
     problem_raw.setdefault("work_location", str(base_dir / "work"))
 
-    if "design_parameters_file" not in problem_raw:
-        design_space = problem_raw.get("design_space") or {}
-        if isinstance(design_space, dict) and design_space.get("path"):
-            problem_raw["design_parameters_file"] = design_space["path"]
-
-    if "design_space" in problem_raw:
-        problem_raw.pop("design_space", None)
-
     problem_cfg = ProblemConfigLoader.from_dict(problem_raw, base_dir=str(base_dir))
 
-    if "optimization" in data:
-        opt_cfg = OptimizationConfiguration(**data["optimization"])
-    else:
-        optimizer_block = data.get("optimizer", {})
-        bo_params = optimizer_block.get("bo", {}).get("parameters", {}) if isinstance(optimizer_block, dict) else {}
-        objectives_as_directives = [obj.to_directive() for obj in getattr(problem_cfg, "objectives", [])]
-        opt_cfg = OptimizationConfiguration(
-            name=data.get("metadata", {}).get("project", "optimization"),
-            description=data.get("metadata", {}).get("description", ""),
-            optimizer={
-                "name": optimizer_block.get("kind", ""),
-                "type": optimizer_block.get("kind", ""),
-                "parameters": bo_params,
-            },
-            objectives=objectives_as_directives,
-            constraints=[],
-            n_iterations=optimizer_block.get("max_iterations", 0),
-            n_initial_samples=bo_params.get("n_initial_samples", 0),
-            parallel_evaluations=bo_params.get("parallel_evaluations", 1),
-        )
+    optimizer_cfg = OptimizerConfiguration(**data["optimizer"])
 
     # Load scheduler configuration if present
     scheduler_cfg = None
     if "scheduler" in data:
         scheduler_cfg = SchedulerConfiguration(**data["scheduler"])
 
-    return {"problem": problem_cfg, "optimization": opt_cfg, "scheduler": scheduler_cfg}
+    workflows_cfg = _normalize_workflows_data(data)
+
+    return {
+        "problem": problem_cfg,
+        "optimizer": optimizer_cfg,
+        "scheduler": scheduler_cfg,
+        "workflows": workflows_cfg,
+    }
 
 
 def load_config(config_file: str) -> FullConfig:

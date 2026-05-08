@@ -30,14 +30,18 @@ def run_epic_b0_toy_optimization(config, verbosity=0):
     search_space = SearchSpace(parameters=params)
 
     objective_names = [o.name for o in config.problem.objectives]
+    optimizer_params = dict(config.optimizer.parameters or {})
 
     ax_cfg = AxOptimizerConfig(
-        initialization_strategy="sobol",
-        n_initial_samples=config.optimization.n_initial_samples,
-        batch_size=config.optimization.parallel_evaluations,
-        surrogate_model="saasbo",
-        acquisition_function="qnehvi",
-        seed=42,
+        initialization_strategy=optimizer_params.get("initialization_strategy", "sobol"),
+        generator=optimizer_params.get("generator", "BOTORCH_MODULAR"),
+        generator_kwargs=optimizer_params.get("generator_kwargs", {}),
+        generator_gen_kwargs=optimizer_params.get("generator_gen_kwargs", {}),
+        objective_thresholds=optimizer_params.get("objective_thresholds"),
+        n_initial_samples=optimizer_params.get("n_initial_samples", 10),
+        n_iterations=optimizer_params.get("n_iterations", 100),
+        batch_size=optimizer_params.get("batch_size", 1),
+        seed=optimizer_params.get("seed", 42),
     )
 
     optimizer = AxOptimizer(
@@ -48,7 +52,7 @@ def run_epic_b0_toy_optimization(config, verbosity=0):
     )
 
     trial = 0
-    n_total = config.optimization.n_initial_samples + config.optimization.n_iterations * ax_cfg.batch_size
+    n_total = ax_cfg.n_initial_samples + ax_cfg.n_iterations * ax_cfg.batch_size
 
     while trial < n_total:
         candidates = optimizer.suggest_candidates(n_candidates=ax_cfg.batch_size)

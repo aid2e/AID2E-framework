@@ -62,7 +62,10 @@ from .execution_engine import (
     WorkflowSharedContext,
 )
 from .execution_logger import ExecutionLogger
+
 from aid2e.utilities.configurations.stack_registry import StackRegistry
+from .rule_resolution import resolve_job_rule, resolve_payload_templates
+
 
 class DAGExecutor:
     """Executor for DAG-based workflow orchestration.
@@ -117,10 +120,20 @@ class DAGExecutor:
         self.problem_config = problem_config
         self.scheduler_config = scheduler_config or {}
         
-        # Create workflow-specific output directory
-        workflow_dir = self.base_output_dir / workflow.name / datetime.now().strftime("%Y%m%d_%H%M%S")
-        workflow_dir.mkdir(parents=True, exist_ok=True)
-        self.output_dir = workflow_dir
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        if self.problem_config is not None:
+            work_root = Path(self.problem_config.work_location) / workflow.name / timestamp
+            output_root = Path(self.problem_config.output_location) / workflow.name / timestamp
+        else:
+            output_root = self.base_output_dir / workflow.name / timestamp
+            work_root = output_root
+
+        work_root.mkdir(parents=True, exist_ok=True)
+        output_root.mkdir(parents=True, exist_ok=True)
+        self.work_dir = work_root
+        self.output_dir = output_root
+        self.scheduler_submit_dir = self.work_dir / "_scheduler"
+        self.scheduler_submit_dir.mkdir(parents=True, exist_ok=True)
         
         # If provided, activate environment variables
         if self.problem_config is not None:
@@ -144,6 +157,7 @@ class DAGExecutor:
         
         self.logger.log_info(f"Initialized DAGExecutor for workflow: {workflow.name}")
         self.logger.log_info(f"Output directory: {self.output_dir}")
+        self.logger.log_info(f"Work directory: {self.work_dir}")
         if self.scheduler:
             runner_type = self.scheduler_config.get("runner_type", "unknown")
             self.logger.log_info(f"Scheduler: {runner_type}")
@@ -172,7 +186,7 @@ class DAGExecutor:
                 from aid2e.schedulers.PanDAiDDS.runner import PanDAiDDSScheduler
                 return PanDAiDDSScheduler(config=config)
             elif runner_type == "SlurmRunner":
-                from aid2e.schedulers.slurm.runner import SlurmScheduler
+                from aid2e.schedulers.Slurm.runner import SlurmScheduler
                 return SlurmScheduler(config=config)
             else:
                 raise ValueError(f"Unknown scheduler runner_type: {runner_type}")
@@ -448,6 +462,7 @@ class DAGExecutor:
         job_definitions = []
         for job_idx, job in enumerate(jobs):
             job_id = f"{stage.name}_{job.name}_{job_idx}"
+            execution_dir, output_dir = self._build_job_directories(stage.name, job_id)
             
             # Create job context for this job
             job_context = JobContext(
@@ -457,13 +472,10 @@ class DAGExecutor:
                 design_point=design_point,
                 xcom=self.global_xcom,
                 stage_context=stage_context,
-                execution_dir=str(self.output_dir / "jobs" / job_id),
-                problem_config=self.problem_config,
+                execution_dir=str(execution_dir),
+                output_dir=str(output_dir),
                 workflow_context=self.workflow_context,
             )
-            
-            # Ensure job execution directory exists
-            Path(job_context.execution_dir).mkdir(parents=True, exist_ok=True)
             
             # Convert to scheduler job definition format
             scheduler_job = self._convert_job_to_scheduler_format(
@@ -485,7 +497,7 @@ class DAGExecutor:
                 stage_name=stage.name,
                 job_definitions=job_definitions,
                 parallelism_policy=parallelism_policy,
-                working_dir=str(self.output_dir / "jobs"),
+                working_dir=str(self.scheduler_submit_dir / stage.name),
             )
             
             # Process results and update XCom
@@ -521,14 +533,38 @@ class DAGExecutor:
         Returns:
             Dict in scheduler format with keys: name, command, payload, outputs, etc.
         """
+        runner_type = self.scheduler_config.get("runner_type")
         evaluator_type = job.payload.get("evaluator_type", "bash")
-        
+        design_file = self._materialize_design_file(job_id, job_context)
+        if runner_type == "SlurmRunner" and evaluator_type == "python":
+            # TODO(slurm-python): support workflow Python evaluator jobs by translating
+            # them into a Slurm-safe command/file-based execution path.
+            raise ValueError(
+                f"Job {job_id} uses evaluator_type='python', which SlurmScheduler v1 does not support."
+            )
+
+        command = job.command
+        outputs = job.outputs or []
+        if runner_type == "SlurmRunner":
+            command = self._resolve_scheduler_job_command(
+                job,
+                job_id,
+                job_context,
+                design_file=design_file,
+            )
+            outputs = self._resolve_scheduler_job_outputs(
+                job,
+                job_id,
+                job_context,
+                design_file=design_file,
+            )
+
         scheduler_job = {
             "job_id": job_id,
             "name": job.name,
-            "command": job.command,
+            "command": command,
             "payload": {**job.payload},
-            "outputs": job.outputs or [],
+            "outputs": outputs,
             "job_context": job_context,  # Pass context for potential XCom access in scheduler
         }
         
@@ -547,12 +583,120 @@ class DAGExecutor:
         scheduler_job["payload"]["design_point"] = job_context.design_point
         scheduler_job["payload"]["job_id"] = job_id
         scheduler_job["payload"]["execution_dir"] = job_context.execution_dir
+        scheduler_job["payload"]["output_dir"] = job_context.output_dir
+        scheduler_job["payload"]["design_file"] = design_file
         
         # Add resource requirements
         if job.resources:
             scheduler_job["resources"] = job.resources
         
         return scheduler_job
+
+    def _resolve_scheduler_job_command(
+        self,
+        job: JobDefinition,
+        job_id: str,
+        job_context: JobContext,
+        *,
+        design_file: str,
+    ) -> str:
+        """Resolve command/rule/payload into a final scheduler command."""
+        rule_context = {
+            "job_id": job_id,
+            "output_dir": job_context.output_dir,
+            "execution_dir": job_context.execution_dir,
+            "workflow_id": job_context.workflow_id,
+            "stage_id": job_context.stage_id,
+            "design_point": job_context.design_point,
+            "design_file": design_file,
+            "repo_root": str(Path(__file__).resolve().parents[4]),
+            "stage_outputs": {},
+            "xcom": self.global_xcom,
+        }
+        return resolve_job_rule(job, rule_context, logger=self.logger)
+
+    def _resolve_scheduler_job_outputs(
+        self,
+        job: JobDefinition,
+        job_id: str,
+        job_context: JobContext,
+        *,
+        design_file: str,
+    ) -> List[Dict[str, Any]]:
+        """Resolve scheduler output specs against the same runtime context as rules."""
+        resolved_payload = resolve_payload_templates(
+            job.payload,
+            {
+                "job_id": job_id,
+                "output_dir": job_context.output_dir,
+                "execution_dir": job_context.execution_dir,
+                "workflow_id": job_context.workflow_id,
+                "stage_id": job_context.stage_id,
+                "design_point": job_context.design_point,
+                "design_file": design_file,
+                "repo_root": str(Path(__file__).resolve().parents[4]),
+                "stage_outputs": {},
+                "xcom": self.global_xcom,
+            },
+            logger=self.logger,
+        )
+
+        resolved_outputs: List[Dict[str, Any]] = []
+        for output_spec in job.outputs or []:
+            payload = {
+                "path": getattr(output_spec, "path", None),
+                "format": getattr(output_spec, "format", None),
+            }
+            resolved_outputs.append(
+                resolve_payload_templates(
+                    payload,
+                    {
+                        "job_id": job_id,
+                        "output_dir": job_context.output_dir,
+                        "execution_dir": job_context.execution_dir,
+                        "workflow_id": job_context.workflow_id,
+                        "stage_id": job_context.stage_id,
+                        "design_point": job_context.design_point,
+                        "design_file": design_file,
+                        "repo_root": str(Path(__file__).resolve().parents[4]),
+                        "stage_outputs": {},
+                        "xcom": self.global_xcom,
+                        "payload": resolved_payload,
+                    },
+                    logger=self.logger,
+                )
+            )
+
+        return resolved_outputs
+
+    def _materialize_design_file(
+        self,
+        job_id: str,
+        job_context: JobContext,
+    ) -> str:
+        """Persist the incoming design point for command-style scheduler jobs."""
+        from aid2e.optimizers.base import Trial
+
+        design_path = Path(job_context.execution_dir) / "design_point.json"
+        trial = Trial(
+            index=-1,
+            parameters=dict(job_context.design_point or {}),
+            metadata={
+                "job_id": job_id,
+                "workflow_id": job_context.workflow_id,
+                "stage_id": job_context.stage_id,
+            },
+        )
+        trial.save_to_json(design_path)
+        return str(design_path)
+
+    def _build_job_directories(self, stage_name: str, job_id: str) -> Tuple[Path, Path]:
+        """Create paired work/output directories for one job."""
+        execution_dir = self.work_dir / stage_name / job_id
+        output_dir = self.output_dir / stage_name / job_id
+        execution_dir.mkdir(parents=True, exist_ok=True)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        return execution_dir, output_dir
     
     def _process_scheduler_results(
         self,
@@ -688,6 +832,8 @@ class DAGExecutor:
             f"Starting job: {job_id}",
             context={"job_id": job_id, "job_name": job.name},
         )
+
+        execution_dir, output_dir = self._build_job_directories(stage_context.stage_id, job_id)
         
         # Create job context
         job_context = JobContext(
@@ -697,13 +843,11 @@ class DAGExecutor:
             design_point=design_point,
             xcom=self.global_xcom,
             stage_context=stage_context,
-            execution_dir=str(self.output_dir / "jobs" / job_id),
+            execution_dir=str(execution_dir),
+            output_dir=str(output_dir),
             problem_config=self.problem_config,
             workflow_context=self.workflow_context,
         )
-        
-        # Ensure job execution directory exists
-        Path(job_context.execution_dir).mkdir(parents=True, exist_ok=True)
         
         # Select and create evaluator
         evaluator = self._create_evaluator(job, job_id)
@@ -874,6 +1018,9 @@ def create_executor_from_config(
         >>> objectives = executor.execute({"x1": 0.5, "x2": 0.7})
     """
     import yaml
+
+    # TODO(workflow-entrypoint): teach create_executor_from_config() to load
+    # canonical full config files with scheduler/workflows sections.
     
     with open(workflow_config_path, 'r') as f:
         if workflow_config_path.endswith('.json'):

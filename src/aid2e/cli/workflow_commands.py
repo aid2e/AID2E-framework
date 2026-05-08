@@ -46,9 +46,9 @@ def optimize(config_file: str, validate_only: bool, verbosity: int, log_file: Op
             return
         
         # Display optimization info
-        click.echo(click.style(f"Running optimization: {config.optimization.name}", fg="cyan", bold=True))
-        click.echo(f"  Algorithm: {config.optimization.optimizer.name} ({config.optimization.optimizer.type})")
-        click.echo(f"  Iterations: {config.optimization.n_iterations}")
+        click.echo(click.style(f"Running optimization: {config.optimizer.name}", fg="cyan", bold=True))
+        click.echo(f"  Algorithm: {config.optimizer.name} ({config.optimizer.type})")
+        click.echo(f"  Iterations: {config.optimizer.parameters.get('n_iterations', 'N/A')}")
         click.echo(f"  Verbosity: {verbosity}")
         if log_file:
             click.echo(f"  Log file: {log_file}")
@@ -56,7 +56,7 @@ def optimize(config_file: str, validate_only: bool, verbosity: int, log_file: Op
         
         # TODO: Implement actual optimization execution
         # This will involve:
-        # 1. Instantiate optimizer from config.optimization.optimizer
+        # 1. Instantiate optimizer from config.optimizer
         # 2. Setup problem evaluator from config.problem
         # 3. Run optimization loop
         # 4. Save results to config.problem.output_location

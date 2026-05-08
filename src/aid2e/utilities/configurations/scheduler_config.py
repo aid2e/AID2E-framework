@@ -14,8 +14,8 @@ Repository: https://github.com/aid2e/AID2E-framework.git
 """
 
 from typing import Dict, Optional, Any, Literal
-from pydantic import BaseModel, Field
-from .scheduler_registry import get_runner_config_model
+from pydantic import BaseModel, Field, ConfigDict
+from .scheduler_registry import get
 
 
 class SchedulerConfiguration(BaseModel):
@@ -39,6 +39,8 @@ class SchedulerConfiguration(BaseModel):
         ... )
     """
     
+    model_config = ConfigDict(extra="forbid")
+
     runner_type: Literal["JobLibRunner", "SlurmRunner", "PanDAiDDSRunner"] = Field(
         default="JobLibRunner",
         description="Type of runner/scheduler to use"
@@ -64,13 +66,6 @@ class SchedulerConfiguration(BaseModel):
         description="Monitoring interval in seconds for job status checks"
     )
     
-    class Config:
-        """Pydantic configuration.
-        
-        Allows additional fields for forward compatibility with new runners.
-        """
-        extra = "allow"
-    
     def parse_runner_params(self) -> Optional[BaseModel]:
         """Parse and validate runner-specific parameters via registry.
         
@@ -93,8 +88,7 @@ class SchedulerConfiguration(BaseModel):
             >>> joblib_config.n_jobs
             4
         """
-        Model = get_runner_config_model(self.runner_type)
+        Model = get(self.runner_type)
         if Model:
             return Model(**self.parameters)
         return None
-

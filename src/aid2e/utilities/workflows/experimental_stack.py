@@ -272,6 +272,20 @@ class ExperimentStack(ABC):
         """
         pass
 
+    def prepare_workflow_geometry(
+        self,
+        workflow_dir: str,
+        design_point: Dict[str, Any],
+        problem_config: Any,
+        workflow_id: str,
+    ) -> str:
+        """
+        Prepare geometry for workflow/design point.
+        Returns the prepared geometry directory.
+        """
+        return workflow_dir
+
+
     def make_driver_script(
         self,
         script: str,

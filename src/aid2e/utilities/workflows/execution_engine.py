@@ -45,6 +45,10 @@ from aid2e.utilities.configurations.stack_registry import StackRegistry
 
 from .experimental_stack import ExperimentStack
 
+@dataclass
+class WorkflowSharedContext:
+    """Context shared across all jobs of one workflow execution."""
+    parameters: Dict[str, Any] = field(default_factory=dict)
 
 @dataclass
 class BranchContext:
@@ -91,6 +95,7 @@ class JobContext:
         stage_context: Parent stage context (optional).
         problem_config: Problem configuration for accessing stack-
                         dependent design space
+        workflow_context: Shared workflow context (optional).
     """
     job_id: str
     stage_id: str
@@ -103,6 +108,7 @@ class JobContext:
     output_dir: Optional[str] = None
     stage_context: Optional[StageContext] = None
     problem_config: Optional[ProblemConfiguration] = None
+    workflow_context: Optional[WorkflowSharedContext] = None
 
     def xcom_push(self, key: str, value: Any) -> None:
         """Push data to XCom for downstream jobs.

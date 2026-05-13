@@ -34,6 +34,7 @@ from aid2e.utilities.workflows import (
     DAGExecutor,
     JobContext,
     modify_xml_files,
+    WorkflowSharedContext,
 )
 
 # constants
@@ -79,7 +80,7 @@ CONST = {
         "epic_environment" : {
             "epic_install" : "epic_example_test/epic",
             "epic_config"  : "epic",
-            "eic_shell"    : "/path/to/my/eic-shell",
+            "eic_shell"    : "/home/dereka/.bin/eic-shell",
         },
     },
 }
@@ -88,6 +89,7 @@ CONST = {
 # =============================================================================
 # Do template substitution
 # =============================================================================
+
 def substitute_templates(layers: List[EpicLayerConfig], context: JobContext):
     """Apply template substitutes (parallels StackExecutionEngie._apply_template_substitution)"""
 
@@ -150,6 +152,7 @@ def setup():
 # =============================================================================
 # Example 0: Modify ePIC geometry
 # =============================================================================
+
 def example_modify_geometry():
     """Modify ePIC geometry"""
 
@@ -183,7 +186,7 @@ def example_configure_layers():
     #       during execution
     cfg_geo = EpicLayerConfig(
         name = "geo",
-        inputs = ["{{context.execution_dir}}/epic/install/share/epic/epic.xml"],
+        inputs = ["{{context.geometry_dir}}/install/share/epic/epic.xml"],
         outputs = ["{{context.execution_dir}}/epic_geo.overlaps.txt"],
     )
     cfg_sim_A = EpicLayerConfig(
@@ -236,6 +239,7 @@ def example_configure_layers():
 # =============================================================================
 # Example 2: Instantiate Configurations and Context
 # =============================================================================
+
 def example_make_configs_and_context():
 
     design = EpicDesignConfig(**CONST['design'])
@@ -271,6 +275,7 @@ def example_make_configs_and_context():
         logs = [f"{CONST['test_dir']}/make_test_driver.log"],
         execution_dir =  f"{CONST['test_dir']}",
         problem_config = problem,
+        workflow_context = WorkflowSharedContext(),
     )
 
     print(f"  -- Created JobContext:\n    context = {context}")
@@ -287,6 +292,10 @@ def example_generate_driver(layers: List[EpicLayerConfig], configs: Tuple[Proble
     # grab context and instantiate an ePIC stack
     context = configs[1]
     epic_stack = EpicStack()
+
+    # add a dummy prepared geometry directory
+    # to workflow_context for testing
+    context.workflow_context.parameters["prepared_geometry_dir"] = CONST["enviro"]["epic_environment"]["epic_install"]
 
     # make sure necessary environment variables are set
     context.problem_config.environment_config.activate()
@@ -423,6 +432,7 @@ def example_run_script(layers: List[EpicLayerConfig], configs: Tuple[ProblemConf
         description = "An ePIC pipeline: check geometry → run simulations → run reco + ana",
         branches = [branch],
         objectives = [],
+        stack_type = 'epic',
     )
     print(f"  -- Defined workflow:\n    {branch}\n    {workflow}")
 

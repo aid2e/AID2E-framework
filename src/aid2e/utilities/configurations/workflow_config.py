@@ -266,7 +266,8 @@ class WorkflowDefinition(BaseModel):
         default=None,
         description="Workflow-level scheduler default (overrides global, used if branch/stage unset)",
     )
-    
+    stack_type: Optional[str] = Field(default=None,description="Experimental stack type for workflow-level geometry prep")
+
     def get_implicit_branch(self) -> BranchDefinition:
         """Get or create single implicit branch if branches list is empty.
         

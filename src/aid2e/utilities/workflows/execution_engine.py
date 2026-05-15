@@ -217,7 +217,7 @@ class BashExecutionEngine(BaseExecutionEngine):
         env: Environment variables (optional).
         
     Example:
-        >epic/scripts/bic_angular_reso.py>> engine = BashExecutionEngine(
+        >>> engine = BashExecutionEngine(
         ...     job_id='run_sim',
         ...     bash_command='python scripts/simulate.py --input {input_file}',
         ...     env={'PYTHONUNBUFFERED': '1'}
@@ -648,7 +648,6 @@ class StackExecutionEngine(BaseExecutionEngine):
                 shell=True,
                 capture_output=True,
                 text=True,
-                cwd=context.execution_dir
             )
 
             # Log output

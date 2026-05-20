@@ -80,7 +80,7 @@ CONST = {
         "epic_environment" : {
             "epic_install" : "epic_example_test/epic",
             "epic_config"  : "epic",
-            "eic_shell"    : "/home/dereka/.bin/eic-shell",
+            "eic_shell"    : "/path/to/my/eic-shell",
         },
     },
 }

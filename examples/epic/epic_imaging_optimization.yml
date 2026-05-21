@@ -30,7 +30,7 @@ problem:
     epic_install: "./epic"
 
     # Geometry configuration file to use (e.g. epic, epic_full)
-    epic_configu=: "epic"
+    epic_config: "epic"
 
   # ===========================================================================
   # PARAMETERS: Define what we're optimizing
@@ -128,8 +128,8 @@ workflows:
     #   2. another for an event generator.
     # These could be run in parallel as separate branches.
     branches:
-      -name: "electron_eta_resolution"
-       description: "Calculate eta resolution for single electrons"
+      -name: "photon_phi_resolution"
+       description: "Calculate phi resolution for single photons"
 
        # ======================================================================
        # STAGES: groups of sequential computation steps
@@ -149,6 +149,8 @@ workflows:
              description: "Check for overlaps in modified geomtry"
              layers:
                - epic_geo:
+                   inputs:
+                       - "{{context.geometry_dir}}/install/share/epic/epic.xml"
                    outputs:
                        - "{{context.execution_dir}}/geo.overlaps.txt"
 

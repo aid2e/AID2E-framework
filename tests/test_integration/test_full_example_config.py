@@ -22,20 +22,22 @@ def test_full_config_loads_via_fullconfig(tmp_path):
                     "output_location": str(output_dir),
                     "work_location": str(work_dir),
                     "inline_design": {
-                        "design_parameters": {
-                            "DTLZ2_variables": {
-                                "parameters": {
-                                    "x1": {"value": 0.5, "bounds": [0.0, 1.0]},
-                                    "x2": {"value": 0.5, "bounds": [0.0, 1.0]},
+                        "design_space": {
+                            "design_parameters": {
+                                "DTLZ2_variables": {
+                                    "parameters": {
+                                        "x1": {"value": 0.5, "bounds": [0.0, 1.0]},
+                                        "x2": {"value": 0.5, "bounds": [0.0, 1.0]},
+                                    }
                                 }
-                            }
+                            },
+                            "parameter_constraints": [
+                                {
+                                    "name": "simple_constraint",
+                                    "rule": "DTLZ2_variables.x1 < 1.0",
+                                }
+                            ],
                         },
-                        "parameter_constraints": [
-                            {
-                                "name": "simple_constraint",
-                                "rule": "DTLZ2_variables.x1 < 1.0",
-                            }
-                        ],
                     },
                     "objectives": [
                         {"name": "f1", "direction": "minimize"},

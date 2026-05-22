@@ -509,14 +509,14 @@ class DesignConfigLoader:
                 "Legacy key 'design_constraints' is no longer supported. "
                 "Use 'parameter_constraints'."
             )
-        if cls.space_key not in payload:
-            if cls.param_key in payload:
+        if cls.space_key not in raw:
+            if cls.param_key in raw:
                 raise ValueError(
                     f"Top-level {cls.param_key} is no longer supported. "
                     f"Wrap design content under {cls.space_key}."
                 )
 
-        return space
+        return payload
 
     @classmethod
     def _resolve_design_space(cls, file_path: str) -> Dict[str, Any]:
@@ -597,7 +597,7 @@ class DesignConfigLoader:
         else:
             raise RuntimeError("Provide either data as a dictionary or a path to a file")
 
-        data[cls.param_key] = payload[cls.param_key]
+        data = {cls.param_key: payload[cls.param_key]}
         if cls.constrain_key in payload:
             data[cls.constrain_key] = payload[cls.constrain_key]
         return data

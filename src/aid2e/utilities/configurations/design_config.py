@@ -18,9 +18,10 @@ Typical Usage:
     >>> is_valid, failures = config.validate_constraints(param_values)
 """
 
-from typing import Dict, List, Optional, Tuple, Any, Set
+from typing import ClassVar, Dict, List, Optional, Tuple, Any, Set
 from pydantic import BaseModel, Field, RootModel, model_validator
 from pathlib import Path
+from dataclasses import dataclass
 import yaml
 import os
 import re
@@ -60,7 +61,8 @@ class ParameterConstraint(BaseModel):
         description: Human-readable explanation of the constraint intent.
         rule: Mathematical expression using qualified parameter names,
               e.g., "group.param1 + group.param2 < 10.0".
-    
+        key: YAML key associated with a list of models.
+
     Example:
         >>> constraint = ParameterConstraint(
         ...     name="budget_limit",
@@ -74,6 +76,7 @@ class ParameterConstraint(BaseModel):
     name: str
     description: Optional[str] = None
     rule: str  # Mathematical expression like "x1 + x2 < 10"
+    key: ClassVar[str] = 'parameter_constraints'
 
     def extract_parameter_names(self) -> Set[str]:
         """Extract parameter names referenced in the constraint rule.
@@ -200,7 +203,11 @@ class DesignParameters(RootModel[Dict[str, ParameterGroup]]):
     in the format "group_name.parameter_name" for unique identification.
     
     The root model contains a dictionary mapping group names to ParameterGroup instances.
-    
+
+    Attributes:
+        root: Dictionary mapping group names to parameter groups.
+        key: YAML key associated with models.
+
     Example:
         >>> params = DesignParameters(root={
         ...     'tracker': ParameterGroup(parameters={...}),
@@ -211,6 +218,7 @@ class DesignParameters(RootModel[Dict[str, ParameterGroup]]):
         - Qualified names are injected at validation time.
         - Parameter uniqueness is enforced through qualified naming.
     """
+    key: ClassVar[str] = 'design_parameters'
 
     @model_validator(mode="before")
     @classmethod
@@ -251,7 +259,10 @@ class DesignConfig(BaseModel):
     
     Attributes:
         design_parameters: Collection of parameter groups defining the design space.
+                           Can be specialized for specific contexts such as
+                           EpicDesignConfig.
         parameter_constraints: List of constraints on valid parameter combinations.
+        key: YAML key associated with model.
     
     Example:
         >>> config = DesignConfig(
@@ -265,6 +276,7 @@ class DesignConfig(BaseModel):
     """
     design_parameters: DesignParameters
     parameter_constraints: Optional[List[ParameterConstraint]] = Field(default_factory=list)
+    key: ClassVar[str] = 'design_space'
 
     @model_validator(mode='after')
     def validate_constraints_syntax(self) -> "DesignConfig":
@@ -430,69 +442,89 @@ class DesignConfig(BaseModel):
         return len(failed) == 0, failed
 
 
+@dataclass
 class DesignConfigLoader:
     """Load design configurations from YAML files with canonical resolution.
     
-    Supports either an external file referenced by ``design_space.path`` or an
-    inline ``design_space`` block containing ``design_parameters`` and optional
-    ``parameter_constraints``.
-    
+    Supports either loading design configuration form an external file or from an
+    inline YAML block. In both cases, data should include a `design_space` block
+    containing `design_parameters` and optional `parameter_constraints`.
+
+    Class attributes:
+        space_key: YAML key of the design space instance to parse, such as
+                   'epic_design_space'.
+        param_key: YAML key of the design parameters to extract, such as
+                   'epic_design_parameters'.
+        constrain_key: YAML key of the list of parameter constraints to extract,
+                       such as 'parameter_constraints'.
+
     Example:
-        >>> # Load from file with external design.params
-        >>> config = DesignConfigLoader.load('config.yml')
-        
-        >>> # YAML structure (file-based)
-        >>> # design_space:
-        >>> #   path: "./design.params"
-        
-        >>> # YAML structure (inline)
-        >>> # design_space:
-        >>> #   design_parameters:
-        >>> #     group:
-        >>> #       parameters: {...}
-        >>> #   design_constraints: [...]
+        >>> # Load design space from an external file
+        >>> config = DesignConfigLoader.load('./configs/design.params')
+
+        >>> # Or load from an inlined design space in a YAML block
+        >>> yaml = {
+        >>>     "inline design" : {
+        >>>         "design_space" : {
+        >>>             "design_parameters" : {
+        >>>                 "group" : {
+        >>>                     "parameters" : {...}
+        >>>                 },
+        >>>             },
+        >>>             "parameter_constraints" : [...]
+        >>>         }
+        >>>     }
+        >>> }
+        >>> config = DesignConfigLoader.load(yaml)
     """
-    
-    @staticmethod
-    def _extract_design_space_payload(raw: Dict[str, Any]) -> Dict[str, Any]:
+    space_key: ClassVar[str] = DesignConfig.key,
+    param_key: ClassVar[str] = DesignParameters.key,
+    constrain_key: ClassVar[str] = ParameterConstraint.key,
+
+    @classmethod
+    def _extract_design_space_payload(cls, raw: Dict[str, Any]) -> Dict[str, Any]:
         """Extract canonical design space payload from loaded data.
         
         Args:
             raw: Dictionary loaded from YAML file or inline config.
-        
+
         Returns:
-            Dictionary with keys ``design_parameters`` and optionally
-            ``parameter_constraints``.
-        
+            Extracted design space as a dictionary.
+
         Raises:
-            ValueError: If raw data is not a dict or is not canonical.
+            ValueError: If raw data is not a dict, is not canonical
+                        or is missing required blocks.
         """
         if not isinstance(raw, dict):
             raise ValueError("Design space content must be a mapping.")
-        space = raw.get("design_space", raw)
-        if not isinstance(space, dict):
-            raise ValueError("'design_space' must be a mapping.")
-        if "design_constraints" in space or "design_constraints" in raw:
+
+        payload = raw.get(cls.space_key, raw)
+        if not isinstance(payload, dict):
+            raise ValueError(f"{cls.space_key} must be a mapping.")
+        if cls.param_key not in payload:
+            raise KeyError(f"Required block {cls.param_key} not found in {cls.space_key}")
+
+        # throw errors if any legacy configurations are being used
+        if "design_constraints" in payload or "design_constraints" in raw:
             raise ValueError(
                 "Legacy key 'design_constraints' is no longer supported. "
                 "Use 'parameter_constraints'."
             )
-        if "design_parameters" not in space:
-            raise ValueError("design_space must include 'design_parameters'.")
-        design_parameters = space["design_parameters"]
-        parameter_constraints = space.get("parameter_constraints")
-        payload: Dict[str, Any] = {"design_parameters": design_parameters}
-        if parameter_constraints is not None:
-            payload["parameter_constraints"] = parameter_constraints
-        return payload
+        if cls.space_key not in payload:
+            if cls.param_key in payload:
+                raise ValueError(
+                    f"Top-level {cls.param_key} is no longer supported. "
+                    f"Wrap design content under {cls.space_key}."
+                )
 
-    @staticmethod
-    def _resolve_design_space(design_space: Dict[str, Any], config_dir: str = ".") -> Dict[str, Any]:
-        """Resolve design space from file path or inline definition.
+        return space
+
+    @classmethod
+    def _resolve_design_space(cls, file_path: str) -> Dict[str, Any]:
+        """Resolve design space from a file path
         
         Args:
-            design_space: Dictionary containing 'path' and/or inline definitions.
-            config_dir: Base directory for relative path resolution.
+            file_path: path to design config file, can be relative or absolute
         
         Returns:
             Dictionary with ``design_parameters`` and optional
@@ -501,104 +533,92 @@ class DesignConfigLoader:
         Raises:
             ValueError: If both 'path' and inline definitions are present.
             FileNotFoundError: If referenced file does not exist.
-        
-        Example:
-            >>> # File-based resolution
-            >>> payload = DesignConfigLoader._resolve_design_space(
-            ...     {'path': './design.params'},
-            ...     config_dir='/path/to/config'
-            ... )
-            
-            >>> # Inline resolution
-            >>> payload = DesignConfigLoader._resolve_design_space(
-            ...     {'design_parameters': {...}}
-            ... )
-        
+
         Notes:
-            - Relative paths are resolved relative to config_dir.
             - Absolute paths are used as-is.
             - File not found errors include full resolved path in message.
         """
-        has_path = 'path' in design_space
-        has_inline = any(k != 'path' for k in design_space)
+        path = Path(file_path)
+        if not path.exists():
+            raise FileNotFoundError(f"Configuration file not found: {file_path}")
+        config_dir = path.parent
 
-        if has_path and has_inline:
-            raise ValueError(
-                "Cannot define both 'path' and inline design_space. Specify "
-                "either a file path or inline canonical design parameters."
-            )
+        full_path = Path(config_dir) / file_path if not Path(file_path).is_absolute() else Path(file_path)
+        if not full_path.exists():
+            raise FileNotFoundError(f"Design parameters file not found: {full_path}")
 
-        if has_path:
-            file_path = design_space['path']
-            full_path = Path(config_dir) / file_path if not Path(file_path).is_absolute() else Path(file_path)
-            if not full_path.exists():
-                raise FileNotFoundError(f"Design parameters file not found: {full_path}")
-            with open(full_path, 'r') as f:
-                loaded_data = yaml.safe_load(f)
-            return DesignConfigLoader._extract_design_space_payload(loaded_data)
+        payload = None
+        with open(full_path, 'r') as f:
+            loaded_data = yaml.safe_load(f)
+            payload = DesignConfigLoader._extract_design_space_payload(loaded_data)
+        return payload
 
-        if has_inline:
-            return DesignConfigLoader._extract_design_space_payload(design_space)
+    @classmethod
+    def _process_input(cls, design_data: Dict[str, Any] = None, file_path: str = None) -> Dict[str, Any]:
+        """Process inputs to load
 
-        raise ValueError(
-            "Design space must define either a 'path' to a file or inline "
-            "'design_parameters'."
-        )
+        Either loads a configuration file and extracts design space config,
+        Or processes pre-loaded data to extract design space config. Returns
+        the extracted design space config as a dictionary.
 
-    @staticmethod
-    def load(file_path: str) -> "DesignConfig":
-        """Load design configuration from a YAML file.
-        
-        Loads a configuration file and returns a DesignConfig instance.
-        Accepts only the canonical ``design_space`` schema.
-        
         Args:
+            design_data: Loaded data stored in a dictionary
             file_path: Path to the YAML configuration file. Relative paths
-                      are resolved from the current working directory.
-        
+                       are resolved from the current working directory.
+
         Returns:
-            DesignConfig instance ready for use in optimization workflows.
-        
+            Extracted data as dictionary mapping keys onto parameter groups and,
+            if present, a list of parameter constraints
+
         Raises:
+            RunTimeWarning: If both inline data and a file path were provided.
             FileNotFoundError: If the config file does not exist.
             ValueError: If config structure is invalid or references
                        a non-existent design.params file.
             yaml.YAMLError: If the YAML syntax is invalid.
-        
-        Example:
-            >>> config = DesignConfigLoader.load('examples/design.yml')
-            >>> print(config.get_parameter_names())
-            >>> is_valid, failures = config.validate_constraints({...})
-        
+            RunTimeError: If neither inline data nor a file path were provided
+
         Notes:
             - The configuration file must be valid YAML.
             - Must contain a top-level ``design_space`` key.
             - Directory of config_file is used as base for relative paths.
         """
-        path = Path(file_path)
-        if not path.exists():
-            raise FileNotFoundError(f"Configuration file not found: {file_path}")
+        # should EITHER provide data as a dict OR a file path
+        # as a string
+        is_data_provided = design_data is not None
+        is_file_provided = file_path is not None
+        if is_data_provided and is_file_provided:
+            raise RuntimeWarning(f"Both data and a file path ({file_path}) were provided. Defaulting to data.")
 
-        config_dir = path.parent
-        with open(path, 'r') as f:
-            data = yaml.safe_load(f)
+        payload = None
+        if is_data_provided:
+            payload = DesignConfigLoader._extract_design_space_payload(design_data)
+        elif is_file_provided:
+            payload = DesignConfigLoader._resolve_design_space(file_path=file_path)
+        else:
+            raise RuntimeError("Provide either data as a dictionary or a path to a file")
 
-        if "design_space" not in data:
-            if "design_parameters" in data:
-                raise ValueError(
-                    "Top-level 'design_parameters' is no longer supported. "
-                    "Wrap design content under 'design_space'."
-                )
-            raise ValueError(
-                f"Invalid configuration file format: {file_path}. Missing "
-                "'design_space'."
-            )
+        data[cls.param_key] = payload[cls.param_key]
+        if cls.constrain_key in payload:
+            data[cls.constrain_key] = payload[cls.constrain_key]
+        return data
 
-        design_space = data["design_space"]
+    @staticmethod
+    def load(design_data: Dict[str, Any] = None, file_path: str = None) -> "DesignConfig":
+        """Load design configuration.
 
-        resolved = DesignConfigLoader._resolve_design_space(design_space, config_dir=str(config_dir))
-        data["design_parameters"] = resolved["design_parameters"]
-        if "parameter_constraints" in resolved:
-            data["parameter_constraints"] = resolved["parameter_constraints"]
+        Args:
+            design_data: Loaded data stored in a dictionary
+            file_path: Path to the YAML configuration file. Relative paths
+                       are resolved from the current working directory.
 
+        Returns:
+            DesignConfig instance ready for use in optimization workflows.
+
+        Example:
+            >>> config = DesignConfigLoader.load('examples/design.yml')
+            >>> print(config.get_parameter_names())
+            >>> is_valid, failures = config.validate_constraints({...})
+        """
+        data = DesignConfigLoader._process_inputs(design_data, file_path)
         return DesignConfig(**data)

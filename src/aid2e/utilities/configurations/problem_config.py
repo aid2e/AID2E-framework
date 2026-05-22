@@ -224,37 +224,15 @@ class ProblemConfigLoader:
             raise ValueError("Specify exactly one of 'design_parameters_file' or 'inline_design'")
 
         if has_path:
-            # Resolve path relative to base_dir if provided
-            design_params_path = Path(problem["design_parameters_file"]).expanduser()
-            if base_dir and not design_params_path.is_absolute():
-                design_params_path = (base_dir / design_params_path).resolve()
-            if not design_params_path.exists():
-                raise FileNotFoundError(f"Design parameters file not found: {design_params_path}")
-            # Use design loader on file
-            design_config = DesignConfigLoader.load(str(design_params_path))
+            path = problem["design_parameters_file"]
+            # TODO check for stack design configs here
+            # --> if none found default to generic one
+            design_config = DesignConfig.load(file_path=path)
         else:
-            # Inline design payload must already be canonical
             inline = problem["inline_design"]
-            if not isinstance(inline, dict):
-                raise ValueError("'inline_design' must be a mapping with design parameters")
-            if "path" in inline or "design_space" in inline:
-                raise ValueError(
-                    "'inline_design' must contain canonical inline design data, "
-                    "not a nested design-space reference."
-                )
-            if "design_constraints" in inline:
-                raise ValueError(
-                    "Legacy key 'design_constraints' is no longer supported. "
-                    "Use 'parameter_constraints'."
-                )
-            if "design_parameters" not in inline:
-                raise ValueError("'inline_design' must include 'design_parameters'")
-            payload: Dict[str, Any] = {
-                "design_parameters": inline["design_parameters"],
-            }
-            if "parameter_constraints" in inline:
-                payload["parameter_constraints"] = inline["parameter_constraints"]
-            design_config = DesignConfig(**payload)
+            # TODO check for stack design configs here
+            # --> if none found default to generic one
+            design_config = DesignConfig.load(design_data=inline)
 
         # Parse environment config if any present
         env_config = None

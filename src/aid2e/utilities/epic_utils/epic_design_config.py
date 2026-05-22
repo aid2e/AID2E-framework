@@ -7,7 +7,6 @@ DesignConfig from the configurations module.
 from typing import ClassVar, Dict, List, Optional, Tuple, Union, Any
 from pydantic import BaseModel, Field, RootModel, model_validator
 from pathlib import Path
-from dataclasses import dataclass
 import yaml
 import os
 import re
@@ -155,15 +154,14 @@ class EpicDesignConfig(DesignConfig):
         return self.optimization_groups or {}
 
 
-@dataclass
 class EpicDesignConfigLoader(DesignConfigLoader):
     """
     Loader for ePIC design configurations. Can load either from
     external files or inline YAML blocks. instantiates EpicDesignConfig
     objects.
     """
-    space_key: ClassVar[str] = EpicDesignConfig.key,
-    param_key: ClassVar[str] = EpicDesignParameters.key,
+    space_key = EpicDesignConfig.key,
+    param_key = EpicDesignParameters.key,
 
     @staticmethod
     def load(design_data: Dict[str, Any] = None, file_path: str = None) -> "EpicDesignConfig":

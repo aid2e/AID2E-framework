@@ -553,7 +553,7 @@ class DesignConfigLoader:
         return payload
 
     @classmethod
-    def _process_input(cls, design_data: Dict[str, Any] = None, file_path: str = None) -> Dict[str, Any]:
+    def _process_inputs(cls, design_data: Dict[str, Any] = None, file_path: str = None) -> Dict[str, Any]:
         """Process inputs to load
 
         Either loads a configuration file and extracts design space config,

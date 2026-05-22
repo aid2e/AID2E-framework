@@ -82,16 +82,18 @@ def test_problem_config_loader_stack_registry(tmp_path):
     problem_payload = {
         "problem": {
             "name": "DTLZ2 Multi-Objective Optimization",
-            "type": "toy",
+            "problem_type": "toy",
             "output_location": str(output_dir),
             "work_location": str(work_dir),
             "inline_design": {
-                "design_parameters": design_data["design_space"]["design_parameters"],
-                "parameter_constraints": design_data["design_space"].get("design_constraints", []),
+                "design_space": {
+                    "design_parameters": design_data["design_space"]["design_parameters"],
+                    "parameter_constraints": design_data["design_space"].get("design_constraints", []),
+                }
             },
             "objectives": [
-                {"name": "f1", "minimize": True},
-                {"name": "f2", "minimize": True},
+                {"name": "f1", "direction": "minimize"},
+                {"name": "f2", "direction": "minimize"},
             ],
             "epic_environment": {
                 "singularity_image": "/home/eic/local/lib/eic_xl-nightly.sif",
@@ -128,8 +130,10 @@ def test_full_config_loader_combines_problem_and_optimization(tmp_path):
             "output_location": str(output_dir),
             "work_location": str(work_dir),
             "inline_design": {
-                "design_parameters": design_space["design_parameters"],
-                "parameter_constraints": design_space["parameter_constraints"],
+                "design_space": {
+                    "design_parameters": design_space["design_parameters"],
+                    "parameter_constraints": design_space["parameter_constraints"],
+                },
             },
             "objectives": [
                 {"name": "f1", "direction": "minimize"},
@@ -239,10 +243,12 @@ def test_full_config_rejects_legacy_scheduler_shape(tmp_path):
                     "output_location": str(tmp_path / "output"),
                     "work_location": str(tmp_path / "work"),
                     "inline_design": {
-                        "design_parameters": {
-                            "group": {
-                                "parameters": {
-                                    "x": {"value": 0.5, "bounds": [0.0, 1.0]}
+                        "design_space": {
+                            "design_parameters": {
+                                "group": {
+                                    "parameters": {
+                                        "x": {"value": 0.5, "bounds": [0.0, 1.0]}
+                                    }
                                 }
                             }
                         }
@@ -280,10 +286,12 @@ def test_full_config_rejects_legacy_workflow_shape(tmp_path):
                     "output_location": str(tmp_path / "output"),
                     "work_location": str(tmp_path / "work"),
                     "inline_design": {
-                        "design_parameters": {
-                            "group": {
-                                "parameters": {
-                                    "x": {"value": 0.5, "bounds": [0.0, 1.0]}
+                        "design_space": {
+                            "design_parameters": {
+                                "group": {
+                                    "parameters": {
+                                        "x": {"value": 0.5, "bounds": [0.0, 1.0]}
+                                    }
                                 }
                             }
                         }

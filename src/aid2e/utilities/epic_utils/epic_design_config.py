@@ -154,14 +154,15 @@ class EpicDesignConfig(DesignConfig):
         return self.optimization_groups or {}
 
 
+#@dataclass
 class EpicDesignConfigLoader(DesignConfigLoader):
     """
     Loader for ePIC design configurations. Can load either from
     external files or inline YAML blocks. instantiates EpicDesignConfig
     objects.
     """
-    space_key = EpicDesignConfig.key,
-    param_key = EpicDesignParameters.key,
+    space_key = EpicDesignConfig.key
+    param_key = EpicDesignParameters.key
 
     @staticmethod
     def load(design_data: Dict[str, Any] = None, file_path: str = None) -> "EpicDesignConfig":

@@ -476,9 +476,9 @@ class DesignConfigLoader:
         >>> }
         >>> config = DesignConfigLoader.load(yaml)
     """
-    space_key = DesignConfig.key,
-    param_key = DesignParameters.key,
-    constrain_key = ParameterConstraint.key,
+    space_key = DesignConfig.key
+    param_key = DesignParameters.key
+    constrain_key = ParameterConstraint.key
 
     @classmethod
     def _extract_design_space_payload(cls, raw: Dict[str, Any]) -> Dict[str, Any]:

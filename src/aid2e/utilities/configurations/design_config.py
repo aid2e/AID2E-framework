@@ -267,7 +267,8 @@ class DesignConfig(BaseModel):
     Example:
         >>> config = DesignConfig(
         ...     design_parameters=DesignParameters(...),
-        ...     parameter_constraints=[ParameterConstraint(...)]
+        ...     parameter_constraints=[ParameterConstraint(...)],
+        ...     optimization_groups={...},
         ... )
         >>> names = config.get_parameter_names()
         >>> bounds = config.get_parameter_bounds('group.param')
@@ -276,6 +277,7 @@ class DesignConfig(BaseModel):
     """
     design_parameters: DesignParameters
     parameter_constraints: Optional[List[ParameterConstraint]] = Field(default_factory=list)
+    optimization_groups: Optional[Dict[str, List[str]]] = Field(default_factory=dict)
     key: ClassVar[str] = 'design_space'
 
     @model_validator(mode='after')
@@ -398,7 +400,26 @@ class DesignConfig(BaseModel):
         if param and hasattr(param, 'choices'):
             return param.choices
         return None
-    
+
+    def get_optimization_group(self, group_name: str) -> Optional[List[str]]:
+        """Get parameter names for a specific optimization group.
+
+        Args:
+            group_name: name of group to get parameters for
+
+        Returns:
+            List of parameters in group
+        """
+        return self.optimization_groups.get(group_name) if self.optimization_groups else None
+
+    def get_all_optimization_groups(self) -> Dict[str, List[str]]:
+        """Get all optimization groups.
+
+        Returns:
+            List of all optimization groups
+        """
+        return self.optimization_groups or {}
+
     def check_constraints(self, param_values: Dict[str, float]) -> Tuple[bool, List[str]]:
         """Check all constraints against provided parameter values at runtime.
         
@@ -408,7 +429,7 @@ class DesignConfig(BaseModel):
         
         Args:
             param_values: Dictionary mapping qualified parameter names to
-                         numeric values.
+                          numeric values.
         
         Returns:
             Tuple of (all_valid, failed_constraint_names) where:
@@ -548,7 +569,7 @@ class DesignConfigLoader:
         payload = None
         with open(full_path, 'r') as f:
             loaded_data = yaml.safe_load(f)
-            payload = DesignConfigLoader._extract_design_space_payload(loaded_data)
+            payload = cls._extract_design_space_payload(loaded_data)
         return payload
 
     @classmethod
@@ -591,15 +612,17 @@ class DesignConfigLoader:
 
         payload = None
         if is_data_provided:
-            payload = DesignConfigLoader._extract_design_space_payload(design_data)
+            payload = cls._extract_design_space_payload(design_data)
         elif is_file_provided:
-            payload = DesignConfigLoader._resolve_design_space(file_path=file_path, config_dir=config_dir)
+            payload = cls._resolve_design_space(file_path=file_path, config_dir=config_dir)
         else:
             raise RuntimeError("Provide either data as a dictionary or a path to a file")
 
         data = {cls.param_key: payload[cls.param_key]}
         if cls.constrain_key in payload:
             data[cls.constrain_key] = payload[cls.constrain_key]
+        if 'optimization_groups' in payload:
+            data['optimization_groups'] = payload['optimization_groups']
         return data
 
     @staticmethod

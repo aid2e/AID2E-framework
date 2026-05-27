@@ -86,7 +86,6 @@ class EpicDesignConfig(DesignConfig):
     # Override to use ePIC-specific parameters
     design_parameters: Optional[Any] = None  # Set to None to avoid conflicts
     epic_design_parameters: EpicDesignParameters
-    optimization_groups: Optional[Dict[str, List[str]]] = Field(default_factory=dict)
     key: ClassVar[str] = 'epic_design_space'
 
     def get_flat_parameters(self) -> Dict[str, BaseParameter]:
@@ -117,7 +116,7 @@ class EpicDesignConfig(DesignConfig):
             param_values = {name: param.value for name, param in self.get_flat_parameters().items()}
         
         modifications = {}
-        
+
         for group_name, group in self.epic_design_parameters.root.items():
             # Expand environment variables in file path
             file_path = os.path.expandvars(group.file_path)
@@ -141,20 +140,11 @@ class EpicDesignConfig(DesignConfig):
     def get_file_paths(self) -> List[str]:
         """Get all unique file paths referenced in the configuration."""
         return list(set(
-            os.path.expandvars(group.file_path) 
+            os.path.expandvars(group.file_path)
             for group in self.epic_design_parameters.root.values()
         ))
-    
-    def get_optimization_group(self, group_name: str) -> Optional[List[str]]:
-        """Get parameter names for a specific optimization group."""
-        return self.optimization_groups.get(group_name) if self.optimization_groups else None
-    
-    def get_all_optimization_groups(self) -> Dict[str, List[str]]:
-        """Get all optimization groups."""
-        return self.optimization_groups or {}
 
 
-#@dataclass
 class EpicDesignConfigLoader(DesignConfigLoader):
     """
     Loader for ePIC design configurations. Can load either from
@@ -165,9 +155,9 @@ class EpicDesignConfigLoader(DesignConfigLoader):
     param_key = EpicDesignParameters.key
 
     @staticmethod
-    def load(design_data: Dict[str, Any] = None, file_path: str = None) -> "EpicDesignConfig":
+    def load(design_data: Dict[str, Any] = None, file_path: str = None, config_dir: str = None) -> "EpicDesignConfig":
         """
         Load an ePIC design configuration.
         """
-        data = EpicDesignConfigLoader._process_inputs(design_data, file_path)
+        data = EpicDesignConfigLoader._process_inputs(design_data, file_path, config_dir)
         return EpicDesignConfig(**data)

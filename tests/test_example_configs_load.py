@@ -25,7 +25,7 @@ def test_canonical_full_config_loads(tmp_path):
                     "output_location": str(output_dir),
                     "work_location": str(work_dir),
                     "inline_design": {
-                        "design_space:" : {
+                        "design_space" : {
                             "design_parameters": {
                                 "group": {
                                     "parameters": {
@@ -37,7 +37,7 @@ def test_canonical_full_config_loads(tmp_path):
                                     }
                                 }
                             },
-                            "parameter_constraints": [
+                            "parameter_constraints:": [
                                 {"name": "bound", "rule": "group.x <= 1.0"}
                             ]
                         }

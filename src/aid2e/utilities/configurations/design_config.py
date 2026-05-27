@@ -519,12 +519,14 @@ class DesignConfigLoader:
         return payload
 
     @classmethod
-    def _resolve_design_space(cls, file_path: str) -> Dict[str, Any]:
+    def _resolve_design_space(cls, file_path: str, config_dir: str) -> Dict[str, Any]:
         """Resolve design space from a file path
         
         Args:
-            file_path: path to design config file, can be relative or absolute
-        
+            file_path: Path to the YAML design config file, can be relative
+                       or absolute.
+            config_dir: For resolution of relative file_path.
+
         Returns:
             Dictionary with ``design_parameters`` and optional
             ``parameter_constraints``.
@@ -537,12 +539,9 @@ class DesignConfigLoader:
             - Absolute paths are used as-is.
             - File not found errors include full resolved path in message.
         """
-        path = Path(file_path)
-        if not path.exists():
-            raise FileNotFoundError(f"Configuration file not found: {file_path}")
-        config_dir = path.parent
-
-        full_path = Path(config_dir) / file_path if not Path(file_path).is_absolute() else Path(file_path)
+        full_path = Path(file_path)
+        if config_dir and not full_path.is_absolute():
+            full_path = (config_dir / full_path).resolve()
         if not full_path.exists():
             raise FileNotFoundError(f"Design parameters file not found: {full_path}")
 
@@ -553,7 +552,7 @@ class DesignConfigLoader:
         return payload
 
     @classmethod
-    def _process_inputs(cls, design_data: Dict[str, Any] = None, file_path: str = None) -> Dict[str, Any]:
+    def _process_inputs(cls, design_data: Dict[str, Any] = None, file_path: str = None, config_dir: str = None) -> Dict[str, Any]:
         """Process inputs to load
 
         Either loads a configuration file and extracts design space config,
@@ -562,8 +561,9 @@ class DesignConfigLoader:
 
         Args:
             design_data: Loaded data stored in a dictionary
-            file_path: Path to the YAML configuration file. Relative paths
-                       are resolved from the current working directory.
+            file_path: Path to the YAML design config file, can be relative
+                       or absolute.
+            config_dir: For resolution of relative file_path.
 
         Returns:
             Extracted data as dictionary mapping keys onto parameter groups and,
@@ -593,7 +593,7 @@ class DesignConfigLoader:
         if is_data_provided:
             payload = DesignConfigLoader._extract_design_space_payload(design_data)
         elif is_file_provided:
-            payload = DesignConfigLoader._resolve_design_space(file_path=file_path)
+            payload = DesignConfigLoader._resolve_design_space(file_path=file_path, config_dir=config_dir)
         else:
             raise RuntimeError("Provide either data as a dictionary or a path to a file")
 
@@ -603,13 +603,15 @@ class DesignConfigLoader:
         return data
 
     @staticmethod
-    def load(design_data: Dict[str, Any] = None, file_path: str = None) -> "DesignConfig":
+    def load(design_data: Dict[str, Any] = None, file_path: str = None, config_dir: str = None) -> "DesignConfig":
         """Load design configuration.
 
         Args:
             design_data: Loaded data stored in a dictionary
-            file_path: Path to the YAML configuration file. Relative paths
-                       are resolved from the current working directory.
+            file_path: Path to the YAML design config file. Relative paths
+                       are resolved from config_dir.
+            config_dir: Path to problem YAML config file. Used for resolution
+                        of relative paths to YAML design config.
 
         Returns:
             DesignConfig instance ready for use in optimization workflows.
@@ -619,5 +621,5 @@ class DesignConfigLoader:
             >>> print(config.get_parameter_names())
             >>> is_valid, failures = config.validate_constraints({...})
         """
-        data = DesignConfigLoader._process_inputs(design_data, file_path)
+        data = DesignConfigLoader._process_inputs(design_data, file_path, config_dir)
         return DesignConfig(**data)

@@ -224,15 +224,15 @@ class ProblemConfigLoader:
             raise ValueError("Specify exactly one of 'design_parameters_file' or 'inline_design'")
 
         if has_path:
-            path = problem["design_parameters_file"]
+            design_params_path = Path(problem["design_parameters_file"]).expanduser()
             # TODO check for stack design configs here
             # --> if none found default to generic one
-            design_config = DesignConfig.load(file_path=path)
+            design_config = DesignConfigLoader.load(file_path=str(design_params_path), config_dir=str(base_dir))
         else:
             inline = problem["inline_design"]
             # TODO check for stack design configs here
             # --> if none found default to generic one
-            design_config = DesignConfig.load(design_data=inline)
+            design_config = DesignConfigLoader.load(design_data=inline)
 
         # Parse environment config if any present
         env_config = None

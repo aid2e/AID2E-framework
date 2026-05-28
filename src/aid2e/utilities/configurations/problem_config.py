@@ -153,6 +153,29 @@ class ProblemConfiguration(BaseModel):
         )
 
 
+def resolve_path(relative_path: str, base_dir: Optional[Path]) -> str:
+    """
+    Helper method to resolve paths relative to
+    a provided base directory.
+
+    Example:
+        >>> path = '../path/to/file.yml'
+        >>> base = Path('/my/base/dir')
+        >>> resolve_path(path, base)
+        ... # ==> /my/base/path/to/file.yml
+
+    Args:
+        relative_path: path to resolve
+        base_dir: base directory to resolve path against
+    """
+    full_path = Path(relative_path).expanduser()
+    if base_dir and not full_path.is_absolute():
+        full_path = (base_dir / full_path).resolve()
+    if not full_path.exists():
+        raise FileNotFoundError(f"Path does not exist: {full_path}")
+    return str(full_path)
+
+
 class ProblemConfigLoader:
     """Loader for problem YAML/CONFIG files.
 
@@ -180,7 +203,6 @@ class ProblemConfigLoader:
         `ProblemConfigLoader.from_dict()` to construct from an in-memory
         dictionary.
     """
-
     @staticmethod
     def _build_from_problem_dict(problem: Dict[str, Any], base_dir: Optional[Path]) -> ProblemConfiguration:
         """Build ProblemConfiguration from an inner 'problem' mapping.
@@ -223,24 +245,37 @@ class ProblemConfigLoader:
             # Either both True or both False → invalid
             raise ValueError("Specify exactly one of 'design_parameters_file' or 'inline_design'")
 
+        # FIXME there is some duplication between in code between
+        # here and DesignConfigLoader. It might be useful to explore
+        # ways we could streamline the config models/loaders and how
+        # they handle file vs. inline loading
+        design_data = None
         if has_path:
-            design_params_path = Path(problem["design_parameters_file"]).expanduser()
-            # TODO check for stack design configs here
-            # --> if none found default to generic one
-            design_config = DesignConfigLoader.load(file_path=str(design_params_path), config_dir=str(base_dir))
+            design_path = resolve_path(problem["design_parameters_file"], base_dir)
+            with open(design_path, 'r') as params:
+                design_data = yaml.safe_load(params)
         else:
-            inline = problem["inline_design"]
-            # TODO check for stack design configs here
-            # --> if none found default to generic one
-            design_config = DesignConfigLoader.load(design_data=inline)
+            design_data = problem["inline_design"]
+
+        use_stack_design = False
+        for stack, components in StackRegistry.list_registered_stacks().items():
+            design_loader = components['design_loader']
+            if design_loader.space_key in design_data:
+                design_config = design_loader.load(design_data)
+                use_stack_design = True
+                break
+
+        if not use_stack_design:
+             design_config = DesignConfigLoader.load(design_data=design_data)
 
         # Parse environment config if any present
         env_config = None
         for stack, components in StackRegistry.list_registered_stacks().items():
-            config_model = components['config_model']
-            config_loader = components['config_loader']
-            if config_model.key in problem:
-                env_config = config_loader.load(env_data=problem)
+            env_model = components['env_config']
+            env_loader = components['env_loader']
+            if env_model.key in problem:
+                env_config = env_loader.load(env_data=problem)
+                break
 
         # Build ProblemConfiguration
         output_location = Path(problem["output_location"]).expanduser()

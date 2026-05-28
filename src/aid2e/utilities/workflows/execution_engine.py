@@ -720,6 +720,13 @@ class StackExecutionEngine(BaseExecutionEngine):
         result = text
         result = result.replace("{{context.job_id}}", str(context.job_id))
         result = result.replace("{{context.execution_dir}}", str(context.execution_dir))
+        if "{{context.geometry_dir}}" in result:
+            if context.workflow_context is None or "prepared_geometry_dir" not in context.workflow_context.parameters:
+                raise RuntimeError("{{context.geometry_dir}} requires prepared_geometry_dir in workflow context")
+            result = result.replace(
+                "{{context.geometry_dir}}",
+                str(context.workflow_context.parameters["prepared_geometry_dir"]),
+            )
         for key, value in context.design_point.items():
             result = result.replace(f"{{design_point.{key}}}", str(value))
         return result

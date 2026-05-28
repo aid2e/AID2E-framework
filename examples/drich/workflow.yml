@@ -1,52 +1,55 @@
 # ============================================================================
-# ePIC dRICH Multi-Objective Optimization
+# ePIC dRICH Optimization
 # ============================================================================
 # This example shows:
-#   1. Multi-objective optimization with Ax (Sobol warmup + BO)
-#   2. dRICH combined objective from multiple metrics: (acceptance*0.5*(piKsep_etalow + piKsep_etahigh))
-#   3. ePIC workflow chain: overlap check -> simulation -> reconstruction -> analysis (in drich_eval.py)
+#   1. Optimization with Ax (Sobol warmup + BO)
+#   2. Multi-objective dRICH optimization:
+#        maximize pi/K separation and acceptance
+#   3. ePIC workflow chain: geo -> sim_rec -> ana -> retrieve_results
 # ============================================================================
 
 # ============================================================================
 # SECTION 1: PROBLEM DEFINITION
 # ============================================================================
 problem:
-  name: "dRICH Multi-Objective Optimization"
-  type: "EPIC_dRICH"
-  description: "Combined multi-objective optimization of dRICH"
+  name: "dRICH Optimization"
+  problem_type: "EPIC_dRICH"
+  description: "Optimization of dRICH"
 
-  output_location: "./examples/drich/output"
-  work_location: "./examples/drich/work"
+  output_location: "./output"
+  work_location: "./work"
 
   # Design space parameters
-  design_space:
-    path: "./design.params"
+  design_parameters_file: "./design.params"
 
-  # OBJECTIVES: Define what we're optimizing for, for now multiple objectives
+  # OBJECTIVES:
   # ===========================================================================
-
   objectives:
-  - name: "piKsep_etalow"
-    direction: "maximize"
-  - name: "piKsep_etahigh"
-    direction: "maximize"
-  - name: "acceptance"
-    direction: "maximize"
-    
+    - name: "piKsep_etalow"
+      direction: "maximize"
+    - name: "piKsep_etahigh"
+      direction: "maximize"
+    - name: "acceptance"
+      direction: "maximize"
 
-  # EPIC PIPELINE config 
+  # AID2E ePIC environment configuration
   # ===========================================================================
-  epic_configuration:
-    evaluator_script: "./examples/drich/scripts/drich_eval.py"
-    detector_path: "$DETECTOR_PATH"
-    detector_config: "$DETECTOR_CONFIG"
-    eic_shell: "$EIC_SHELL_HOME"
-    eic_software: "$EIC_SOFTWARE"
-    npart: 3000
-    bootstrap_samples: 3000
-    nbootstraps: 5000
+  epic_environment:
+    epic_install: "/hpc/group/vossenlab/cn95/AIDE/AID2E-framework/eic-software"
+    epic_config: "epic_craterlake"
+    eic_shell: "/hpc/group/vossenlab/cn95/AIDE/AID2E-framework/eic-shell"
+    eic_recon_install: "/hpc/group/vossenlab/cn95/AIDE/AID2E-framework/eic-software/share/epic/local"
+
+  # pipeline configuration
+  # ===========================================================================
+  evaluation_config:
+    npart: 5
+    bootstrap_samples: 10
+    nbootstraps: 10
     particles: ["pi+", "kaon+"]
-    analysis_executable: "./scripts/dRICHAna_bootstrap"
+    analysis_executable: "script/dRICHAna_bootstrap"
+    output_name: "drich_optimization_toy"
+    reco_collections: "DRICHHits,MCParticles,DRICHRawHits,DRICHRawHitsAssociations,DRICHAerogelTracks,DRICHGasTracks,DRICHAerogelIrtCherenkovParticleID,DRICHGasIrtCherenkovParticleID,DRICHMergedIrtCherenkovParticleID"
     scan_points:
       - {p: 15, eta_min: 1.5, eta_max: 2.0, radiator: 0}
       - {p: 15, eta_min: 2.0, eta_max: 2.5, radiator: 0}
@@ -54,142 +57,121 @@ problem:
       - {p: 45, eta_min: 3.0, eta_max: 3.5, radiator: 1}
 
     # Overlap policy:
-    # overlap_ok_value: expected valid return value
-    # overlap_policy: penalty | fail
     overlap_ok_value: 0
-    overlap_policy: "penalty"
+    failure_policy: "penalty" # penalty | fail
+    max_failed_trials: 5
     failed_objectives:
       piKsep_etalow: 0.0
       piKsep_etahigh: 0.0
       acceptance: 0.0
-  # ===========================================================================
 
-# SECTION 2: OPTIMIZATION CONFIGURATION
+# SECTION 2: OPTIMIZER CONFIGURATION
 # ============================================================================
-optimization:
-  name: "dRICH MOBO"
-  description: "AID2E dRICH optimization"
+optimizer:
+  name: "ax"
+  type: "bayesian"
+  parameters:
+    initialization_strategy: "sobol"
+    seed: 999
 
-  optimizer:
-    name: "ax"
-    type: "Bayesian"
-    parameters:
-      initialization_strategy: "sobol"
-      output_name: "drich_optimization_toy"
-      seed: 999
+    generator: "BOTORCH_MODULAR"
+    objective_thresholds:
+      piKsep_etalow: 3.62
+      piKsep_etahigh: 4.04
+      acceptance: 0.80
 
-      # Objective thresholds 
-      objective_thresholds:
-        piKsep_etalow: 3.62
-        piKsep_etahigh: 4.04
-        acceptance: 0.80
-
-      # Generation strategy model configuration
-      surrogate_model: "saasbo" 
-      acquisition_function: "qnehvi" 
-      n_initial_samples: 25 #n_sobol
-      batch_size: 5 #n_batch_sobol = n_batch_mobo for now
-
-  n_iterations: 100
-  parallel_evaluations: 5
+    n_initial_samples: 4 # n_sobol
+    n_iterations: 16
+    batch_size: 2 # n_batch_sobol = n_batch_mobo
 
 # SECTION 3: SCHEDULER CONFIGURATION (global)
 # ============================================================================
 scheduler:
-  runner_type: "JobLibRunner" #SlurmRunner, PanDAiDDSRunner
+  runner_type: "SlurmRunner" # JobLibRunner, SlurmRunner, PanDAiDDSRunner
   parameters:
-    n_jobs: 5
-    backend: "loky"
-    verbose: 0
-    max_retries: 1 
-    output_location: "./examples/drich/output" 
-    monitor_interval: 30 
+    job_name_prefix: "drich"
+    account: "vossenlab"
+    partition: "scavenger"
+    nodes: 1
+    ntasks: 1
+    cpus_per_task: 1
+    mem: "2G"
+    time: "04:00:00"
+    poll_interval: 10
+    capture_stdout: true
+    capture_stderr: true
 
 # SECTION 4: WORKFLOW EXECUTION
 # ============================================================================
-workflow:
-    name: "drich_eval"
-    description: "dRICH evaluation workflow"
-     # Optional: Workflow-level scheduler (overrides global scheduler)
+workflows:
+  workflows:
+    - name: "drich_eval"
+      description: "dRICH evaluation workflow"
 
-    # BRANCHES : parallel execution paths
-    #=========================================================================
-    branches:
-      - name: "main"
-        # Optional: Branch-level scheduler (overrides workflow scheduler)
+      # BRANCHES: parallel execution paths
+      # ======================================================================
+      branches:
+        - name: "main"
+          # STAGES: sequential steps in the workflow, executed in order.
+          # Each stage can have one or more jobs, which can be executed in parallel.
+          # ==================================================================
+          stages:
+            - name: "geo"
+              # Edit trial XML and run checkOverlaps.
+              jobs:
+                - name: "drich_geo"
+                  command: &drich_command "python examples/drich/drich_eval.py"
+                  rule: &drich_rule_no_job_index "{command} --stage {stage_name} --trial-index {trial_index} --output-dir {output_dir} --config-path {config_path}"
 
-        # STAGES: groups of sequential computation steps
-        # ======================================================================
-        stages: 
-        # Optional config: stage-level scheduler (overrides branch scheduler)
-        # Optional config: job-level scheduler (overrides stage scheduler)
-        # Optional config: parallelism in stage jobs 
-        #epic_stages w edit geo -> overlap check -> sim -> reco -> analysis
-        - name: "geometry_overlap"
-          #   input: design point params
-          #   output: trial xml + overlap log
-          jobs:
-            - name: "drich_geometry_overlap"
-              command: &drich_command "python examples/drich/scripts/drich_eval.py"
-              rule: &drich_rule_no_job_index "{command} --stage {stage_name} --trial-index {trial_index} --output-dir {output_dir} --config-path {config_path}"
-              payload:
-                overlap_check_command: "checkOverlaps -c {trial_epic_xml} | awk '/Number of illegal overlaps\\/extrusions/ {print $NF}'"
-                overlap_ok_value: 0
-                overlap_policy: "penalty"
+            - name: "sim_rec"
+              # Run npsim and then eicrecon in the same job
+              # Can optionally split up sim and rec
+              scheduler:
+                runner_type: "SlurmRunner"
+                parameters:
+                  account: "vossenlab"
+                  partition: "scavenger"
+                  nodes: 1
+                  ntasks: 1
+                  cpus_per_task: 1
+                  mem: "4G"
+                  time: "04:00:00"
+              jobs:
+                - name: "drich_sim_rec"
+                  command: *drich_command
+                  rule: &drich_rule_with_job_index "{command} --stage {stage_name} --job-index {job_index} --trial-index {trial_index} --output-dir {output_dir} --config-path {config_path}"
+              job_factory:
+                type: "range"
+                params:
+                  n: 8
 
+            - name: "ana"
+              # Run analysis once per scan point using pi+/kaon+ reco files.
+              scheduler:
+                runner_type: "SlurmRunner"
+                parameters:
+                  account: "vossenlab"
+                  partition: "scavenger"
+                  nodes: 1
+                  ntasks: 1
+                  cpus_per_task: 1
+                  mem: "4G"
+                  time: "04:00:00"
+              jobs:
+                - name: "drich_ana"
+                  command: *drich_command
+                  rule: *drich_rule_with_job_index
+              job_factory:
+                type: "range"
+                params:
+                  n: 4
 
-        - name: "simulate"
-          #   input: trial xml from geometry_overlap
-          #   output: simulation root files
-          jobs:
-            - name: "drich_simulate"
-              command: *drich_command
-              rule: &drich_rule_with_job_index "{command} --stage {stage_name} --job-index {job_index} --trial-index {trial_index} --output-dir {output_dir} --config-path {config_path}"
-              payload:
-                simulation_command_template: "npsim --compactFile {trial_epic_xml} -G -N {npart} --gun.etaMax {eta_max} --gun.etaMin {eta_min} --gun.phiMin 0 --gun.phiMax 6.2831853 --gun.momentumMax '{p}*GeV' --gun.momentumMin '{p}*GeV' --gun.particle {particle} --gun.distribution eta -O {sim_file}"
-          job_factory:
-            type: "range"
-            params:
-              n: 8
-          
-
-        - name: "reconstruct"
-          #   input: simulation ROOT files
-          #   output: reconstruction ROOT files
-          jobs:
-            - name: "drich_reconstruct"
-              command: *drich_command
-              rule: *drich_rule_with_job_index
-              payload:
-                reconstruction_command_template: "eicrecon {sim_file} -Ppodio:output_file={reco_file} -Pdd4hep:xml_files={trial_epic_xml} -Ppodio:output_include_collections={reco_collections}"
-          job_factory:
-            type: "range"
-            params:
-              n: 8
-
-        - name: "analyze"
-          #   input: reconstruction ROOT files
-          #   output: per-scan analysis outputs
-          jobs:
-            - name: "drich_analyze"
-              command: *drich_command
-              rule: *drich_rule_with_job_index
-              payload:
-                analysis_command_template: "{analysis_binary} {pi_file} {k_file} {out_txt} {radiator} {nsamples} {nbootstraps}"
-          job_factory:
-            type: "range"
-            params:
-              n: 8
-              n: 5
-
-        - name: "collect_objectives"
-          #   input: analysis outputs
-          #   output: objectives
-          jobs:
-            - name: "drich_collect"
-              command: *drich_command
-              rule: *drich_rule_no_job_index
-
-          outputs:
-            - path: "objectives.json"
-              format: "json"
+            - name: "retrieve_results"
+              # Read analysis outputs and compute objectives.
+              jobs:
+                - name: "drich_retrieve_results"
+                  command: *drich_command
+                  rule: *drich_rule_no_job_index
+                  outputs:
+                    - path: "{output_dir}/log/results/drich-out_{trial_tag}.json"
+                      format: "json"

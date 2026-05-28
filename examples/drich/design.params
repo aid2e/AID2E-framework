@@ -21,8 +21,8 @@ design_space:
           unit: "cm"
 
         sensor_centerx:
-          element: "centerx"  
-          value: 155.5
+          element: "centerx"
+          value: 0.125
           bounds: [0.0, 0.25]
           xml_path: ".//detector/sensors/sphere/[@centerx]"
           unit: "cm"

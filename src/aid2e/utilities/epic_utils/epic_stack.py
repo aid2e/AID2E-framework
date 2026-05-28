@@ -220,6 +220,11 @@ class EpicStack(ExperimentStack):
 
         trial_geo_dir = context.workflow_context.parameters.get("prepared_geometry_dir")
         if not trial_geo_dir:
+            env_config = context.problem_config.environment_config if context.problem_config else None
+            epic_install = getattr(env_config, "epic_install", None)
+            if epic_install:
+                context.add_log(f"Using ePIC install from {epic_install}")
+                return None
             raise RuntimeError("No prepared geometry directory found in workflow context")
 
         context.add_log(f"Using pre-built geometry from {trial_geo_dir}")
@@ -258,17 +263,27 @@ class EpicStack(ExperimentStack):
         if context.workflow_context is None:
             raise RuntimeError("No workflow context provided to EpicStack.make_driver_script")
         trial_geo_dir = context.workflow_context.parameters.get("prepared_geometry_dir")
-        if not trial_geo_dir:
-            raise RuntimeError("No prepared geometry directory found in workflow context")
 
         # make sure a geometry config has been specififed
-        if 'EPIC_CONFIG' not in os.environ:
-            raise EnvironmentError("Variable 'EPIC_CONFIG' not set. Must define epic_config.")
-
-        # ensure detector path is set
-        detector = f"source {trial_geo_dir}/install/bin/thisepic.sh\n" \
-                   f"export DETECTOR_CONFIG={os.environ['EPIC_CONFIG']}"
-        commands.insert(2, detector)
+        if trial_geo_dir:
+            if 'EPIC_CONFIG' not in os.environ:
+                raise EnvironmentError("Variable 'EPIC_CONFIG' not set. Must define epic_config.")
+            detector = f"source {trial_geo_dir}/install/bin/thisepic.sh\n" \
+                       f"export DETECTOR_CONFIG={os.environ['EPIC_CONFIG']}"
+        else:
+            env_config = context.problem_config.environment_config if context.problem_config else None
+            epic_install = getattr(env_config, "epic_install", None)
+            epic_config = getattr(env_config, "epic_config", None)
+            if not epic_install:
+                raise RuntimeError("No prepared geometry directory or ePIC install found")
+            if not epic_config:
+                raise EnvironmentError("Variable 'epic_config' not set. Must define epic_config.")
+            detector = (
+                f"source {epic_install}/bin/thisepic.sh {epic_config}\n"
+                'export EPIC_INSTALL="${DETECTOR_PATH}"\n'
+                'export EPIC_CONFIG="${DETECTOR_CONFIG}"'
+            )
+        commands.insert(2 if preparations != None else 1, detector)
 
         text = "\n\n".join(commands)
         with open(script, 'w') as driver:

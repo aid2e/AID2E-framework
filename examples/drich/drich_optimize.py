@@ -1,227 +1,227 @@
+#!/usr/bin/env python3
 """
-Run dRICH optimization runner from workflow.yml
-
-  1. Load YAML configuration
-  3. Build SearchSpace, AxOptimizer, Scheduler
-  4. Run optimization
-  5. Save trials, Pareto summary, CSV, and state
+Example: run dRICH optimization with AID2E optimizer and scheduler.
+Each Ax trial is submitted as one scheduler job running drich_trial.py,
+which then calls drich_eval.py worker stages to execute the dRICH workflow
+and return metrics. After each batch of trials is completed, the objectives
+are returned to Ax and next batch is suggested.
 """
 
 import argparse
 import json
 import shlex
-from math import ceil
+import sys
 from pathlib import Path
 
-import yaml
+from ax.service.utils.report_utils import exp_to_df
 
-from aid2e.optimizers import SearchSpace, AxOptimizer, AxOptimizerConfig
-from aid2e.schedulers import get_scheduler, JobLibRunnerConfig
-from aid2e.utilities.configurations import ObjectiveDirection, load_config, resolve_scheduler_cascade
-from aid2e.utilities.workflows import WorkflowDefinition
-
-
-def _replace_placeholders(text: str, values: dict) -> str:
-    out = text
-    for key, value in values.items():
-        out = out.replace(f"{{{key}}}", str(value))
-    return out
+from aid2e.utilities import build_optimizer_from_config, build_scheduler_from_config
+from aid2e.utilities.configurations import ObjectiveDirection
+from drich_utils import (
+    failed_trials_from_stage_result,
+    load_drich_config,
+    metrics_for_ax,
+)
 
 
-def _python_command(command: str) -> str:
-    parts = shlex.split(command)
-    if len(parts) >= 2 and parts[0] in ("python", "python3"):
-        parts[1] = str(Path(parts[1]).resolve())
-    return " ".join(shlex.quote(x) for x in parts)
+# AID2E optimizer setup
 
-def main():
-    parser = argparse.ArgumentParser(description="Run dRICH optimization from workflow.yml")
-    parser.add_argument("--config", default="examples/drich/workflow.yml", help="Path to workflow YAML")
-    parser.add_argument("--max-trials", type=int, default=None, help="Optional cap on total trials")
-    args = parser.parse_args()
+def configure_optimizer(run_config, max_trials=None):
+    """Build the AID2E optimizer"""
 
-    print("\n" + "=" * 80)
-    print("AID2E dRICH Example")
-    print("=" * 80)
-
-    #---------Load---------
-    config_path = Path(args.config).resolve()
-    with open(config_path, "r") as f:
-        config_data = yaml.safe_load(f) or {}
-    cfg = load_config(str(config_path))
-    wf_cfg = config_data["workflow"]
-
-    workflow = WorkflowDefinition(
-        name=wf_cfg["name"],
-        description=wf_cfg["description"],
-        branches=wf_cfg["branches"],
-        objectives=cfg.problem.objectives,
-    )
-
-    branch = workflow.branches[0]
-
-    #Confirm/create output paths 
-    work_dir = Path(cfg.problem.work_location).expanduser().resolve()
-    output_dir = Path(cfg.problem.output_location).expanduser().resolve()
-
-    for d in (
-        work_dir,
-        output_dir,
-        output_dir / "log" / "results",
-        output_dir / "log" / "sim_files",
-        output_dir / "log" / "reco",
-        output_dir / "log" / "overlaps",
-        output_dir / "log" / "job_output",
-        output_dir / "trial_scripts",
-    ):
-        d.mkdir(parents=True, exist_ok=True)
-
-    # Search space from design config
-    # -----------Optimizer---------------
-
+    cfg = run_config["cfg"]
     objectives = [obj.name for obj in cfg.problem.objectives]
-    objective_directions = {obj.name: obj.direction for obj in cfg.problem.objectives}
-    flat_parameters = cfg.problem.design_config.get_flat_parameters()
+    directions = {obj.name: obj.direction for obj in cfg.problem.objectives}
 
-    search_space = SearchSpace(
-        parameters={
-            name: {"type": "range", "bounds": [float(p.bounds[0]), float(p.bounds[1])]}
-            for name, p in flat_parameters.items()
-            if hasattr(p, "bounds")
-        }
-    )
+    if max_trials is not None:
+        cfg.optimizer.parameters = {**cfg.optimizer.parameters, "n_iterations": max_trials}
 
-    n_iterations = int(args.max_trials) if args.max_trials is not None else int(cfg.optimization.n_iterations)
-
-    ax_config = AxOptimizerConfig(
-        **cfg.optimization.optimizer.parameters,
-        n_iterations=n_iterations,
-    )
-    optimizer = AxOptimizer(
-        search_space=search_space,
-        config=ax_config,
-        objective_names=objectives,
-        seed=ax_config.seed,
-    )
-
-    # -----------Scheduler---------------
-    stage_exec = []
-    schedulers = []
-
-    for stage in branch.stages:
-        scheduler_cfg = resolve_scheduler_cascade(
-            stage_scheduler=stage.scheduler,
-            branch_scheduler=branch.scheduler,
-            workflow_scheduler=workflow.scheduler,
-            objective_scheduler=None,
-            global_scheduler=cfg.scheduler,
-        )
-        if scheduler_cfg is None:
-            raise ValueError(f"No scheduler configured for stage '{stage.name}'")
-
-        runner_key = str(scheduler_cfg.runner_type).lower()
-        if runner_key.endswith("runner"):
-            runner_key = runner_key[:-6]
-
-        SchedulerClass = get_scheduler(runner_key)
-        runner_params = scheduler_cfg.parse_runner_params() or JobLibRunnerConfig()
-        scheduler = SchedulerClass(config=runner_params)
-        schedulers.append(scheduler)
-        stage_exec.append((stage, scheduler, stage.parallelism.model_dump()))
-
-    # -----------Run trials---------------
-
-    def run_trial(design_point, trial_index):
-        trial_tag = f"{trial_index:03d}"
-        
-        params_file = output_dir / "trial_scripts" / f"jobconfig_job{trial_index}.json"
-        metrics_file = output_dir / "log" / "results" / f"drich-mobo-out_{trial_tag}.json"
-        params_file.write_text(json.dumps(design_point, indent=2))
-
-        for stage, scheduler, parallelism_policy in stage_exec:
-            if stage.job_factory and stage.job_factory.type == "range" and stage.jobs: 
-                n_jobs = int(stage.job_factory.params.get("n", 1))
-                stage_jobs = [(stage.jobs[0], j) for j in range(n_jobs)]
-            else:
-                stage_jobs = [(j, i) for i, j in enumerate(stage.jobs)]
-
-            job_definitions = []
-            for job, job_index in stage_jobs:
-                base_command = _python_command(job.command)
-                context = {
-                    "trial_index": str(trial_index),
-                    "output_dir": str(output_dir),
-                    "config_path": str(config_path),
-                    "job_index": str(job_index),
-                    "stage_name": stage.name,
-                }
-
-                template = job.rule.replace("{command}", base_command) if job.rule else base_command
-                command = _replace_placeholders(template, context)
-
-                job_definitions.append(
-                    {
-                        "name": job.name,
-                        "command": command,
-                    }
-                )
-
-            result = scheduler.run_stage(
-                stage_name=stage.name,
-                job_definitions=job_definitions,
-                parallelism_policy=parallelism_policy,
-                working_dir=str(output_dir),
-            )
-            if not result.success:
-                raise RuntimeError(result.error_message or f"stage failed: {stage.name}")
-
-        payload = json.loads(metrics_file.read_text())
-        return {name: float(payload[name]) for name in objectives}
-
-    trial_index = 0
-
-    # Sobol phase
+    optimizer = build_optimizer_from_config(cfg.problem, cfg.optimizer)
+    ax_config = optimizer.config
     sobol_trials = min(ax_config.n_initial_samples, ax_config.n_iterations)
-    n_sobol_batches = int(ceil(sobol_trials / ax_config.batch_size))
-    for batch in range(n_sobol_batches):
-        batch_size = min(ax_config.batch_size, sobol_trials - batch * ax_config.batch_size)
-        for design_point in optimizer.suggest_candidates(n_candidates=batch_size):
-            raw_metrics = run_trial(design_point, trial_index)
-            metrics_for_ax = {
-                name: (
-                    -float(raw_metrics[name])
-                    if objective_directions[name] == ObjectiveDirection.MAXIMIZE
-                    else float(raw_metrics[name])
-                )
-                for name in objectives
+
+    optimizer_state = {
+        "objectives": objectives,
+        "directions": directions,
+        "ax_config": ax_config,
+        "optimizer": optimizer,
+        "sobol_trials": sobol_trials,
+    }
+    return optimizer_state
+
+
+# AID2E scheduler setup
+
+def configure_scheduler(run_config, optimizer_state):
+    """Build the AID2E scheduler and trial-level parallelism policy."""
+
+    scheduler = build_scheduler_from_config(run_config["cfg"].scheduler)
+    parallelism_policy = {"max_concurrent": optimizer_state["ax_config"].batch_size}
+    return scheduler, parallelism_policy
+
+
+def run_trial_batch(assignments, phase_name, batch_id, run_config, optimizer_state, trial_state):
+    """Write trial inputs, submit trial workflow jobs, and collect completed metrics."""
+
+    output_dir = run_config["output_dir"]
+    trial_script = Path(__file__).resolve().parent / "drich_trial.py"
+    active_trials = {trial_index: design_point for trial_index, design_point in assignments}
+
+    # Prepare one scheduler job per Ax trial
+    job_definitions = []
+    for trial_index, design_point in assignments:
+        trial_tag = f"{trial_index:03d}"
+        (run_config["trial_scripts_dir"] / f"jobconfig_job{trial_index}.json").write_text(
+            json.dumps(design_point, indent=2)
+        )
+
+        q = shlex.quote
+        command = (
+            f"{q(sys.executable)} {q(str(trial_script))} --trial-index {trial_index} "
+            f"--output-dir {q(str(output_dir))} --config-path {q(str(run_config['config_path']))}"
+        )
+        job_definitions.append(
+            {
+                "name": f"trial_{trial_tag}",
+                "command": command,
             }
-            optimizer.update_with_results(trial_index, design_point, metrics_for_ax)
-            trial_index += 1
+        )
 
-    # Bayesian phase
-    while trial_index < ax_config.n_iterations:
-        batch_size = min(ax_config.batch_size, ax_config.n_iterations - trial_index)
-        for design_point in optimizer.suggest_candidates(n_candidates=batch_size):
-            raw_metrics = run_trial(design_point, trial_index)
-            metrics_for_ax = {
-                name: (
-                    -float(raw_metrics[name])
-                    if objective_directions[name] == ObjectiveDirection.MAXIMIZE
-                    else float(raw_metrics[name])
-                )
-                for name in objectives
-            }
-            optimizer.update_with_results(trial_index, design_point, metrics_for_ax)
-            trial_index += 1
+    stage_name = f"{phase_name.lower()}_batch_{batch_id}_trials"
 
-    best = optimizer.get_best_trial()
-    print("\nBest trial:")
-    print(f"  trial={best.index}")
-    print(f"  params={best.parameters}")
-    print(f"  metrics={best.metrics}")
-
-    for scheduler in schedulers:
+    scheduler, parallelism_policy = configure_scheduler(run_config, optimizer_state)
+    try:
+        result = scheduler.run_stage(
+            stage_name,
+            job_definitions,
+            parallelism_policy=parallelism_policy,
+            working_dir=str(output_dir),
+        )
+    finally:
         scheduler.shutdown()
 
+    # Failed trial jobs are marked failed in Ax; successful trials continue.
+    if not result.success:
+        failed_trials = failed_trials_from_stage_result(result)
+        if not failed_trials:
+            raise RuntimeError(result.error_message or f"stage failed: {stage_name}")
+        for trial_index in sorted(failed_trials & set(active_trials)):
+            optimizer_state["optimizer"].set_trial_status(
+                trial_index=trial_index,
+                status="failed",
+                parameters=active_trials[trial_index],
+                metadata={"reason": result.error_message},
+            )
+            trial_state["failed_by_trial"].add(trial_index)
+            del active_trials[trial_index]
+
+    # Each successful trial writes one objective result file
+    batch_results = {}
+    for trial_index, design_point in active_trials.items():
+        result_path = output_dir / "log" / "results" / f"drich-out_{trial_index:03d}.json"
+        batch_results[trial_index] = (design_point, json.loads(result_path.read_text()))
+    return batch_results
+
+
+# Run Optimization Loop
+
+def run_optimization(run_config, optimizer_state):
+    trial_state = {"errors_by_trial": {}, "failed_by_trial": set()}
+    trial_index = 0
+
+    # Split the run into the configured Sobol initialization and Bayesian phases.
+    phases = [
+        ("Sobol", optimizer_state["sobol_trials"]),
+        ("Bayes", optimizer_state["ax_config"].n_iterations - optimizer_state["sobol_trials"]),
+    ]
+
+    for phase_name, n_trials in phases:
+        if n_trials <= 0:
+            continue
+        batch_id, completed = 0, 0
+
+        while completed < n_trials:
+            batch_id += 1
+            n_new = min(optimizer_state["ax_config"].batch_size, n_trials - completed)
+
+            # Ask Ax/AID2E for the next batch of design points.
+            design_points = optimizer_state["optimizer"].suggest_candidates(n_candidates=n_new)
+            assignments = list(zip(range(trial_index, trial_index + n_new), design_points))
+            trial_index += len(assignments)
+
+            # Run each design point as one trial workflow job.
+            batch_results = run_trial_batch(assignments, phase_name, batch_id, run_config, optimizer_state, trial_state)
+            completed += len(assignments) - len(batch_results)
+
+            # Scheduler-level failures are skipped unless the configured tolerance is exceeded.
+            failed = len(trial_state["failed_by_trial"])
+            if failed > run_config["max_failed_trials"]:
+                raise RuntimeError(f"Too many failed trials: {failed} failed, max_failed_trials={run_config['max_failed_trials']}")
+
+            # Convert completed result into optimizer metrics and update Ax.
+            for idx, (design_point, raw_metrics) in batch_results.items():
+                metrics = {name: float(raw_metrics[name]) for name in optimizer_state["objectives"]}
+                trial_state["errors_by_trial"][idx] = {
+                    name: float(raw_metrics[f"{name}_sem"]) for name in optimizer_state["objectives"]
+                }
+                optimizer_state["optimizer"].update_with_results(
+                    idx, design_point, metrics_for_ax(metrics, optimizer_state["objectives"], optimizer_state["directions"])
+                )
+                completed += 1
+
+            # Save results after each batch.
+            if batch_results or trial_state["failed_by_trial"]:
+                df = exp_to_df(optimizer_state["optimizer"].experiment)
+                for name in optimizer_state["objectives"]:
+                    if name in df and optimizer_state["directions"][name] == ObjectiveDirection.MAXIMIZE:
+                        df[name] = -df[name]
+                    df[f"{name}_sem"] = df["trial_index"].map(
+                        lambda idx: trial_state["errors_by_trial"].get(int(idx), {}).get(name)
+                    )
+                df.sort_values("trial_index").to_csv(run_config["results_csv"], index=False)
+
+                pareto_trials = []
+                for trial in optimizer_state["optimizer"].get_pareto_front():
+                    pareto_trials.append(
+                        {
+                            "trial_index": trial.index,
+                            "parameters": trial.parameters,
+                            "metrics": {
+                                name: -value if optimizer_state["directions"][name] == ObjectiveDirection.MAXIMIZE else value
+                                for name, value in trial.metrics.items()
+                            },
+                        }
+                    )
+                run_config["pareto_front_json"].write_text(json.dumps(pareto_trials, indent=2))
+                optimizer_state["optimizer"].save_optimization_results(run_config["optimization_results_json"])
+
+
+# Main
+
+def main(argv=None) -> int:
+    parser = argparse.ArgumentParser(description="Run example dRICH optimization from workflow.yml")
+    parser.add_argument("--config", default="examples/drich/workflow.yml", help="Path to workflow YAML")
+    parser.add_argument("--max-trials", type=int, default=None, help="Optional cap on total trials")
+    args = parser.parse_args(argv)
+
+    config_path, cfg, eval_config = load_drich_config(args.config)
+    output_dir = Path(cfg.problem.output_location)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    trial_scripts_dir = output_dir / "trial_scripts"
+    trial_scripts_dir.mkdir(parents=True, exist_ok=True)
+    run_config = {
+        "config_path": config_path,
+        "cfg": cfg,
+        "output_dir": output_dir,
+        "trial_scripts_dir": trial_scripts_dir,
+        "max_failed_trials": int(eval_config.get("max_failed_trials", 0)),
+        "optimization_results_json": output_dir / "drich_optimization_results.json",
+        "pareto_front_json": output_dir / f"{eval_config['output_name']}_pareto_front.json",
+        "results_csv": output_dir / f"{eval_config['output_name']}.csv",
+    }
+    run_optimization(run_config, configure_optimizer(run_config, max_trials=args.max_trials))
+    return 0
+
+
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

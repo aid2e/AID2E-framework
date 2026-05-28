@@ -48,36 +48,44 @@ problem:
   # in a separate file, such as
   #
   #   examples/basic/design.params
-  design_config:
-    inline_design:
-      epic_design_parameters:
-        bic:
-          parameters:
+  inline_design:
+    epic_design_parameters:
+      bic:
+        file_path: "compact/ecal/bic_default.xml"
+        parameters:
 
-            enable_staves_2:
-              value: 0
-              choices: [0, 1]
-              xml_path: ".//constant[@name='EcalBarrel_enable_staves_2']"
+          enable_staves_2:
+            value: 0
+            choices: [0, 1]
+            xml_path: ".//constant[@name='EcalBarrel_enable_staves_2']"
 
-            enable_staves_3:
-              value: 1
-              choices: [0, 1]
-              xml_path: ".//constant[@name='EcalBarrel_enable_staves_3']"
+          enable_staves_3:
+            value: 1
+            choices: [0, 1]
+            xml_path: ".//constant[@name='EcalBarrel_enable_staves_3']"
 
-            enable_staves_4:
-              value: 1
-              choices: [0, 1]
-              xml_path: ".//constant[@name='EcalBarrel_enable_staves_4']"
+          enable_staves_4:
+            value: 1
+            choices: [0, 1]
+            xml_path: ".//constant[@name='EcalBarrel_enable_staves_4']"
 
-            enable_staves_5:
-              value: 0
-              choices: [0, 1]
-              xml_path: ".//constant[@name='EcalBarrel_enable_staves_5']"
+          enable_staves_5:
+            value: 0
+            choices: [0, 1]
+            xml_path: ".//constant[@name='EcalBarrel_enable_staves_5']"
 
-            enable_staves_6:
-              value: 1
-              choices: [0, 1]
-              xml_path: ".//constant[@name='EcalBarrel_enable_staves_6']"
+          enable_staves_6:
+            value: 1
+            choices: [0, 1]
+            xml_path: ".//constant[@name='EcalBarrel_enable_staves_6']"
+
+      optimization_groups:
+        default:
+          - "enable_staves_2"
+          - "enable_staves_3"
+          - "enable_staves_4"
+          - "enable_staves_5"
+          - "enable_staves_6"
 
   # ========================================================================
   # OBJECTIVES: Define what we're optimizing for

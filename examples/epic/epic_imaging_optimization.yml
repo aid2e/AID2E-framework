@@ -15,6 +15,8 @@ problem:
   name: "BIC Single-Objective Optimization"
   problem_type: "EPIC_CALORIMETRY"
   description: "Single-objective optimization of the BIC for angular resolution"
+  output_location: "epic_example_test"
+  work_location: "epic_example_exec"
 
   # ePIC Environment Configuration
   # ==============================
@@ -196,107 +198,108 @@ scheduler:
 # in the BIC. Multiple optimizations can be run in parallel, where each
 # one would have a corresponding workflow.
 workflows:
-  - name: "imaging_optimization"
-    description: "Optimize the number of AstroPix layers in the BIC"
+  workflows:
+    - name: "imaging_optimization"
+      description: "Optimize the number of AstroPix layers in the BIC"
 
-    # =========================================================================
-    # BRANCHES: Parallel execution paths
-    # =========================================================================
-    # One optimization can have multiple branches which run in
-    # parallel. These should correspond to independent pipelines.
-    # For example, suppose we had 2 objectives,
-    #   1. one for single particle simulations and
-    #   2. another for an event generator.
-    # These could be run in parallel as separate branches.
-    branches:
-      - name: "photon_phi_resolution"
-        description: "Calculate phi resolution for single photons"
+      # =========================================================================
+      # BRANCHES: Parallel execution paths
+      # =========================================================================
+      # One optimization can have multiple branches which run in
+      # parallel. These should correspond to independent pipelines.
+      # For example, suppose we had 2 objectives,
+      #   1. one for single particle simulations and
+      #   2. another for an event generator.
+      # These could be run in parallel as separate branches.
+      branches:
+        - name: "photon_phi_resolution"
+          description: "Calculate phi resolution for single photons"
 
-        # =====================================================================
-        # STAGES: Groups of sequential computation steps
-        # =====================================================================
-        # The workflow below has 3 stages:
-        #  1. Run overlap checks on modified geometry
-        #  2. Run Geant4 simulation via npsim for 3 kinematic points in parallel
-        #  3. Merge npsim output, run eicrecon on merged output, and finally
-        #     run analysis on eicrecon output
-        stages:
-          epic_stages:
+          # =====================================================================
+          # STAGES: Groups of sequential computation steps
+          # =====================================================================
+          # The workflow below has 3 stages:
+          #  1. Run overlap checks on modified geometry
+          #  2. Run Geant4 simulation via npsim for 3 kinematic points in parallel
+          #  3. Merge npsim output, run eicrecon on merged output, and finally
+          #     run analysis on eicrecon output
+          stages:
+            epic_stages:
 
-            # Stage 1: run overlap checks
-            # =================================================================
-            # NOTE: anything in {{ }} will be substituted during execution
-            - name: "geo"
-              description: "Check for overlaps in modified geomtry"
-              layers:
-                - epic_geo:
-                    inputs:
-                        - "{{context.geometry_dir}}/install/share/epic/epic.xml"
-                    outputs:
-                        - "{{context.execution_dir}}/geo.overlaps.txt"
+              # Stage 1: run overlap checks
+              # =================================================================
+              # NOTE: anything in {{ }} will be substituted during execution
+              - name: "geo"
+                description: "Check for overlaps in modified geomtry"
+                layers:
+                  - epic_geo:
+                      inputs:
+                          - "{{context.geometry_dir}}/install/share/epic/epic.xml"
+                      outputs:
+                          - "{{context.execution_dir}}/geo.overlaps.txt"
 
-            # Stage 2: run Geant4 simulations
-            # =================================================================
-            - name: "sim"
-              description: "Simulate single photons"
-              layers:
-                - epic_sim:
-                    inputs:
-                      - "inputs/central_photons_bin{{context.job_id}}.py"
-                    outputs:
-                      - "{{context.execution_dir}}/central_photons_bin{{context.job_id}}.edm4hep.root"
+              # Stage 2: run Geant4 simulations
+              # =================================================================
+              - name: "sim"
+                description: "Simulate single photons"
+                layers:
+                  - epic_sim:
+                      inputs:
+                        - "inputs/central_photons_bin{{context.job_id}}.py"
+                      outputs:
+                        - "{{context.execution_dir}}/central_photons_bin{{context.job_id}}.edm4hep.root"
 
-              # Now we're going to create 3 copies of the jobs with job IDs
-              # 0, 1, 2. These correspond to the 3 kinematic points to run,
-              # each of which is defined by a DD4hep steering file:
-              #   - central_electrons_bin0.py
-              #   - central_electrons_bin1.py
-              #   - central_electrons_bin2.py
-              job_factory:
-                type: "range"
-                params:
-                  n: 3
+                # Now we're going to create 3 copies of the jobs with job IDs
+                # 0, 1, 2. These correspond to the 3 kinematic points to run,
+                # each of which is defined by a DD4hep steering file:
+                #   - central_electrons_bin0.py
+                #   - central_electrons_bin1.py
+                #   - central_electrons_bin2.py
+                job_factory:
+                  type: "range"
+                  params:
+                    n: 3
 
-              # here we specify how many copies we can run in parallel
-              parallelism:
-                max_concurrent: 3
-                retry_max: 2
-                timeout_sec: 3600 # should take no more than 30 min. per kinematic point to run
+                # here we specify how many copies we can run in parallel
+                parallelism:
+                  max_concurrent: 3
+                  retry_max: 2
+                  timeout_sec: 3600 # should take no more than 30 min. per kinematic point to run
 
-            # Stage 3: Merge, run eicrecon, and do analysis
-            # =================================================================
-            # NOTE: the "ana" layers of the ePIC stack are for any sort of user
-            # provided code (running an analysis, compiling a plugin, etc.).
-            #
-            # NOTE: also that the {command}, {inputs}, {outputs}, and {arguments}
-            # fields in rule will be substituted accordingly during execution
-            - name: "rec_and_ana"
-              description: "Merge simulation output, run reconstruction and analysis"
-              layers:
-                - epic_ana:
-                    inputs:
-                      - "{{context.execution_dir}}/central_photons_bin0.edm4hep.root"
-                      - "{{context.execution_dir}}/central_photons_bin1.edm4hep.root"
-                      - "{{context.execution_dir}}/central_photons_bin2.edm4hep.root"
-                    outputs:
-                      - "{{context.execution_dir}}/central_photons.edm4hep.root"
-                    command: "hadd"
-                    rule: "{command} -f {outputs} {inputs}"
-                - epic_rec:
-                    inputs:
-                      - "{{context.exeuction_dir}}/central_photons.edm4hep.root"
-                    outputs:
-                      - "{{context.execution_dir}}/central_photons.edm4eic.root"
-                    arguments:
-                      - "-Pnthreads=8"
-                      - "-Peicrecon:LogLevel=debug"
-                - epic_ana:
-                    inputs:
-                      - "{{context.execution_dir}}/central_photons.edm4eic.root"
-                    outputs:
-                      - "{{context.execution_dir}}/central_photons.hist.root"
-                    arguments:
-                      - "-c phi"
-                      - "-s 22"
-                    command: "scripts/bic_angular_reso.py"
-                    rule: "python {command} -i {inputs} -o {outputs} {arguments}"
+              # Stage 3: Merge, run eicrecon, and do analysis
+              # =================================================================
+              # NOTE: the "ana" layers of the ePIC stack are for any sort of user
+              # provided code (running an analysis, compiling a plugin, etc.).
+              #
+              # NOTE: also that the {command}, {inputs}, {outputs}, and {arguments}
+              # fields in rule will be substituted accordingly during execution
+              - name: "rec_and_ana"
+                description: "Merge simulation output, run reconstruction and analysis"
+                layers:
+                  - epic_ana:
+                      inputs:
+                        - "{{context.execution_dir}}/central_photons_bin0.edm4hep.root"
+                        - "{{context.execution_dir}}/central_photons_bin1.edm4hep.root"
+                        - "{{context.execution_dir}}/central_photons_bin2.edm4hep.root"
+                      outputs:
+                        - "{{context.execution_dir}}/central_photons.edm4hep.root"
+                      command: "hadd"
+                      rule: "{command} -f {outputs} {inputs}"
+                  - epic_rec:
+                      inputs:
+                        - "{{context.exeuction_dir}}/central_photons.edm4hep.root"
+                      outputs:
+                        - "{{context.execution_dir}}/central_photons.edm4eic.root"
+                      arguments:
+                        - "-Pnthreads=8"
+                        - "-Peicrecon:LogLevel=debug"
+                  - epic_ana:
+                      inputs:
+                        - "{{context.execution_dir}}/central_photons.edm4eic.root"
+                      outputs:
+                        - "{{context.execution_dir}}/central_photons.hist.root"
+                      arguments:
+                        - "-c phi"
+                        - "-s 22"
+                      command: "scripts/bic_angular_reso.py"
+                      rule: "python {command} -i {inputs} -o {outputs} {arguments}"

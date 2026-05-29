@@ -24,7 +24,7 @@ problem:
   epic_environment:
 
     # Option A: Use eic-shell script
-    eic_shell: "/path/to/my/eic-shell"
+    eic_shell: "/home/dereka/.bin/eic-shell"
 
     # Option B: Or use singularity image
     # singularity_image: "/path/to/my/eic_xl-nightly.sif"
@@ -49,43 +49,44 @@ problem:
   #
   #   examples/basic/design.params
   inline_design:
-    epic_design_parameters:
-      bic:
-        file_path: "compact/ecal/bic_default.xml"
-        parameters:
+    epic_design_space:
+      epic_design_parameters:
+        bic:
+          file_path: "compact/ecal/bic_default.xml"
+          eparameters:
 
-          enable_staves_2:
-            value: 0
-            choices: [0, 1]
-            xml_path: ".//constant[@name='EcalBarrel_enable_staves_2']"
+            enable_staves_2:
+              value: 0
+              choices: [0, 1]
+              xml_path: ".//constant[@name='EcalBarrel_enable_staves_2']"
 
-          enable_staves_3:
-            value: 1
-            choices: [0, 1]
-            xml_path: ".//constant[@name='EcalBarrel_enable_staves_3']"
+            enable_staves_3:
+              value: 1
+              choices: [0, 1]
+              xml_path: ".//constant[@name='EcalBarrel_enable_staves_3']"
 
-          enable_staves_4:
-            value: 1
-            choices: [0, 1]
-            xml_path: ".//constant[@name='EcalBarrel_enable_staves_4']"
+            enable_staves_4:
+              value: 1
+              choices: [0, 1]
+              xml_path: ".//constant[@name='EcalBarrel_enable_staves_4']"
 
-          enable_staves_5:
-            value: 0
-            choices: [0, 1]
-            xml_path: ".//constant[@name='EcalBarrel_enable_staves_5']"
+            enable_staves_5:
+              value: 0
+              choices: [0, 1]
+              xml_path: ".//constant[@name='EcalBarrel_enable_staves_5']"
 
-          enable_staves_6:
-            value: 1
-            choices: [0, 1]
-            xml_path: ".//constant[@name='EcalBarrel_enable_staves_6']"
+            enable_staves_6:
+              value: 1
+              choices: [0, 1]
+              xml_path: ".//constant[@name='EcalBarrel_enable_staves_6']"
 
-      optimization_groups:
-        default:
-          - "enable_staves_2"
-          - "enable_staves_3"
-          - "enable_staves_4"
-          - "enable_staves_5"
-          - "enable_staves_6"
+        optimization_groups:
+          default:
+            - "enable_staves_2"
+            - "enable_staves_3"
+            - "enable_staves_4"
+            - "enable_staves_5"
+            - "enable_staves_6"
 
   # ========================================================================
   # OBJECTIVES: Define what we're optimizing for
@@ -108,9 +109,11 @@ problem:
       # TODO this is the function to extract the objectives
       #   -- should retrieve value from an output file (e.g. maybe a json file)
       #      generated during workflow below
+      # FIXME maybe this should have a better name than "plan"?
+      #   -- After all... Isn't the workflow the "plan"?
       objective_plan:
         script:
-          path: "scripts/<TODO IMPLEMENT>"
+          path: "scripts/test.py"
           output_file: "photon_phi_resolution.json"
           timeout_sec: 60  # should take no more than 1 min to extract
       

@@ -53,40 +53,50 @@ problem:
       epic_design_parameters:
         bic:
           file_path: "compact/ecal/bic_default.xml"
-          eparameters:
+          parameters:
 
             enable_staves_2:
               value: 0
               choices: [0, 1]
               xml_path: ".//constant[@name='EcalBarrel_enable_staves_2']"
+              attribute: "value"
+              unit: ""
 
             enable_staves_3:
               value: 1
               choices: [0, 1]
               xml_path: ".//constant[@name='EcalBarrel_enable_staves_3']"
+              attribute: "value"
+              unit: ""
 
             enable_staves_4:
               value: 1
               choices: [0, 1]
               xml_path: ".//constant[@name='EcalBarrel_enable_staves_4']"
+              attribute: "value"
+              unit: ""
 
             enable_staves_5:
               value: 0
               choices: [0, 1]
               xml_path: ".//constant[@name='EcalBarrel_enable_staves_5']"
+              attribute: "value"
+              unit: ""
 
             enable_staves_6:
               value: 1
               choices: [0, 1]
               xml_path: ".//constant[@name='EcalBarrel_enable_staves_6']"
+              attribute: "value"
+              unit: ""
 
-        optimization_groups:
-          default:
-            - "enable_staves_2"
-            - "enable_staves_3"
-            - "enable_staves_4"
-            - "enable_staves_5"
-            - "enable_staves_6"
+      optimization_groups:
+        default:
+          - "bic.EcalBarrel_enable_staves_2"
+          - "bic.EcalBarrel_enable_staves_3"
+          - "bic.EcalBarrel_enable_staves_4"
+          - "bic.EcalBarrel_enable_staves_5"
+          - "bic.EcalBarrel_enable_staves_6"
 
   # ========================================================================
   # OBJECTIVES: Define what we're optimizing for

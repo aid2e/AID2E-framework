@@ -17,6 +17,7 @@ class StackRegistry:
     _env_loaders: Dict[str, Type[Any]] = {}
     _design_configs: Dict[str, Type[BaseModel]] = {}
     _design_loaders: Dict[str, Type[Any]] = {}
+    _workflow_configs: Dict[str, Type[BaseModel]] = {}
     _experimental_stacks: Dict[str, Type[Any]] = {}
 
     @classmethod
@@ -27,6 +28,7 @@ class StackRegistry:
         env_loader: Type[Any],
         design_config: Type[BaseModel],
         design_loader: Type[Any],
+        workflow_config: Type[BaseModel],
         experimental_stack: Type[Any],
     ) -> None:
         """Register a stack type and its configuration/implementation pair."""
@@ -34,6 +36,7 @@ class StackRegistry:
         cls._env_loaders[name] = env_loader
         cls._design_configs[name] = design_config
         cls._design_loaders[name] = design_loader
+        cls._workflow_configs[name] = workflow_config
         cls._experimental_stacks[name] = experimental_stack
 
     @classmethod
@@ -65,6 +68,13 @@ class StackRegistry:
         return cls._design_loaders[name]
 
     @classmethod
+    def get_workflow_config(cls, name: str) -> Type[BaseModel]:
+        """Get the workflow config model for a stack."""
+        if name not in cls._workflow_configs:
+            raise KeyError(f"Stack config model not registered: {name}")
+        return cls._workflow_configs[name]
+
+    @classmethod
     def get_experimental_stack(cls, name: str) -> Type[Any]:
         """Get the stack implementation class for a stack name."""
         if name not in cls._experimental_stacks:
@@ -79,6 +89,7 @@ class StackRegistry:
                 "env_loader": cls._env_loaders[name],
                 "design_config" : cls._design_configs[name],
                 "design_loader" : cls._design_loaders[name],
+                "workflow_config" : cls._workflow_configs[name],
                 "experimental_stack": cls._experimental_stacks[name],
             }
             for name in cls._env_configs

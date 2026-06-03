@@ -24,6 +24,9 @@ from .epic_stack_config import (
 	EpicLayerConfig,
 	EpicJobDefinition,
 	EpicStageDefinition,
+	EpicBranchDefinition,
+	EpicWorkflowDefinition,
+	EpicWorkflowsConfiguration,
 )
 
 __version__ = __MAIN_VERSION__
@@ -43,4 +46,7 @@ __all__ = [
 	"EpicLayerConfig",
 	"EpicJobDefinition",
 	"EpicStageDefinition",
+	"EpicBranchDefinition",
+	"EpicWorkflowDefinition",
+	"EpicWorkflowsConfiguration",
 ]

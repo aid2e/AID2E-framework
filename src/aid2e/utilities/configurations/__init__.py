@@ -26,6 +26,9 @@ from .experimental_stack_config import (
     StackLayerConfig,
     StackJobDefinition,
     StackStageDefinition,
+    StackBranchDefinition,
+    StackWorkflowDefinition,
+    StackWorkflowsConfiguration,
 )
 from .problem_config import ProblemConfiguration, ProblemConfigLoader
 from .stack_registry import StackRegistry
@@ -89,6 +92,9 @@ __all__ = [
     "StackLayerConfig",
     "StackJobDefinition",
     "StackStageDefinition",
+    "StackBranchDefinition",
+    "StackWorkflowDefinition",
+    "StackWorkflowsConfiguration",
     # Problem configuration
     "ProblemConfiguration",
     "ProblemConfigLoader",

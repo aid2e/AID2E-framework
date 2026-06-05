@@ -13,6 +13,7 @@ Repository: https://github.com/aid2e/AID2E-framework.git
 
 from pydantic import AliasChoices, BaseModel, Field, model_validator
 from typing import List, Optional
+from typing_extensions import Annotated
 
 from aid2e.utilities.configurations.workflow_config import (
     BranchDefinition,
@@ -104,7 +105,7 @@ class StackJobDefinition(JobDefinition):
         script: Name of driver script to generate
         layers: Layer configurations to run in this job
     """
-    command: Optional[str] = Field(default="./{script}", description="Executable command")
+    command: Annotated[Optional[str], Field(default="./{script}", description="Executable command")]
     script: Optional[str] = Field(default="do_job_{{context.job_id}}.sh", description="Driver script name")
     layers: List[StackLayerConfig]
 

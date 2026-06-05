@@ -192,15 +192,20 @@ scheduler:
 
 # SECTION 3: WORKFLOW EXECUTION
 # How to execute the optimization (stages, parallelism, etc.)
+# =============================================================================
 # NOTE: When objectives are simple (single script call), workflows are optional
 # =============================================================================
 # Here, we have only one workflow: optimize the number of Astropix layers
 # in the BIC. Multiple optimizations can be run in parallel, where each
 # one would have a corresponding workflow.
+#
+# Notice the 'stack_type' keyword: this indicates which software stack we're
+# going to use. For this example, we'll use the ePIC stack.
 workflows:
   workflows:
     - name: "imaging_optimization"
       description: "Optimize the number of AstroPix layers in the BIC"
+      stack_type: "epic"
 
       # =========================================================================
       # BRANCHES: Parallel execution paths
@@ -226,29 +231,63 @@ workflows:
           stages:
 
             # Stage 1: run overlap checks
-            # =================================================================
-            # NOTE: anything in {{ }} will be substituted during execution
+            # ==================================================================
             - name: "geo"
               description: "Check for overlaps in modified geomtry"
-              layers:
-                - epic_geo:
-                    inputs:
+              jobs:
+
+                # JOBS: Individual steps in a stage of a workflow
+                # ==============================================================
+                # A stage can be composed of any number of jobs, which are
+                # individual actions to be run. Details of how the job is
+                # run are set in the "payload" block
+                - name: "geo_job"
+                  payload:
+                    evaluator_type: "stack" # FIXME this should be default
+                    stack_type: "epic" # FIXME this should be default
+                    job_id: "geo"
+
+
+                  # LAYERS: Components of a software stack
+                  # ============================================================
+                  # A software stack is composed of one or more components,
+                  # such as npsim or EICrecon, referred to as a "layer" in
+                  # For a stack worklow, one or more layers can be run per job.
+                  #
+                  # The "name" keyowrd indicates which layer to run. For the
+                  # ePIC stack, we support:
+                  #   -- geo: check for overlaps in geometry
+                  #   -- sim: run npsim (Geant4)
+                  #   -- rec: run EICrecon
+                  #   -- ana: run user code or other commands (e.g. running
+                  #      an analysis, compiling a plugin, etc.)
+                  layers:
+                    - name: "geo"
+                      inputs:
                         - "{{context.geometry_dir}}/install/share/epic/epic.xml"
-                    outputs:
+                      outputs:
                         - "{{context.execution_dir}}/geo.overlaps.txt"
 
             # Stage 2: run Geant4 simulations
             # =================================================================
             - name: "sim"
               description: "Simulate single photons"
-              layers:
-                - epic_sim:
-                    inputs:
-                      - "inputs/central_photons_bin{{context.job_id}}.py"
-                    outputs:
-                      - "{{context.execution_dir}}/central_photons_bin{{context.job_id}}.edm4hep.root"
+              jobs:
 
-              # Now we're going to create 3 copies of the jobs with job IDs
+                # NOTE: anything in {{ }} will be substituted during execution
+                - name: "sim_job"
+                  payload:
+                    evaluator_type: "stack" # FIXME this should be default
+                    stack_type: "epic" # FIXME this should be default
+                    job_id: "sim"
+                  layers:
+                    - name: "sim"
+                      inputs:
+                        - "inputs/central_photons_bin{{context.job_id}}.py"
+                      outputs:
+                        - "{{context.execution_dir}}/central_photons_bin{{context.job_id}}.edm4hep.root"
+
+              # Now we're going to create 3 copies of the job with job IDs
               # 0, 1, 2. These correspond to the 3 kinematic points to run,
               # each of which is defined by a DD4hep steering file:
               #   - central_electrons_bin0.py
@@ -259,7 +298,7 @@ workflows:
                 params:
                   n: 3
 
-              # here we specify how many copies we can run in parallel
+              # And here we specify how many copies we can run in parallel
               parallelism:
                 max_concurrent: 3
                 retry_max: 2
@@ -267,38 +306,57 @@ workflows:
 
             # Stage 3: Merge, run eicrecon, and do analysis
             # =================================================================
-            # NOTE: the "ana" layers of the ePIC stack are for any sort of user
-            # provided code (running an analysis, compiling a plugin, etc.).
-            #
-            # NOTE: also that the {command}, {inputs}, {outputs}, and {arguments}
-            # fields in rule will be substituted accordingly during execution
-            - name: "rec_and_ana"
+            - name: "merge_rec_ana"
               description: "Merge simulation output, run reconstruction and analysis"
-              layers:
-                - epic_ana:
-                    inputs:
-                      - "{{context.execution_dir}}/central_photons_bin0.edm4hep.root"
-                      - "{{context.execution_dir}}/central_photons_bin1.edm4hep.root"
-                      - "{{context.execution_dir}}/central_photons_bin2.edm4hep.root"
-                    outputs:
-                      - "{{context.execution_dir}}/central_photons.edm4hep.root"
-                    command: "hadd"
-                    rule: "{command} -f {outputs} {inputs}"
-                - epic_rec:
-                    inputs:
-                      - "{{context.exeuction_dir}}/central_photons.edm4hep.root"
-                    outputs:
-                      - "{{context.execution_dir}}/central_photons.edm4eic.root"
-                    arguments:
-                      - "-Pnthreads=8"
-                      - "-Peicrecon:LogLevel=debug"
-                - epic_ana:
-                    inputs:
-                      - "{{context.execution_dir}}/central_photons.edm4eic.root"
-                    outputs:
-                      - "{{context.execution_dir}}/central_photons.hist.root"
-                    arguments:
-                      - "-c phi"
-                      - "-s 22"
-                    command: "scripts/bic_angular_reso.py"
-                    rule: "python {command} -i {inputs} -o {outputs} {arguments}"
+              jobs:
+                - name: "merge_rec_ana_job"
+                  payload:
+                    evaluator_type: "stack" # FIXME this should be default
+                    stack_type: "epic" # FIXME this should be default
+                    job_id: "merge_rec_ana"
+
+                  # in this stage, we'll have 1 job where we run 3 layers:
+                  #   1. ana -- where we merge the 3 sim jobs
+                  #   2. rec -- where we run EICrecon on the merged sim output
+                  #   3. ana -- where we run an analysis script on the
+                  #             EICrecon output
+                  layers:
+
+                    # For 'ana' layers, you'll need to specify:
+                    #   -- 'command', which sets which command (or executable)
+                    #       to run; and
+                    #   -- 'rule', which defines how arguments and the command
+                    #      are put together on the command line
+                    # The keywords {command}, {inputs}, {outputs}, and {arguments}
+                    # will be appropriately subsituted during execution.
+                    - name: "ana"
+                      inputs:
+                        - "{{context.execution_dir}}/central_photons_bin0.edm4hep.root"
+                        - "{{context.execution_dir}}/central_photons_bin1.edm4hep.root"
+                        - "{{context.execution_dir}}/central_photons_bin2.edm4hep.root"
+                      outputs:
+                        - "{{context.execution_dir}}/central_photons.edm4hep.root"
+                      command: "hadd"
+                      rule: "{command} -f {outputs} {inputs}"
+
+                    # For the other layers, 'command' and 'rule' are already
+                    # defined. The defaults can be overwritten if needed.
+                    - name: "rec"
+                      inputs:
+                        - "{{context.exeuction_dir}}/central_photons.edm4hep.root"
+                      outputs:
+                        - "{{context.execution_dir}}/central_photons.edm4eic.root"
+                      arguments:
+                        - "-Pnthreads=8"
+                        - "-Peicrecon:LogLevel=debug"
+
+                    - name: "ana"
+                      inputs:
+                        - "{{context.execution_dir}}/central_photons.edm4eic.root"
+                      outputs:
+                        - "{{context.execution_dir}}/central_photons.hist.root"
+                      arguments:
+                        - "-c phi"
+                        - "-s 22"
+                      command: "scripts/bic_angular_reso.py"
+                      rule: "python {command} -i {inputs} -o {outputs} {arguments}"

@@ -132,7 +132,7 @@ class StackWorkflowDefinition(WorkflowDefinition):
     Definition of an experimental software stack
     workflow.
     """
-    branches: List[BranchDefinition] = Field(default_factory=list, description="Software stack workflow branches (optional)")
+    branches: List[StackBranchDefinition] = Field(default_factory=list, description="Software stack workflow branches (optional)")
 
     # FIXME there should be a way to automate this (incl. grabbing the
     # appropriate branch type) in the superclass

@@ -18,6 +18,7 @@ def _sample_epic_workflow_payload() -> dict:
            {
                "name": "imaging_optimization",
                "description": "Optimize the number of AstroPix layers in the BIC",
+               "stack_type": "epic",
                "branches": [
                    {
                        "name": "photon_phi_resolution",

@@ -24,13 +24,27 @@ def _sample_epic_workflow_payload() -> dict:
                        "description": "Calculate phi resolution for single photons",
                        "stages": [
                            {
-                               "name": "geo", # FIXME <==== I think I need add a "job" layer to the data
+                               "name": "geo",
                                "description": "Check for overlaps in modified geomtry",
-                               "layers": [
+                               "jobs" : [
                                    {
-                                       "epic_geo": {
-                                           "inputs": ["{{context.geometry_dir}}/install/share/epic/epic.xml"],
-                                           "outputs": ["{{context.execution_dir}}/geo.overlaps.txt"]
+                                       "name": "geo_job",
+                                       "layers": [
+                                           {
+                                               "epic_geo": {
+                                                   "inputs": [
+                                                       "{{context.geometry_dir}}/install/share/epic/epic.xml"
+                                                   ],
+                                                   "outputs": [
+                                                       "{{context.execution_dir}}/geo.overlaps.txt"
+                                                   ]
+                                               }
+                                           }
+                                       ],
+                                       "payload": {
+                                           "evaluator_type": "stack",
+                                           "stack_type": "epic",
+                                           "job_id": "geo"
                                        }
                                    }
                                ]
@@ -38,11 +52,25 @@ def _sample_epic_workflow_payload() -> dict:
                            {
                                "name": "sim",
                                "description": "Simulate single photons",
-                               "layers": [
+                               "jobs": [
                                    {
-                                       "epic_sim": {
-                                           "inputs": ["inputs/central_photons_bin0.py"],
-                                           "outputs": ["{{context.execution_dir}}/central_photons_bin0.edm4hep.root"]
+                                       "name": "sim_job",
+                                       "layers": [
+                                           {
+                                               "epic_sim": {
+                                                   "inputs": [
+                                                       "inputs/central_photons.py"
+                                                   ],
+                                                   "outputs": [
+                                                       "{{context.execution_dir}}/central_photons.edm4hep.root"
+                                                   ]
+                                               }
+                                           }
+                                       ],
+                                       "payload": {
+                                           "evaluator_type": "stack",
+                                           "stack_type": "epic",
+                                           "job_id": "sim"
                                        }
                                    }
                                ]
@@ -50,21 +78,45 @@ def _sample_epic_workflow_payload() -> dict:
                            {
                                "name": "rec_and_ana",
                                "description": "Run reconstruction and analysis",
-                               "layers": [
+                               "jobs": [
                                    {
-                                       "epic_rec": {
-                                           "inputs": ["{{context.exeuction_dir}}/central_photons_bin0.edm4hep.root"],
-                                           "outputs": ["{{context.execution_dir}}/central_photons_bin0.edm4eic.root"],
-                                           "arguments": ["-Pnthreads=8", "-Peicrecon:LogLevel=debug"]
-                                       }
-                                   },
-                                   {
-                                       "epic_ana": {
-                                           "inputs": ["{{context.execution_dir}}/central_photons_bin0.edm4eic.root"],
-                                           "outputs": ["{{context.execution_dir}}/central_photons_bin0.hist.root"],
-                                           "arguments": ["-c phi", "-s 22"],
-                                           "command": "scripts/bic_angular_reso.py",
-                                           "rule": "python {command} -i {inputs} -o {outputs} {arguments}"
+                                       "name": "rec_ana_job",
+                                       "layers": [
+                                           {
+                                               "epic_rec": {
+                                                   "inputs": [
+                                                       "{{context.exeuction_dir}}/central_photons.edm4hep.root"
+                                                   ],
+                                                   "outputs": [
+                                                       "{{context.execution_dir}}/central_photons.edm4eic.root"
+                                                   ],
+                                                   "arguments": [
+                                                       "-Pnthreads=8",
+                                                       "-Peicrecon:LogLevel=debug"
+                                                   ]
+                                               }
+                                           },
+                                           {
+                                               "epic_ana": {
+                                                   "inputs": [
+                                                       "{{context.execution_dir}}/central_photons.edm4eic.root"
+                                                   ],
+                                                   "outputs": [
+                                                       "{{context.execution_dir}}/central_photons.hist.root"
+                                                   ],
+                                                   "arguments": [
+                                                       "-c phi",
+                                                       "-s 22"
+                                                   ],
+                                                   "command": "scripts/bic_angular_reso.py",
+                                                   "rule": "python {command} -i {inputs} -o {outputs} {arguments}"
+                                               }
+                                           }
+                                       ],
+                                       "payload": {
+                                           "evaluator_type": "stack",
+                                           "stack_type": "epic",
+                                           "job_id": "rec_ana"
                                        }
                                    }
                                ]

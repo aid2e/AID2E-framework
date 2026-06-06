@@ -142,7 +142,22 @@ def test_epic_workflows_validation(tmp_path):
     assert 1 == len(config.workflows[0].branches[0].stages[0].jobs)
     assert 1 == len(config.workflows[0].branches[0].stages[1].jobs)
     assert 1 == len(config.workflows[0].branches[0].stages[2].jobs)
+    assert 1 == len(config.workflows[0].branches[0].stages[0].jobs[0].layers)
+    assert 1 == len(config.workflows[0].branches[0].stages[1].jobs[0].layers)
+    assert 2 == len(config.workflows[0].branches[0].stages[2].jobs[0].layers)
 
-    # TODO add the following tests
-    #   - confirm models are the right classes
-    #   - check some select info (names, inputs, etc)
+    # confirm that classes are resolved correctly
+    assert isinstance(config, EpicWorkflowsConfiguration)
+    assert isinstance(config.workflows[0], EpicWorkflowDefinition)
+    assert isinstance(config.workflows[0].branches[0], EpicBranchDefinition)
+    assert isinstance(config.workflows[0].branches[0].stages[0], EpicStageDefinition)
+    assert isinstance(config.workflows[0].branches[0].stages[0].jobs[0], EpicJobDefinition)
+    assert isinstance(config.workflows[0].branches[0].stages[0].jobs[0].layers[0], EpicLayerConfig)
+
+    # check that select info is set correctly
+    assert "epic" == config.workflows[0].stack_type
+    assert "photon_phi_resolution" == config.workflows[0].branches[0].name
+    assert "geo" == config.workflows[0].branches[0].stages[0].name
+    assert "epic" == config.workflows[0].branches[0].stages[1].jobs[0].payload["stack_type"]
+    assert "rec" == config.workflows[0].branches[0].stages[2].jobs[0].layers[0].name
+    assert "-s 22" == config.workflows[0].branches[0].stages[2].jobs[0].layers[1].arguments[1]

@@ -31,7 +31,7 @@ class EpicJobDefinition(StackJobDefinition):
     layers. If no command provided, will set
     default based on specified evaluator_type.
     """
-    layers: List[EpicLayerConfig]
+    layers: List[EpicLayerConfig] = Field(default_factor=list, description="Software stack layer configurations")
 
 
 class EpicStageDefinition(StackStageDefinition):
@@ -55,6 +55,7 @@ class EpicWorkflowDefinition(StackWorkflowDefinition):
     Definition of an ePIC workflow.
     """
     stack_type: Optional[str] = Field(default="epic", description="Experimental stack type for workflow-level geometry prep")
+    branches: List[EpicBranchDefinition] = Field(default_factory=list, description="Software stack workflow branches (optional)")
 
     def get_implicit_branch(self) -> StackBranchDefinition:
         """

@@ -153,6 +153,7 @@ optimizer:
   #
   #   https://ax.dev/docs/generation_strategy
   #   https://botorch.org/docs/introduction
+  #
   parameters:
     initialization_strategy: "sobol"
     generator: "BOTORCH_MODULAR"
@@ -193,14 +194,14 @@ scheduler:
 # SECTION 3: WORKFLOW EXECUTION
 # How to execute the optimization (stages, parallelism, etc.)
 # =============================================================================
-# NOTE: When objectives are simple (single script call), workflows are optional
-# =============================================================================
 # Here, we have only one workflow: optimize the number of Astropix layers
 # in the BIC. Multiple optimizations can be run in parallel, where each
 # one would have a corresponding workflow.
 #
 # Notice the 'stack_type' keyword: this indicates which software stack we're
 # going to use. For this example, we'll use the ePIC stack.
+#
+# NOTE: When objectives are simple (single script call), workflows are optional
 workflows:
   workflows:
     - name: "imaging_optimization"

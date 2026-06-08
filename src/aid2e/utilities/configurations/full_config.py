@@ -9,6 +9,7 @@ from pydantic import BaseModel
 from .problem_config import ProblemConfiguration, ProblemConfigLoader
 from .optimizer_config import OptimizerConfiguration
 from .scheduler_config import SchedulerConfiguration
+from .stack_registry import StackRegistry
 from .workflow_config import WorkflowDefinition, WorkflowsConfiguration
 
 
@@ -38,7 +39,24 @@ def _normalize_workflows_data(data: Dict[str, Any]) -> Optional[WorkflowsConfigu
             "'workflows: { workflows: [...] }'."
         )
 
-    return WorkflowsConfiguration(**workflows_raw)
+    # if any worklows are stack-based (indicated by the presence of `stack_type`),
+    # validate workflows against stack-specific models
+    #   --> FIXME this can be improved! We should allow for multiple
+    #       stacks to be run within a single set of workflows
+    stack = None
+    for workflow in workflows_raw["workflows"]:
+        if "stack_type" in workflow:
+            stack = workflow["stack_type"]
+
+    if stack is not None:
+        registry = StackRegistry.list_registered_stacks()
+        if stack not in registry:
+            raise KeyError(f"Stack {stack} not listed in StackRegistry")
+        else:
+            workflows_config = registry[stack]['workflow_config']
+            return workflows_config(**workflows_raw)
+    else:
+        return WorkflowsConfiguration(**workflows_raw)
 
 
 def _normalize_full_config_data(data: Dict[str, Any], config_path: Path) -> Dict[str, Any]:

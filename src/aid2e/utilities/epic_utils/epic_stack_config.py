@@ -31,7 +31,7 @@ class EpicJobDefinition(StackJobDefinition):
     layers. If no command provided, will set
     default based on specified evaluator_type.
     """
-    layers: List[EpicLayerConfig] = Field(default_factor=list, description="Software stack layer configurations")
+    layers: List[EpicLayerConfig] = Field(default_factory=list, description="Software stack layer configurations")
 
 
 class EpicStageDefinition(StackStageDefinition):

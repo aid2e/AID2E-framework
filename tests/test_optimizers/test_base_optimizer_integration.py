@@ -109,8 +109,10 @@ def test_ax_optimizer_builds_default_sobol_to_mbm_strategy():
         objective_names=["f1", "f2"],
     )
 
-    nodes = optimizer.generation_strategy.nodes
-    assert [node.name for node in nodes] == ["Sobol", "ModularBoTorch"]
+    names_and_nodes = optimizer.generation_strategy.nodes_by_name
+    names = list(names_and_nodes.keys())
+    nodes = list(names_and_nodes.values())
+    assert names == ["Sobol", "ModularBoTorch"]
     sobol_spec = nodes[0].generator_specs[0]
     model_spec = nodes[1].generator_specs[0]
 
@@ -151,7 +153,8 @@ def test_ax_optimizer_resolves_symbolic_generator_kwargs():
         objective_names=["f1", "f2"],
     )
 
-    model_spec = optimizer.generation_strategy.nodes[1].generator_specs[0]
+    nodes = list(optimizer.generation_strategy.nodes_by_name.values())
+    model_spec = nodes[1].generator_specs[0]
     assert model_spec.generator_kwargs["botorch_acqf_class"].__name__ == (
         "qLogNoisyExpectedHypervolumeImprovement"
     )
@@ -180,7 +183,7 @@ def test_ax_optimizer_supports_center_initialization():
         objective_names=["loss"],
     )
 
-    nodes = optimizer.generation_strategy.nodes
+    nodes = list(optimizer.generation_strategy.nodes_by_name.values())
     assert nodes[0].__class__.__name__ == "CenterGenerationNode"
     assert nodes[1].name == "Sobol"
     assert nodes[1].transition_criteria[0].threshold == 3
@@ -204,7 +207,8 @@ def test_ax_optimizer_supports_uniform_initialization():
         objective_names=["loss"],
     )
 
-    first_node_enum = optimizer.generation_strategy.nodes[0].generator_specs[0].generator_enum
+    nodes = list(optimizer.generation_strategy.nodes_by_name.values())
+    first_node_enum = nodes[0].generator_specs[0].generator_enum
     assert first_node_enum in {Generators.UNIFORM, Generators.SOBOL}
 
 

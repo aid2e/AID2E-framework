@@ -163,10 +163,10 @@ class TestJobLibSchedulerExecution:
     def test_job_with_payload_environment(self):
         """Test job receives payload via JOB_PAYLOAD environment variable."""
         scheduler = JobLibScheduler()
-        
+
         job_def = {
             'name': 'payload_job',
-            'command': 'python -c "import os, json; print(json.dumps(json.loads(os.environ[\'JOB_PAYLOAD\'])))"',
+            'command': 'python -c "import os, json, base64, pickle; print(json.dumps(pickle.loads(base64.b64decode(os.environ[\'JOB_PAYLOAD_PICKLE\']))))"',
             'payload': {'param1': 'value1', 'param2': 42},
             'outputs': [],
         }

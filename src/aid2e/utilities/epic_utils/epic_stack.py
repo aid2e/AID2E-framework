@@ -187,8 +187,7 @@ class EpicStack(ExperimentStack):
         modify_xml_files(remapped_modifications)
 
         compile_commands = (
-            f"cmake -B {trial_geo_dir}/build -S {trial_geo_dir}\n"
-            f"-DCMAKE_INSTALL_PREFIX={trial_geo_dir}/install\n"
+            f"cmake -B {trial_geo_dir}/build -S {trial_geo_dir} -DCMAKE_INSTALL_PREFIX={trial_geo_dir}/install\n"
             f"cmake --build {trial_geo_dir}/build\n"
             f"cmake --install {trial_geo_dir}/build\n"
         )
@@ -240,23 +239,12 @@ class EpicStack(ExperimentStack):
             if isinstance(value, JobContext):
                 context = value
 
-        # JobContext must be provided to access execution dir
+        # JobContext, WorkflowContext must be provided to access execution, geoemtry dir
         if context is None:
             raise RuntimeError("No JobContext provided to EpicStack.make_driver_script")
-
-        commands = self._make_commands(configs)
-        commands.insert(0, self._determine_shebang(script))
-        if preparations != None:
-            commands.insert(1, preparations)
-
-        # reconstruct geometry dir for job
-        #   - FIXME this can be improved! We can likely make use
-        #     of xcom to retrieve this
-
-        # template_geo_dir = os.environ['EPIC_INSTALL']
-        # trial_geo_dir = '/'.join([context.execution_dir, os.path.basename(template_geo_dir)])
         if context.workflow_context is None:
             raise RuntimeError("No workflow context provided to EpicStack.make_driver_script")
+
         trial_geo_dir = context.workflow_context.parameters.get("prepared_geometry_dir")
         if not trial_geo_dir:
             raise RuntimeError("No prepared geometry directory found in workflow context")
@@ -265,10 +253,14 @@ class EpicStack(ExperimentStack):
         if 'EPIC_CONFIG' not in os.environ:
             raise EnvironmentError("Variable 'EPIC_CONFIG' not set. Must define epic_config.")
 
-        # ensure detector path is set
-        detector = f"source {trial_geo_dir}/install/bin/thisepic.sh\n" \
-                   f"export DETECTOR_CONFIG={os.environ['EPIC_CONFIG']}"
-        commands.insert(2, detector)
+        commands = [
+            self._determine_shebang(script),
+            "set -euo pipefail",
+            f"source {trial_geo_dir}/install/bin/thisepic.sh\nexport DETECTOR_CONFIG={os.environ['EPIC_CONFIG']}",
+        ]
+        if preparations != None:
+            commands.append(preparations)
+        commands.extend(self._make_commands(configs))
 
         text = "\n\n".join(commands)
         with open(script, 'w') as driver:

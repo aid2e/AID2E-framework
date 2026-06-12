@@ -217,7 +217,7 @@ class BashExecutionEngine(BaseExecutionEngine):
         env: Environment variables (optional).
         
     Example:
-        >epic/scripts/bic_angular_reso.py>> engine = BashExecutionEngine(
+        >>> engine = BashExecutionEngine(
         ...     job_id='run_sim',
         ...     bash_command='python scripts/simulate.py --input {input_file}',
         ...     env={'PYTHONUNBUFFERED': '1'}
@@ -648,7 +648,6 @@ class StackExecutionEngine(BaseExecutionEngine):
                 shell=True,
                 capture_output=True,
                 text=True,
-                cwd=context.execution_dir
             )
 
             # Log output
@@ -720,6 +719,7 @@ class StackExecutionEngine(BaseExecutionEngine):
         result = text
         result = result.replace("{{context.job_id}}", str(context.job_id))
         result = result.replace("{{context.execution_dir}}", str(context.execution_dir))
+        result = result.replace("{{context.geometry_dir}}", str(context.workflow_context.parameters["prepared_geometry_dir"]))
         for key, value in context.design_point.items():
             result = result.replace(f"{{design_point.{key}}}", str(value))
         return result

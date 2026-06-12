@@ -12,6 +12,7 @@ Project: AID2E v0.0.0 - AI assisted Detector Design for EIC
 
 from typing import List, Tuple
 import argparse
+import copy
 import os
 
 from aid2e.utilities.configurations import (
@@ -306,8 +307,9 @@ def example_generate_driver(layers: List[EpicLayerConfig], configs: Tuple[Proble
     # make sure necessary environment variables are set
     context.problem_config.environment_config.activate()
 
-    # substitute relevant templates
-    resolved_layers = substitute_templates(layers, context)
+    # copy layers for test and substitute relevant templates
+    test_layers = copy.deepcopy(layers)
+    resolved_layers = substitute_templates(test_layers, context)
 
     # prepare for generating script by modifying geometry
     prep = epic_stack.prepare_for_execution(context = context)

@@ -559,7 +559,7 @@ class DesignConfigLoader:
             - File not found errors include full resolved path in message.
         """
         if not Path(file_path).exists():
-            raise FileNotFoundError(f"Design parameters file not found: {full_path}")
+            raise FileNotFoundError(f"Design parameters file not found: {file_path}")
 
         payload = None
         with open(file_path, 'r') as f:

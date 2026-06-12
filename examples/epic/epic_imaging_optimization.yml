@@ -26,7 +26,7 @@ problem:
   epic_environment:
 
     # Option A: Use eic-shell script
-    eic_shell: "/home/dereka/.bin/eic-shell"
+    eic_shell: "/path/to/my/eic-shell"
 
     # Option B: Or use singularity image
     # singularity_image: "/path/to/my/eic_xl-nightly.sif"
@@ -121,8 +121,9 @@ problem:
       # TODO this is the function to extract the objectives
       #   -- should retrieve value from an output file (e.g. maybe a json file)
       #      generated during workflow below
-      # FIXME maybe this should have a better name than "plan"?
-      #   -- After all... Isn't the workflow the "plan"?
+      # FIXME (DMA) the relationship between this and the workflows
+      # isn't clear to me. We might consider renaming this to be
+      # indicative of when to use plan vs. a workflow
       objective_plan:
         script:
           path: "scripts/test.py"

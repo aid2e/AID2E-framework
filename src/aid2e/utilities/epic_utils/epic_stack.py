@@ -257,10 +257,10 @@ class EpicStack(ExperimentStack):
         commands = [
             self._determine_shebang(script),
             "set -euo pipefail",
-            f"source {trial_geo_dir}/install/bin/thisepic.sh\nexport $DETECTOR_CONFIG={os.environ['EPIC_CONFIG']}",
+            f"source {trial_geo_dir}/install/bin/thisepic.sh\nexport DETECTOR_CONFIG={os.environ['EPIC_CONFIG']}",
         ]
         if preparations != None:
-            commands.extend(preparations)
+            commands.append(preparations)
         commands.extend(self._make_commands(configs))
 
         text = "\n\n".join(commands)

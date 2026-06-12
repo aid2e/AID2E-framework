@@ -155,9 +155,9 @@ class EpicDesignConfigLoader(DesignConfigLoader):
     param_key = EpicDesignParameters.key
 
     @staticmethod
-    def load(design_data: Dict[str, Any] = None, file_path: str = None) -> "EpicDesignConfig":
+    def load(file_path: str = None, design_data: Dict[str, Any] = None) -> "EpicDesignConfig":
         """
         Load an ePIC design configuration.
         """
-        data = EpicDesignConfigLoader._process_inputs(design_data, file_path)
+        data = EpicDesignConfigLoader._process_inputs(file_path, design_data)
         return EpicDesignConfig(**data)

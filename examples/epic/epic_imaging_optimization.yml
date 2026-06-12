@@ -344,7 +344,7 @@ workflows:
                     # defined. The defaults can be overwritten if needed.
                     - name: "rec"
                       inputs:
-                        - "{{context.exeuction_dir}}/central_photons.edm4hep.root"
+                        - "{{context.execution_dir}}/central_photons.edm4hep.root"
                       outputs:
                         - "{{context.execution_dir}}/central_photons.edm4eic.root"
                       arguments:

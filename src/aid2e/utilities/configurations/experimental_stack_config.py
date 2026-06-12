@@ -106,7 +106,7 @@ class StackJobDefinition(JobDefinition):
     """
     command: Optional[str] = Field(default="./{script}", description="Executable command")
     script: Optional[str] = Field(default="do_job_{{context.job_id}}.sh", description="Driver script name")
-    layers: List[StackLayerConfig] = Field(default_factor=list, description="Software stack layer configurations")
+    layers: List[StackLayerConfig] = Field(default_factory=list, description="Software stack layer configurations")
 
 
 class StackStageDefinition(StageDefinition):

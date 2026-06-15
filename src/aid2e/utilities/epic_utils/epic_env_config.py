@@ -92,8 +92,9 @@ class EpicEnvConfigLoader(EnvironmentConfigLoader):
         Load ePIC environment configuration.
 
         Args:
-
+            env_data: Loaded data stored in a dictionary
             file_path: Path to YAML configuration file
+
         Returns:
             EpicEnvConfig instance
         """
@@ -113,6 +114,8 @@ class EpicEnvConfigLoader(EnvironmentConfigLoader):
                 raise FileNotFoundError(f"Configuration file not found: {file_path}")
             with open(path, 'r') as file:
                 data = yaml.safe_load(file)
+        else:
+            raise RuntimeError("Must provide either data as a dictionary or a 'path' to a file")
 
         if EpicEnvConfig.key not in data:
             raise ValueError(f"Invalid data configuration: missing '{EpicEnvConfig.key}' in data")

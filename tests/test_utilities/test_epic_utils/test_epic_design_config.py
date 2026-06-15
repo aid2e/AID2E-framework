@@ -11,28 +11,30 @@ from aid2e.utilities.epic_utils.epic_design_config import (
 def _sample_epic_design_payload() -> dict:
     """Build a minimal epic design configuration payload for tests."""
     return {
-        "epic_design_parameters": {
-            "tracker": {
-                "file_path": "$DETECTOR_PATH/tracker.xml",
-                "parameters": {
-                    "thickness": {
-                        "value": 0.2,
-                        "bounds": (0.1, 0.3),
-                        "xml_path": "//constant[@name='tracker_thickness']",
-                        "attribute": "value",
-                        "unit": "cm",
+        "epic_design_space": {
+            "epic_design_parameters": {
+                "tracker": {
+                    "file_path": "$DETECTOR_PATH/tracker.xml",
+                    "parameters": {
+                        "thickness": {
+                            "value": 0.2,
+                            "bounds": (0.1, 0.3),
+                            "xml_path": "//constant[@name='tracker_thickness']",
+                            "attribute": "value",
+                            "unit": "cm",
+                        }
                     }
-                },
-            }
-        },
-        "optimization_groups": {"default": ["tracker.thickness"]},
+                }
+            },
+            "optimization_groups": {"default": ["tracker.thickness"]},
+        }
     }
 
 
 def test_epic_design_config_getters(monkeypatch):
     """Validate key EpicDesignConfig getters and XML mapping helpers."""
     monkeypatch.setenv("DETECTOR_PATH", "/detector")
-    config = EpicDesignConfig(**_sample_epic_design_payload())
+    config = EpicDesignConfigLoader.load(design_data=_sample_epic_design_payload())
 
     flat_params = config.get_flat_parameters()
     assert "tracker.thickness" in flat_params
@@ -55,7 +57,7 @@ def test_epic_design_config_loader(tmp_path, monkeypatch):
     config_path = tmp_path / "epic_design.params"
     config_path.write_text(yaml.safe_dump(_sample_epic_design_payload()))
 
-    config = EpicDesignConfigLoader.load(str(config_path))
+    config = EpicDesignConfigLoader.load(file_path=str(config_path))
 
     assert isinstance(config, EpicDesignConfig)
     assert "tracker.thickness" in config.get_parameter_names()

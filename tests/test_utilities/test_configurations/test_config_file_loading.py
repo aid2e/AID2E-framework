@@ -23,7 +23,7 @@ def test_design_config_loader_with_fixture():
     """Load canonical design.params fixture and validate parameters and constraints."""
     design_path = _fixture_dir() / "design.params"
 
-    config = DesignConfigLoader.load(str(design_path))
+    config = DesignConfigLoader.load(file_path=str(design_path))
 
     names = config.get_parameter_names()
     assert "DTLZ2_variables.x1" in names
@@ -86,8 +86,10 @@ def test_problem_config_loader_stack_registry(tmp_path):
             "output_location": str(output_dir),
             "work_location": str(work_dir),
             "inline_design": {
-                "design_parameters": design_data["design_space"]["design_parameters"],
-                "parameter_constraints": design_data["design_space"].get("design_constraints", []),
+                "design_space": {
+                    "design_parameters": design_data["design_space"]["design_parameters"],
+                    "parameter_constraints": design_data["design_space"].get("design_constraints", []),
+                }
             },
             "objectives": [
                 {"name": "f1", "direction": "minimize"},
@@ -128,8 +130,10 @@ def test_full_config_loader_combines_problem_and_optimization(tmp_path):
             "output_location": str(output_dir),
             "work_location": str(work_dir),
             "inline_design": {
-                "design_parameters": design_space["design_parameters"],
-                "parameter_constraints": design_space["parameter_constraints"],
+                "design_space": {
+                    "design_parameters": design_space["design_parameters"],
+                    "parameter_constraints": design_space["parameter_constraints"],
+                },
             },
             "objectives": [
                 {"name": "f1", "direction": "minimize"},
@@ -197,7 +201,7 @@ def test_design_loader_rejects_legacy_design_constraints(tmp_path):
     )
 
     with pytest.raises(ValueError, match="design_constraints"):
-        DesignConfigLoader.load(str(config_path))
+        DesignConfigLoader.load(file_path=str(config_path))
 
 
 def test_problem_loader_rejects_legacy_problem_type_and_minimize_keys(tmp_path):
@@ -239,10 +243,12 @@ def test_full_config_rejects_legacy_scheduler_shape(tmp_path):
                     "output_location": str(tmp_path / "output"),
                     "work_location": str(tmp_path / "work"),
                     "inline_design": {
-                        "design_parameters": {
-                            "group": {
-                                "parameters": {
-                                    "x": {"value": 0.5, "bounds": [0.0, 1.0]}
+                        "design_space": {
+                            "design_parameters": {
+                                "group": {
+                                    "parameters": {
+                                        "x": {"value": 0.5, "bounds": [0.0, 1.0]}
+                                    }
                                 }
                             }
                         }
@@ -280,10 +286,12 @@ def test_full_config_rejects_legacy_workflow_shape(tmp_path):
                     "output_location": str(tmp_path / "output"),
                     "work_location": str(tmp_path / "work"),
                     "inline_design": {
-                        "design_parameters": {
-                            "group": {
-                                "parameters": {
-                                    "x": {"value": 0.5, "bounds": [0.0, 1.0]}
+                        "design_space": {
+                            "design_parameters": {
+                                "group": {
+                                    "parameters": {
+                                        "x": {"value": 0.5, "bounds": [0.0, 1.0]}
+                                    }
                                 }
                             }
                         }

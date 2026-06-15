@@ -8,12 +8,15 @@ Repository: https://github.com/aid2e/AID2E-framework.git
 """
 
 from pydantic import Field, model_validator
-from typing import List
+from typing import List, Optional
 
 from aid2e.utilities.configurations.experimental_stack_config import (
     StackLayerConfig,
     StackJobDefinition,
-    StackStageDefinition
+    StackStageDefinition,
+    StackBranchDefinition,
+    StackWorkflowDefinition,
+    StackWorkflowsConfiguration,
 )
 
 
@@ -28,7 +31,7 @@ class EpicJobDefinition(StackJobDefinition):
     layers. If no command provided, will set
     default based on specified evaluator_type.
     """
-    layers: List[EpicLayerConfig]
+    layers: List[EpicLayerConfig] = Field(default_factory=list, description="Software stack layer configurations")
 
 
 class EpicStageDefinition(StackStageDefinition):
@@ -37,3 +40,36 @@ class EpicStageDefinition(StackStageDefinition):
     Jobs are restricted to ePIC jobs.
     """
     jobs: List[EpicJobDefinition] = Field(default_factory = list, description="ePIC stack job definitions")
+
+
+class EpicBranchDefinition(StackBranchDefinition):
+    """
+    Definition of an ePIC branch in a workflow.
+    Stages are restricted to ePIC stages.
+    """
+    stages: List[EpicStageDefinition] = Field(default_factory = list, description="ePIC stack branch definitions")
+
+
+class EpicWorkflowDefinition(StackWorkflowDefinition):
+    """
+    Definition of an ePIC workflow.
+    """
+    stack_type: Optional[str] = Field(default="epic", description="Experimental stack type for workflow-level geometry prep")
+    branches: List[EpicBranchDefinition] = Field(default_factory=list, description="Software stack workflow branches (optional)")
+
+    def get_implicit_branch(self) -> StackBranchDefinition:
+        """
+        Get or create single implicit branch if branches list is empty.
+        Overrides StackWorkflowDefinition.get_implicit_branch to return
+        EpicBranchDefinition.
+        """
+        if self.branches:
+            raise ValueError("Branches already defined; cannot use implicit branch")
+        return EpicBranchDefinition(name="implicit")
+
+
+class EpicWorkflowsConfiguration(StackWorkflowsConfiguration):
+    """
+    Container for ePIC workflows.
+    """
+    workflows: List[EpicWorkflowDefinition] = Field(..., min_items=1, description="List of workflows")

@@ -25,31 +25,33 @@ def test_canonical_full_config_loads(tmp_path):
                     "output_location": str(output_dir),
                     "work_location": str(work_dir),
                     "inline_design": {
-                        "design_parameters": {
-                            "group": {
-                                "parameters": {
-                                    "x": {"value": 0.5, "bounds": [0.0, 1.0]},
-                                    "label": {
-                                        "value": "a",
-                                        "choices": ["a", "b"],
-                                    },
+                        "design_space" : {
+                            "design_parameters": {
+                                "group": {
+                                    "parameters": {
+                                        "x": {"value": 0.5, "bounds": [0.0, 1.0]},
+                                        "label": {
+                                            "value": "a",
+                                            "choices": ["a", "b"],
+                                        }
+                                    }
                                 }
-                            }
-                        },
-                        "parameter_constraints": [
-                            {"name": "bound", "rule": "group.x <= 1.0"}
-                        ],
+                            },
+                            "parameter_constraints": [
+                                {"name": "bound", "rule": "group.x <= 1.0"}
+                            ]
+                        }
                     },
                     "objectives": [
                         {"name": "f1", "direction": "minimize"},
                         {"name": "f2", "direction": "maximize"},
-                    ],
+                    ]
                 },
                 "optimizer": {
                     "name": "MOBO",
                     "type": "Bayesian",
                     "parameters": {"n_iterations": 3},
-                },
+                }
             }
         )
     )

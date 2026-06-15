@@ -140,11 +140,13 @@ def test_runtime_builder_accepts_omitted_pymoo_algorithm(tmp_path) -> None:
             "output_location": str(output_dir),
             "work_location": str(work_dir),
             "inline_design": {
-                "design_parameters": {
-                    "group1": {
-                        "parameters": {
-                            "x": {"value": 0.5, "bounds": [0.0, 1.0]},
-                            "y": {"value": 0.5, "bounds": [0.0, 1.0]},
+                "design_space": {
+                    "design_parameters": {
+                        "group1": {
+                            "parameters": {
+                                "x": {"value": 0.5, "bounds": [0.0, 1.0]},
+                                "y": {"value": 0.5, "bounds": [0.0, 1.0]},
+                            }
                         }
                     }
                 }

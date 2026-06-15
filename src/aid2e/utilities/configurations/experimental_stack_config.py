@@ -14,7 +14,13 @@ Repository: https://github.com/aid2e/AID2E-framework.git
 from pydantic import AliasChoices, BaseModel, Field, model_validator
 from typing import List, Optional
 
-from aid2e.utilities.configurations.workflow_config import JobDefinition, StageDefinition
+from aid2e.utilities.configurations.workflow_config import (
+    BranchDefinition,
+    JobDefinition,
+    StageDefinition,
+    WorkflowDefinition,
+    WorkflowsConfiguration,
+)
 
 
 class StackLayerConfig(BaseModel):
@@ -100,7 +106,7 @@ class StackJobDefinition(JobDefinition):
     """
     command: Optional[str] = Field(default="./{script}", description="Executable command")
     script: Optional[str] = Field(default="do_job_{{context.job_id}}.sh", description="Driver script name")
-    layers: List[StackLayerConfig]
+    layers: List[StackLayerConfig] = Field(default_factory=list, description="Software stack layer configurations")
 
 
 class StackStageDefinition(StageDefinition):
@@ -110,3 +116,40 @@ class StackStageDefinition(StageDefinition):
     an experimental software stack.
     """
     jobs: List[StackJobDefinition] = Field(default_factory=list, description="Software stack job definitions")
+
+
+class StackBranchDefinition(BranchDefinition):
+    """
+    Definition of a workflow branch narrowed to stages
+    from an experimental software stack.
+    """
+    stages: List[StackStageDefinition] = Field(default_factory=list, description="Software stack stage definitions")
+
+
+class StackWorkflowDefinition(WorkflowDefinition):
+    """
+    Definition of an experimental software stack
+    workflow.
+    """
+    branches: List[StackBranchDefinition] = Field(default_factory=list, description="Software stack workflow branches (optional)")
+
+    # FIXME there should be a way to automate this (incl. grabbing the
+    # appropriate branch type) in the superclass
+    def get_implicit_branch(self) -> StackBranchDefinition:
+        """
+        Get or create single implicit branch if branches list is empty.
+        Overrides WorkflowDefinition.get_implicit_branch to return
+        StackBranchDefinition.
+        """
+        if self.branches:
+            raise ValueError("Branches already defined; cannot use implicit branch")
+        return StackBranchDefinition(name="implicit")
+
+
+class StackWorkflowsConfiguration(WorkflowsConfiguration):
+    """
+    Container for software stack workflows.
+    """
+    # FIXME ideally we should allow for workflows from separate
+    # stacks to be run concurrently
+    workflows: List[StackWorkflowDefinition] = Field(..., min_items=1, description="List of workflows")

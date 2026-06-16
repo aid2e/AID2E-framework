@@ -31,7 +31,8 @@ class StackLayerConfig(BaseModel):
     singular vs. plural inputs/outputs are handled consistently.
 
     Attributes:
-        name: Layer name (e.g. "sim")
+        name: Unique name for this layer instance
+        layer: Layer key (e.g. "sim", "rec", "ana")
         inputs: List of inputs to layer
         outputs: List of outputs from layer
         arguments: Optional list of any additional arguments to apply
@@ -44,7 +45,8 @@ class StackLayerConfig(BaseModel):
         - rule supports template substitutions for {inputs}, {outputs},
           {arguments}, and {command}. See StackLayer for more details.
     """
-    name: str = Field(..., description="Layer name")
+    name: Optional[str] = Field(default=None, description="Unique name of instance")
+    layer: str = Field(..., description="Layer key")
     inputs: List[str] = Field(..., description="List of inputs", validation_alias=AliasChoices('inputs', 'input'))
     outputs: List[str] = Field(..., description="List of outputs", validation_alias=AliasChoices('outputs', 'output'))
     arguments: Optional[List[str]] = Field(default=None, description="List of arguments")

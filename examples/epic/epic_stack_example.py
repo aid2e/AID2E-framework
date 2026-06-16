@@ -192,28 +192,33 @@ def example_configure_layers():
     #   --> Note that values in {{ }} will be substituted
     #       during execution
     cfg_geo = EpicLayerConfig(
-        name = "geo",
+        name = "geo", # NOTE this should be a unique identifier for THIS instance of a layer
+        layer = "geo",
         inputs = ["{{context.geometry_dir}}/install/share/epic/epic.xml"],
         outputs = ["{{context.execution_dir}}/epic_geo.overlaps.txt"],
     )
     cfg_sim_A = EpicLayerConfig(
-        name = "sim",
+        name = "sim_bin0",
+        layer = "sim",
         inputs = ["inputs/central_photons_bin0.py"],
         outputs = ["{{context.execution_dir}}/central_photons_bin0.edm4hep.root"],
         command = "ddsim",
     )
     cfg_sim_B = EpicLayerConfig(
-        name = "sim",
+        name = "sim_bin1",
+        layer = "sim",
         inputs = ["inputs/central_photons_bin1.py"],
         outputs = ["{{context.execution_dir}}/central_photons_bin1.edm4hep.root"],
     )
     cfg_sim_C = EpicLayerConfig(
-        name = "sim",
+        name = "sim_bin2",
+        layer = "sim",
         inputs = ["inputs/central_photons_bin2.py"],
         outputs = ["{{context.execution_dir}}/central_photons_bin2.edm4hep.root"],
     )
     cfg_ana_A = EpicLayerConfig(
-        name = "ana",
+        name = "ana_merge",
+        layer = "ana",
         inputs = [
             "{{context.execution_dir}}/central_photons_bin0.edm4hep.root",
             "{{context.execution_dir}}/central_photons_bin1.edm4hep.root",
@@ -225,12 +230,14 @@ def example_configure_layers():
     )
     cfg_rec = EpicLayerConfig(
         name = "rec",
+        layer = "rec",
         inputs = ["{{context.execution_dir}}/central_photons.edm4hep.root"],
         outputs = ["{{context.execution_dir}}/central_photons.edm4eic.root"],
         arguments = ["-Pnthreads=8", "-Peicrecon:LogLevel=debug"],
     )
     cfg_ana_B = EpicLayerConfig(
-        name = "ana",
+        name = "ana_reso",
+        layer = "ana",
         inputs = ["{{context.execution_dir}}/central_photons.edm4eic.root"],
         outputs = ["{{context.execution_dir}}/central_photon_phi_resolution.hist.root"],
         arguments = ["-c phi", "-s 22"],

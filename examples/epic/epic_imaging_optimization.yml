@@ -264,7 +264,8 @@ workflows:
                   #   -- ana: run user code or other commands (e.g. running
                   #      an analysis, compiling a plugin, etc.)
                   layers:
-                    - name: "geo"
+                    - name: "geo" # NOTE this should be a unique identifier for THIS instance of a layer
+                      layer: "geo"
                       inputs:
                         - "{{context.geometry_dir}}/install/share/epic/epic.xml"
                       outputs:
@@ -284,6 +285,7 @@ workflows:
                     job_id: "sim"
                   layers:
                     - name: "sim"
+                      layer: "sim"
                       inputs:
                         - "inputs/central_photons_bin{{context.job_id}}.py"
                       outputs:
@@ -331,7 +333,8 @@ workflows:
                     #      are put together on the command line
                     # The keywords {command}, {inputs}, {outputs}, and {arguments}
                     # will be appropriately subsituted during execution.
-                    - name: "ana"
+                    - name: "ana_merge"
+                      layer: "ana"
                       inputs:
                         - "{{context.execution_dir}}/central_photons_bin0.edm4hep.root"
                         - "{{context.execution_dir}}/central_photons_bin1.edm4hep.root"
@@ -344,6 +347,7 @@ workflows:
                     # For the other layers, 'command' and 'rule' are already
                     # defined. The defaults can be overwritten if needed.
                     - name: "rec"
+                      layer: "rec"
                       inputs:
                         - "{{context.execution_dir}}/central_photons.edm4hep.root"
                       outputs:
@@ -352,7 +356,8 @@ workflows:
                         - "-Pnthreads=8"
                         - "-Peicrecon:LogLevel=debug"
 
-                    - name: "ana"
+                    - name: "ana_reso"
+                      layer: "ana"
                       inputs:
                         - "{{context.execution_dir}}/central_photons.edm4eic.root"
                       outputs:

@@ -1,5 +1,4 @@
 """ExecutionEngine for DAG-based workflow execution.
-
 ExecutionEngines are the smallest executable units in a workflow. They encapsulate
 the logic to execute a specific job type (bash command, Python function,
 Docker container, etc). Each execution engine runs within a JobContext and can
@@ -660,11 +659,14 @@ class StackExecutionEngine(BaseExecutionEngine):
             context: Task context.
 
         Returns:
-            Dict with 'stdout', 'stderr', 'returncode', and
-            layer inputs, outputs, arguments.
+            Dict with 'stdout', 'stderr', 'returncode'
 
         Raises:
             RuntimeError: If execution fails
+
+        Note:
+            Layer inputs, outputs, and arguments are pushed
+            to XCom for retrieval downstream.
         """
         stack = self.stack_class()
 
@@ -688,6 +690,12 @@ class StackExecutionEngine(BaseExecutionEngine):
         context.add_log(f"Driver script: {driver}")
         context.add_log(f"Driver command: {command}")
 
+        # push layer info to xcom for downstream access
+        for layer in self.layers:
+            context.xcom_push(f'{layer.name}:inputs', layer.inputs)
+            context.xcom_push(f'{layer.name}:outputs', layer.outputs)
+            context.xcom_push(f'{layer.name}:arguments', layer.arguments)
+
         # Try running command
         try:
             result = subprocess.run(
@@ -709,12 +717,6 @@ class StackExecutionEngine(BaseExecutionEngine):
                 'stderr': result.stderr,
                 'returncode': result.returncode,
             }
-            for layer in self.layers:
-                output[f'{layer.name}'] = {
-                    'inputs': layer.inputs,
-                    'outputs': layer.outputs,
-                    'arguments': layer.arguments,
-                }
             context.xcom_push('return_value', output)
 
             if result.returncode != 0:

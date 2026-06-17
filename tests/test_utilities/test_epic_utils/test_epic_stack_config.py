@@ -160,7 +160,7 @@ def test_epic_workflows_validation(tmp_path):
     assert "photon_phi_resolution" == config.workflows[0].branches[0].name
     assert "geo" == config.workflows[0].branches[0].stages[0].name
     assert "epic" == config.workflows[0].branches[0].stages[1].jobs[0].payload["stack_type"]
-    assert "rec" == config.workflows[0].branches[0].stages[2].jobs[0].layers[0].name
+    assert "rec" == config.workflows[0].branches[0].stages[2].jobs[0].layers[0].layer
     assert "-s 22" == config.workflows[0].branches[0].stages[2].jobs[0].layers[1].arguments[1]
 
 def test_epic_executor_from_config(tmp_path):

@@ -33,7 +33,7 @@ def _sample_epic_workflow_payload() -> dict:
                                        "name": "geo_job",
                                        "layers": [
                                            {
-                                               "name": "geo",
+                                               "layer": "geo",
                                                "inputs": [
                                                    "{{context.geometry_dir}}/install/share/epic/epic.xml"
                                                ],
@@ -58,7 +58,7 @@ def _sample_epic_workflow_payload() -> dict:
                                        "name": "sim_job",
                                        "layers": [
                                            {
-                                               "name": "sim",
+                                               "layer": "sim",
                                                "inputs": [
                                                    "inputs/central_photons.py"
                                                ],
@@ -83,7 +83,7 @@ def _sample_epic_workflow_payload() -> dict:
                                        "name": "rec_ana_job",
                                        "layers": [
                                            {
-                                               "name": "rec",
+                                               "layer": "rec",
                                                "inputs": [
                                                    "{{context.exeuction_dir}}/central_photons.edm4hep.root"
                                                ],
@@ -96,7 +96,7 @@ def _sample_epic_workflow_payload() -> dict:
                                                ]
                                            },
                                            {
-                                               "name": "ana",
+                                               "layer": "ana",
                                                "inputs": [
                                                    "{{context.execution_dir}}/central_photons.edm4eic.root"
                                                ],

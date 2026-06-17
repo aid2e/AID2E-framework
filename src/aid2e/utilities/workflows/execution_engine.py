@@ -621,7 +621,8 @@ class StackExecutionEngine(BaseExecutionEngine):
             context: Task context.
 
         Returns:
-            Dict with 'stdout', 'stderr', 'returncode'.
+            Dict with 'stdout', 'stderr', 'returncode', and
+            layer inputs, outputs, arguments.
 
         Raises:
             RuntimeError: If execution fails
@@ -663,12 +664,18 @@ class StackExecutionEngine(BaseExecutionEngine):
             if result.stderr:
                 context.add_log(f"STDERR:\n{result.stderr}")
 
-            # Push any output to XCom
+            # Push any output and layer info to XCom
             output = {
                 'stdout': result.stdout,
                 'stderr': result.stderr,
                 'returncode': result.returncode,
             }
+            for layer in self.layers:
+                output[f'{layer.name}'] = {
+                    'inputs': layer.inputs,
+                    'outputs': layer.outputs,
+                    'arguments': layer.arguments,
+                }
             context.xcom_push('return_value', output)
 
             if result.returncode != 0:

@@ -47,7 +47,14 @@ from .experimental_stack import ExperimentStack
 
 @dataclass
 class WorkflowSharedContext:
-    """Context shared across all jobs of one workflow execution."""
+    """Context shared across all jobs of one workflow execution.
+
+    Attributes:
+        workflow_id: Unique workflow identifier.
+        parameters: Parameters available to all branches, stages, and
+                    jobs in this workflow.
+    """
+    workflow_id: str
     parameters: Dict[str, Any] = field(default_factory=dict)
 
 @dataclass

@@ -225,7 +225,10 @@ class DAGExecutor:
             context={"design_point": design_point},
         )
 
-        self.workflow_context = WorkflowSharedContext()
+        self.workflow_context = WorkflowSharedContext(
+            workflow_id=self.workflow.name,
+            parameters={},
+        )
 
         try:
             if (

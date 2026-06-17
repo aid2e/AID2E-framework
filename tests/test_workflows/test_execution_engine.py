@@ -59,9 +59,9 @@ class TestJobContext:
         context.xcom_push('status', 'success')
         
         # Pull from own task
-        assert context.xcom_pull('upstream_task', 'metrics') == {'f1': 0.5, 'f2': 0.3}
-        assert context.xcom_pull('upstream_task', 'status') == 'success'
-        assert context.xcom_pull('upstream_task', 'nonexistent') is None
+        assert context.xcom_pull('upstream_task', key='metrics') == {'f1': 0.5, 'f2': 0.3}
+        assert context.xcom_pull('upstream_task', key='status') == 'success'
+        assert context.xcom_pull('upstream_task', key='nonexistent') is None
     
     def test_xcom_push_return_value_default(self):
         """Test default 'return_value' key in XCom."""
@@ -225,7 +225,7 @@ class TestPythonExecutionEngine:
         result = op.execute(context)
         
         assert result == 8
-        assert context.xcom_pull('test_python', 'return_value') == 8
+        assert context.xcom_pull('test_python', key='return_value') == 8
     
     def test_python_engine_with_context(self):
         """Test Python function that uses JobContext."""
@@ -251,7 +251,7 @@ class TestPythonExecutionEngine:
         
         assert result['sum'] == 7.0
         assert result['product'] == 12.0
-        assert context.xcom_pull('processor', 'processed') == {'sum': 7.0}
+        assert context.xcom_pull('processor', key='processed') == {'sum': 7.0}
     
     def test_python_engine_exception(self):
         """Test Python engine with exception in function."""

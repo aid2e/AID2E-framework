@@ -71,7 +71,7 @@ class BranchContext:
 @dataclass
 class StageContext:
     """Context for parameters shared across all jobs in a stage.
-    
+
     Attributes:
         stage_id: Unique stage identifier.
         parameters: Parameters available to all jobs in this stage.
@@ -90,7 +90,8 @@ class JobContext:
     Enables data flow between jobs in a workflow.
     
     Attributes:
-        job_id: Unique job identifier within a stage.
+        job_id: Unique job identifier within a stage. Formatted as
+                {stage_id}_{job_id}_{index}
         stage_id: Parent stage identifier.
         workflow_id: Root workflow identifier.
         design_point: Input design point (optimizer output).
@@ -116,45 +117,24 @@ class JobContext:
     problem_config: Optional[ProblemConfiguration] = None
     workflow_context: Optional[WorkflowSharedContext] = None
 
-    def xcom_key(self, key: str, job_id: str, stage_id: str = None, branch_id: str = None) -> str:
+    def xcom_key(self, key: str, job_id: str) -> str:
         """Get key for a given job, branch, and stage
 
         Args:
             key: XCom key (e.g. 'return_value', 'metrics').
-            job_id: Job ID (e.g. 'sim_job')
-            stage_id: Stage ID (optional)
-            branch_id: Branch ID (optional)
+            job_id: Job ID (e.g. 'sim_stage_sim_job')
 
         Returns:
-            Key formatted as branch:stage:job:key
+            Key formatted as stage_job:key
         """
-        branch_use = ""
-        if branch_id is not None:
-            branch_use = branch_id
-        else:
-            if self.stage_context is not None:
-                if self.stage_context.branch_context is not None:
-                    branch_use = self.stage_context.branch_context.branch_id + ":"
-
-        stage_use = ""
-        if stage_id is not None:
-            stage_use = stage_id
-        else:
-            if self.stage_context is not None:
-                stage_use = self.stage_context.stage_id + ":"
-
-        return f"{branch_use}{stage_use}{job_id}:{key}"
+        return f"{job_id}:{key}"
 
     def xcom_push(self, key: str, value: Any) -> None:
         """Push data to XCom for downstream jobs.
 
         Data stored in a dictionary with the format:
 
-            {'branch:stage:job:key': data}
-
-        Note:
-            Workflow, branch, and stage will only be
-            added if relevant contexts are present.
+            {'stage_job:key': data}
 
         Args:
             key: XCom key (e.g., 'return_value', 'metrics').
@@ -166,14 +146,12 @@ class JobContext:
         xcom_key = self.xcom_key(key, self.job_id)
         self.xcom[xcom_key] = value
 
-    def xcom_pull(self, job_id: str, stage_id: str = None, branch_id: str = None, key: str = 'return_value') -> Any:
+    def xcom_pull(self, job_id: str, key: str = 'return_value') -> Any:
         """Pull data from upstream job's XCom.
 
         Args:
             job_id: Upstream job ID.
-            stage_id: Stage ID of upstream job (optional)
-            branch_id: Branch ID of upstream job (optional)
-            key: XCom key (default 'return_value').
+            key: XCom key (optional, default is 'return_value').
 
         Returns:
             Data pushed by upstream job, or None if not found.
@@ -181,7 +159,7 @@ class JobContext:
         Example:
             >>> params = context.xcom_pull('prepare_params', key='params')
         """
-        xcom_key = self.xcom_key(key, job_id, stage_id, branch_id)
+        xcom_key = self.xcom_key(key, job_id)
         return self.xcom.get(xcom_key)
 
     def add_log(self, message: str) -> None:

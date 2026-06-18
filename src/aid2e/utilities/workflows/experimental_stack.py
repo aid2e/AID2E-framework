@@ -248,7 +248,7 @@ class ExperimentStack(ABC):
         """
         commands = []
         for config in configs:
-             layer = replace(self[config.name]) # clone layer to avoid rule/command overrides sticking
+             layer = replace(self[config.layer]) # clone layer to avoid rule/command overrides sticking
              if config.command is not None:
                  layer.command = config.command
              if config.rule is not None:

@@ -221,8 +221,8 @@ class TestBashExecutionEngine:
         )
         
         # Test substitution method
-        substituted = op._substitute_templates(
-            'Processing {design_point.input_file} to {design_point.output_file}',
+        substituted = op._template.substitute(
+            'Processing {{design_point.input_file}} to {{design_point.output_file}}',
             context
         )
         

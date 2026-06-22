@@ -29,6 +29,7 @@ Repository: https://github.com/aid2e/AID2E-framework.git
 from abc import ABC, abstractmethod
 from typing import Any, Callable, Dict, List, Optional
 from dataclasses import dataclass, field
+from functools import reduce
 import subprocess
 import json
 import os
@@ -44,6 +45,7 @@ from aid2e.utilities.configurations.stack_registry import StackRegistry
 
 from .experimental_stack import ExperimentStack
 
+
 @dataclass
 class WorkflowSharedContext:
     """Context shared across all jobs of one workflow execution.
@@ -55,6 +57,7 @@ class WorkflowSharedContext:
     """
     workflow_id: str
     parameters: Dict[str, Any] = field(default_factory=dict)
+
 
 @dataclass
 class BranchContext:
@@ -181,6 +184,56 @@ class JobContext:
             >>> context.save_artifact('objectives', '/work/objectives.json')
         """
         self.artifacts[artifact_key] = artifact_path
+
+
+class Template:
+    """class for common template substitutions
+
+    Supports:
+        - {{design_point.key}} → Value for design parameter with name `key`
+        - {{context.job_id}} → Name of current job
+        - {{context.stage_id}} → Name of current stage
+        - {{context.branch_id}} → Name of current branch
+        - {{context.workflow_id}} → Name of workflow
+        - {{context.execution_dir}} → Current working directory
+        - {{context.output_dir}} → Current output directory
+        - {{context.geometry_dir}} → Geometry directory to use
+
+    Attributes:
+        _substitutions: Dictionary of template variables onto lambdas
+                        to replace them.
+    """
+    _substitutions = {
+        "{{design_point.{key}}}":
+            (lambda text, context: reduce(lambda result, key: result.replace(f"{{{{design_point.{key[0]}}}}}", str(key[1])), context.design_point.items(), text)),
+        "{{context.job_id}}":
+            (lambda text, context: text.replace("{{context.job_id}}", str(context.job_id))),
+        "{{context.stage_id}}":
+            (lambda text, context: text.replace("{{context.stage_id}}", str(context.stage_context.stage_id))),
+        "{{context.branch_id}}":
+            (lambda text, context: text.replace("{{context.branch_id}}", str(context.stage_context.branch_context.branch_id))),
+        "{{context.workflow_id}}":
+            (lambda text, context: text.replace("{{context.workflow_id}}", str(context.workflow_id))),
+        "{{context.execution_dir}}":
+            (lambda text, context: text.replace("{{context.execution_dir}}", str(context.execution_dir))),
+        "{{context.output_dir}}":
+            (lambda text, context: text.replace("{{context.output_dir}}", str(context.output_dir))),
+        "{{context.geometry_dir}}":
+            (lambda text, context: text.replace("{{context.geometry_dir}}", str(context.workflow_context.parameters["prepared_geometry_dir"]))),
+    }
+
+    @classmethod
+    def substitute(cls, text: str, context: JobContext) -> str:
+        """Apply template substitutions
+
+        Args:
+            text: The text to apply substitution to
+            context: JobContext holding job, stage, branch, and workflow info
+        """
+        result = text
+        for template, substitution in cls._substitutions.items():
+            result = substitution(result, context)
+        return result
 
 
 class BaseExecutionEngine(ABC):

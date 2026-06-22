@@ -2,6 +2,7 @@
 
 Tests cover:
 - JobContext (XCom push/pull, artifacts, logs)
+- Template (template substitution)
 - BashExecutionEngine (command execution, templating)
 - PythonExecutionEngine (function execution, arguments)
 - ContainerExecutionEngine (docker command building)
@@ -17,10 +18,14 @@ import os
 
 from aid2e.utilities.workflows.execution_engine import (
     JobContext,
+    StageContext,
+    BranchContext,
+    WorkflowSharedContext,
     BashExecutionEngine,
     PythonExecutionEngine,
     ContainerExecutionEngine,
     BaseExecutionEngine,
+    Template,
 )
 
 
@@ -93,6 +98,43 @@ class TestJobContext:
         
         assert context.artifacts['objectives'] == '/work/objectives.json'
         assert context.artifacts['metrics'] == '/work/metrics.json'
+
+
+class TestTemplateSubstitutions:
+    """Test Template."""
+
+    def test_substitutions(self):
+        """Test common substitutions"""
+        workflow_context = WorkflowSharedContext(
+            workflow_id='workflow',
+            parameters = {'prepared_geometry_dir': '/geo/here'},
+        )
+        branch_context = BranchContext(
+            branch_id='branch',
+            parameters={},
+        )
+        stage_context = StageContext(
+            stage_id='stage',
+            parameters={},
+            branch_context=branch_context,
+        )
+        job_context = JobContext(
+            job_id='job',
+            stage_id=stage_context.stage_id,
+            workflow_id=workflow_context.workflow_id,
+            design_point={'param_a': 'red', 'param_b': 'blue', 'param_c': 'green'},
+            execution_dir='/execute/here',
+            output_dir='/output/here',
+            stage_context=stage_context,
+            workflow_context=workflow_context,
+        )
+
+        test_0 = "{{context.output_dir}}/out_{{design_point.param_a}}_{{design_point.param_b}}.root"
+        test_1 = "{{context.execution_dir}}/{{context.branch_id}}_{{context.stage_id}}_{{context.job_id}}.log"
+        test_2 = "{{context.geometry_dir}}/install/share/epic_{{context.workflow_id}}.xml"
+        assert Template.substitute(test_0, job_context) == "/output/here/out_red_blue.root"
+        assert Template.substitute(test_1, job_context) == "/execute/here/branch_stage_job.log"
+        assert Template.substitute(test_2, job_context) == "/geo/here/install/share/epic_workflow.xml"
 
 
 class TestBashExecutionEngine:

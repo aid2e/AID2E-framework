@@ -93,8 +93,9 @@ class JobContext:
     Enables data flow between jobs in a workflow.
     
     Attributes:
-        job_id: Unique job identifier within a stage. Formatted as
-                {stage_id}_{job_id}_{index}
+        task_id: Key encoding stage, job ID. Used in XCom,
+                 formatted as {stage_id}:{job_id}
+        job_id: Unique job identifier.
         stage_id: Parent stage identifier.
         workflow_id: Root workflow identifier.
         design_point: Input design point (optimizer output).
@@ -107,6 +108,7 @@ class JobContext:
                         dependent design space
         workflow_context: Shared workflow context (optional).
     """
+    task_id: str
     job_id: str
     stage_id: str
     workflow_id: str
@@ -120,41 +122,41 @@ class JobContext:
     problem_config: Optional[ProblemConfiguration] = None
     workflow_context: Optional[WorkflowSharedContext] = None
 
-    def xcom_key(self, key: str, job_id: str) -> str:
-        """Get key for a given job, branch, and stage
+    def xcom_key(self, key: str, task_id: str) -> str:
+        """Get xcom key for a given job, stage
 
         Args:
             key: XCom key (e.g. 'return_value', 'metrics').
-            job_id: Job ID (e.g. 'sim_stage_sim_job')
+            task_id: Unique ID of job + stage (e.g. 'sim_stage:sim_job')
 
         Returns:
-            Key formatted as stage_job:key
+            Key formatted as task_id:key
         """
-        return f"{job_id}:{key}"
+        return f"{task_id}:{key}"
 
     def xcom_push(self, key: str, value: Any) -> None:
         """Push data to XCom for downstream jobs.
 
         Data stored in a dictionary with the format:
 
-            {'stage_job:key': data}
+            {'task_id:key': data}
 
         Args:
-            key: XCom key (e.g., 'return_value', 'metrics').
+            key: XCom data key (e.g., 'return_value', 'metrics').
             value: Data to push (any serializable type).
 
         Example:
             >>> context.xcom_push('objectives', {'f1': 0.5, 'f2': 0.3})
         """
-        xcom_key = self.xcom_key(key, self.job_id)
+        xcom_key = self.xcom_key(key, self.task_id)
         self.xcom[xcom_key] = value
 
-    def xcom_pull(self, job_id: str, key: str = 'return_value') -> Any:
+    def xcom_pull(self, task_id: str, key: str = 'return_value') -> Any:
         """Pull data from upstream job's XCom.
 
         Args:
-            job_id: Upstream job ID.
-            key: XCom key (optional, default is 'return_value').
+            task_id: Upstream job key
+            key: XCom data key (optional, default is 'return_value').
 
         Returns:
             Data pushed by upstream job, or None if not found.
@@ -162,7 +164,7 @@ class JobContext:
         Example:
             >>> params = context.xcom_pull('prepare_params', key='params')
         """
-        xcom_key = self.xcom_key(key, job_id)
+        xcom_key = self.xcom_key(key, task_id)
         return self.xcom.get(xcom_key)
 
     def add_log(self, message: str) -> None:
@@ -248,19 +250,19 @@ class BaseExecutionEngine(ABC):
     a specific type of work (shell command, Python function, container, etc).
     
     Attributes:
-        job_id: Unique task identifier.
+        engine_id: Unique identifier.
         params: Task parameters (executor-dependent).
     """
     _template = Template
 
-    def __init__(self, job_id: str, **kwargs):
+    def __init__(self, engine_id: str, **kwargs):
         """Initialize execution engine.
         
         Args:
-            job_id: Unique identifier for this task.
+            engine_id: Unique identifier for this task
             **kwargs: Execution engine-specific parameters.
         """
-        self.job_id = job_id
+        self.engine_id = engine_id
         self.params = kwargs
 
     @abstractmethod
@@ -275,7 +277,7 @@ class BaseExecutionEngine(ABC):
         5. Use context.save_artifact() to register outputs
         
         Args:
-            context: Task execution context (XCom, logs, artifacts).
+            context: Operation execution context (XCom, logs, artifacts).
             
         Returns:
             Result of execution (any serializable type).
@@ -284,7 +286,7 @@ class BaseExecutionEngine(ABC):
     
     def __repr__(self) -> str:
         """String representation of execution engine."""
-        return f"{self.__class__.__name__}(job_id='{self.job_id}')"
+        return f"{self.__class__.__name__}(engine_id='{self.engine_id}')"
 
 
 class BashExecutionEngine(BaseExecutionEngine):
@@ -299,23 +301,23 @@ class BashExecutionEngine(BaseExecutionEngine):
 
     Example:
         >>> engine = BashExecutionEngine(
-        ...     job_id='run_sim',
+        ...     engine_id='run_sim',
         ...     bash_command='python scripts/simulate.py --input {input_file}',
         ...     env={'PYTHONUNBUFFERED': '1'}
         ... )
         >>> result = engine.execute(context)
     """
 
-    def __init__(self, job_id: str, bash_command: str, env: Optional[Dict[str, str]] = None, **kwargs):
+    def __init__(self, engine_id: str, bash_command: str, env: Optional[Dict[str, str]] = None, **kwargs):
         """Initialize BashExecutionEngine.
 
         Args:
-            job_id: Task identifier.
+            engine_id: Task identifier.
             bash_command: Command to execute (supports template variables).
             env: Environment variables.
             **kwargs: Additional parameters.
         """
-        super().__init__(job_id, **kwargs)
+        super().__init__(engine_id, **kwargs)
         self.bash_command = bash_command
         self.env = env or {}
 
@@ -390,7 +392,7 @@ class PythonExecutionEngine(BaseExecutionEngine):
         ...     return result
         >>> 
         >>> engine = PythonExecutionEngine(
-        ...     job_id='compute',
+        ...     engine_id='compute',
         ...     python_callable=compute_metrics,
         ...     op_kwargs={'threshold': 0.7}
         ... )
@@ -398,7 +400,7 @@ class PythonExecutionEngine(BaseExecutionEngine):
 
     def __init__(
         self,
-        job_id: str,
+        engine_id: str,
         python_callable: Callable,
         op_args: Optional[tuple] = None,
         op_kwargs: Optional[Dict[str, Any]] = None,
@@ -413,7 +415,7 @@ class PythonExecutionEngine(BaseExecutionEngine):
             op_kwargs: Keyword arguments.
             **kwargs: Additional parameters.
         """
-        super().__init__(job_id, **kwargs)
+        super().__init__(engine_id, **kwargs)
         self.python_callable = python_callable
         self.op_args = op_args or ()
         self.op_kwargs = op_kwargs or {}
@@ -466,7 +468,7 @@ class ContainerExecutionEngine(BaseExecutionEngine):
 
     Example:
         >>> engine = ContainerExecutionEngine(
-        ...     job_id='run_simulation',
+        ...     engine_id='run_simulation',
         ...     image='physics-sim:1.0',
         ...     command=['/app/run_sim.sh'],
         ...     environment={
@@ -486,7 +488,7 @@ class ContainerExecutionEngine(BaseExecutionEngine):
 
     def __init__(
         self,
-        job_id: str,
+        engine_id: str,
         image: str,
         command: Optional[List[str]] = None,
         environment: Optional[Dict[str, str]] = None,
@@ -497,7 +499,7 @@ class ContainerExecutionEngine(BaseExecutionEngine):
         """Initialize ContainerExecutionEngine.
 
         Args:
-            job_id: Task identifier.
+            engine_id: Task identifier.
             image: Docker image URI.
             command: Container command (overrides ENTRYPOINT).
             environment: Environment variables in container.
@@ -505,7 +507,7 @@ class ContainerExecutionEngine(BaseExecutionEngine):
             resources: Resource constraints.
             **kwargs: Additional parameters.
         """
-        super().__init__(job_id, **kwargs)
+        super().__init__(engine_id, **kwargs)
         self.image = image
         self.command = command
         self.environment = environment or {}
@@ -610,7 +612,7 @@ class StackExecutionEngine(BaseExecutionEngine):
 
     Example:
         >>> engine = StackExecutionEngine(
-        ...     job_id='run_simulation',
+        ...     engine_id='run_simulation',
         ...     stack_type='EpicStack',
         ...     layers=[
         ...         StackLayerConfig(
@@ -624,7 +626,7 @@ class StackExecutionEngine(BaseExecutionEngine):
 
     def __init__(
         self,
-        job_id: str,
+        engine_id: str,
         stack_type: str,
         layers: List[StackLayerConfig],
         **kwargs
@@ -632,11 +634,11 @@ class StackExecutionEngine(BaseExecutionEngine):
         """Initialize StackExecutionEngine
 
         Args:
-            job_id: Task identifier
+            engine_id: Task identifier
             stack_type: Which type of stack to use (e.g. 'EpicStack')
             layers: List of layers to run
         """
-        super().__init__(job_id, **kwargs)
+        super().__init__(engine_id, **kwargs)
         self.layers = layers
         self.stack_type = stack_type
         self.stack_class = StackRegistry.get_experimental_stack(self.stack_type)

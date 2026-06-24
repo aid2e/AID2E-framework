@@ -230,15 +230,15 @@ def example_configure_layers():
     cfg_rec = EpicLayerConfig(
         name = "rec",
         layer = "rec",
-        inputs = ["outputs[merge_rec_ana_stage:merge_rec_ana_job:ana_merge](0)"],
+        inputs = ["{{outputs[merge_rec_ana_stage:merge_rec_ana_job:ana_merge](0)}}"],
         outputs = ["{{execution_dir}}/central_photons.edm4eic.root"],
         arguments = ["-Pnthreads=8", "-Peicrecon:LogLevel=debug"],
     )
     cfg_ana_B = EpicLayerConfig(
         name = "ana_reso",
         layer = "ana",
-        inputs = ["outputs[merge_rec_ana_stage:merge_rec_ana_job:rec](0)"],
-        outputs = ["{{context.execution_dir}}/central_photon_phi_resolution.hist.root"],
+        inputs = ["{{outputs[merge_rec_ana_stage:merge_rec_ana_job:rec](0)}}"],
+        outputs = ["{{execution_dir}}/central_photon_phi_resolution.hist.root"],
         arguments = ["-c phi", "-s 22"],
         command = "scripts/bic_angular_reso.py",
         rule = "python {{command}} -i {{inputs}} -o {{outputs}} {{arguments}}",
@@ -314,7 +314,36 @@ def example_generate_driver(layers: List[EpicLayerConfig], configs: Tuple[Proble
     # add dummy inputs/outputs to xcom
     # for testing
     context.xcom = {
-        "test": "value", # TODO
+
+        # simulation jobs
+        "sim_stage:sim_job_0:sim_bin0:inputs": ["inputs/central_photons_bin0.py"],
+        "sim_stage:sim_job_0:sim_bin0:outputs": [f"{CONST['test_dir']}/central_photons_bin0.edm4hep.root"],
+        "sim_stage:sim_job_0:sim_bin0:arguments": [],
+        "sim_stage:sim_job_1:sim_bin1:inputs": ["inputs/central_photons_bin1.py"],
+        "sim_stage:sim_job_1:sim_bin1:outputs": [f"{CONST['test_dir']}/central_photons_bin1.edm4hep.root"],
+        "sim_stage:sim_job_1:sim_bin1:arguments": [],
+        "sim_stage:sim_job_2:sim_bin2:inputs": ["inputs/central_photons_bin2.py"],
+        "sim_stage:sim_job_2:sim_bin2:outputs": [f"{CONST['test_dir']}/central_photons_bin2.edm4hep.root"],
+        "sim_stage:sim_job_2:sim_bin2:arguments": [],
+
+        # merge layer
+        "merge_rec_ana_stage:merge_rec_ana_job:ana_merge:inputs": [
+            f"{CONST['test_dir']}/central_photons_bin0.edm4hep.root",
+            f"{CONST['test_dir']}/central_photons_bin1.edm4hep.root",
+            f"{CONST['test_dir']}/central_photons_bin2.edm4hep.root",
+        ],
+        "merge_rec_ana_stage:merge_rec_ana_job:ana_merge:outputs": [f"{CONST['test_dir']}/central_photons.edm4hep.root"],
+        "merge_rec_ana_stage:merge_rec_ana_job:ana_merge:arguments": [],
+
+        # reconstruction layer
+        "merge_rec_ana_stage:merge_rec_ana_job:rec:inputs": [f"{CONST['test_dir']}/central_photons.edm4hep.root"],
+        "merge_rec_ana_stage:merge_rec_ana_job:rec:outputs": [f"{CONST['test_dir']}/central_photons.edm4eic.root"],
+        "merge_rec_ana_stage:merge_rec_ana_job:rec:arguments": ["-Pnthreads=8", "-Peicrecon:LogLevel=debug"],
+
+        # analysis layer
+        "merge_rec_ana_stage:merge_rec_ana_job:ana_reso:inputs": [f"{CONST['test_dir']}/central_photons.edm4eic.root"],
+        "merge_rec_ana_stage:merge_rec_ana_job:ana_reso:outputs": [f"{CONST['test_dir']}/central_photons_phi_resolution.hist.root"],
+        "merge_rec_ana_stage:merge_rec_ana_job:ana_reso:arguments": ["-c phi", "-s 22"],
     }
 
     # make sure necessary environment variables are set

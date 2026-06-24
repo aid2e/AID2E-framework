@@ -689,8 +689,13 @@ class StackExecutionEngine(BaseExecutionEngine):
         # Do any preparations ahead of execution
         preparations = stack.prepare_for_execution(context = context)
 
-        # Substitute templates in each layer's inputs, outputs, args
-        self._apply_template_substitution(context)
+        # Substitute templates in each layer's inputs/outputs/args and
+        # push info to XCom for downstream tasks
+        for layer in self.layers:
+            self._apply_template_substitution(layer, context)
+            context.xcom_push(f'{layer.name}:inputs', layer.inputs)
+            context.xcom_push(f'{layer.name}:outputs', layer.outputs)
+            context.xcom_push(f'{layer.name}:arguments', layer.arguments)
 
         # Build driver script and command to run it
         driver = f"{context.execution_dir}/{self.engine_id}_driver.sh"
@@ -705,12 +710,6 @@ class StackExecutionEngine(BaseExecutionEngine):
         # Append script and command to context
         context.add_log(f"Driver script: {driver}")
         context.add_log(f"Driver command: {command}")
-
-        # push layer info to xcom for downstream access
-        for layer in self.layers:
-            context.xcom_push(f'{layer.name}:inputs', layer.inputs)
-            context.xcom_push(f'{layer.name}:outputs', layer.outputs)
-            context.xcom_push(f'{layer.name}:arguments', layer.arguments)
 
         # Try running command
         try:
@@ -727,7 +726,7 @@ class StackExecutionEngine(BaseExecutionEngine):
             if result.stderr:
                 context.add_log(f"STDERR:\n{result.stderr}")
 
-            # Push any output and layer info to XCom
+            # Push any output to XCom
             output = {
                 'stdout': result.stdout,
                 'stderr': result.stderr,
@@ -745,32 +744,32 @@ class StackExecutionEngine(BaseExecutionEngine):
             context.add_log(f"ERROR: {str(e)}")
             raise
 
-    def _apply_template_substitution(self, context: JobContext) -> None:
+    def _apply_template_substitution(self, layer: StackLayerConfig, context: JobContext) -> None:
         """
-        Apply template substitution to layer configs
+        Apply template substitutions to a layer config
 
         Args:
-            context: Task context
+            layer: The layer config to apply substitutions to
+            context: Context for the current job
         """
-        for layer in self.layers:
-            resolved_inputs = list()
-            for layer_input in layer.inputs:
-                layer_input = self._template.substitute(layer_input, context)
-                resolved_inputs.append(layer_input)
-            layer.inputs = resolved_inputs
+        resolved_inputs = list()
+        for layer_input in layer.inputs:
+            layer_input = self._template.substitute(layer_input, context)
+            resolved_inputs.append(layer_input)
+        layer.inputs = resolved_inputs
 
-            resolved_outputs = list()
-            for layer_output in layer.outputs:
-                layer_output = self._template.substitute(layer_output, context)
-                resolved_outputs.append(layer_output)
-            layer.outputs = resolved_outputs
+        resolved_outputs = list()
+        for layer_output in layer.outputs:
+            layer_output = self._template.substitute(layer_output, context)
+            resolved_outputs.append(layer_output)
+        layer.outputs = resolved_outputs
 
-            if layer.arguments is not None:
-                resolved_arguments = list()
-                for layer_argument in layer.arguments:
-                    layer_argument = self._template.substitute(layer_argument, context)
-                    resolved_arguments.append(layer_argument)
-                layer.arguments = resolved_arguments
+        if layer.arguments is not None:
+            resolved_arguments = list()
+            for layer_argument in layer.arguments:
+                layer_argument = self._template.substitute(layer_argument, context)
+                resolved_arguments.append(layer_argument)
+            layer.arguments = resolved_arguments
 
 
 __all__ = [

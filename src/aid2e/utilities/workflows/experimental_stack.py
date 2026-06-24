@@ -37,13 +37,13 @@ class StackLayer(ABC):
         name: Unique name for the layer.
         command: Command to be run (e.g. npsim)
         rule: Recipe for combining the command and provided arguments
-              using keywords, e.g. '{command} {arguments} {inputs} {outputs}'
+              using keywords, e.g. '{{command}} {{arguments}} {{inputs}} {{outputs}}'
 
     Example:
         >>> def ExperimentLayer(StackLayer):
         ...     name="sim"
         ...     command="npsim"
-        ...     rule='{command} {arguments} {inputs} {outputs}"
+        ...     rule='{{command}} {{arguments}} {{inputs}} {{outputs}}"
         >>> layer = ExperimentLayer()
         >>> run_layer = layer.make_command(
         ...     inputs,
@@ -127,16 +127,16 @@ class StackLayer(ABC):
         # format and sub in inputs/outputs
         in_arg = self._make_input_arg(inputs)
         out_arg = self._make_output_arg(outputs)
-        command = self.rule.replace('{command}', self.command)
-        command = command.replace('{inputs}', in_arg)
-        command = command.replace('{outputs}', out_arg)
+        command = self.rule.replace('{{command}}', self.command)
+        command = command.replace('{{inputs}}', in_arg)
+        command = command.replace('{{outputs}}', out_arg)
 
         # if needed, sub in any other arguments
         if arguments != None:
             other_arg = self._make_other_arg(arguments)
-            command = command.replace('{arguments}', other_arg)
+            command = command.replace('{{arguments}}', other_arg)
         else:
-            command = command.replace('{arguments}', '')
+            command = command.replace('{{arguments}}', '')
 
         # return formatted command without any
         # stray double spaces
@@ -152,7 +152,7 @@ class AnaLayer(StackLayer):
     Example:
         >>> layer = AnaLayer()
         >>> layer.command="do_my_analysis.py"
-        >>> layer.rule='{command} {arguments} -i {inputs} -o {outputs}'
+        >>> layer.rule='{{command}} {{arguments}} -i {{inputs}} -o {{outputs}}'
         >>> run_layer = layer.make_command(
         ...     inputs,
         ...     outputs,
@@ -190,7 +190,7 @@ class ExperimentStack(ABC):
         >>> def MySimLayer(StackLayer):
         ...     name="sim"
         ...     command="dosim"
-        ...     rule='{command} {arguments} -I {inputs} -O {outputs}'
+        ...     rule='{{command}} {{arguments}} -I {{inputs}} -O {{outputs}}'
         ... @dataclass
         >>> def MyExperimentStack(ExperimentStack):
         ...     sim: MySimLayer = field(default_factory = MySimLayer)

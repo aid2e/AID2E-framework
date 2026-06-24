@@ -40,6 +40,7 @@ from .execution_engine import (
 	PythonExecutionEngine,
 	ContainerExecutionEngine,
 	StackExecutionEngine,
+	Template
 )
 from .dag_executor import (
 	DAGExecutor,

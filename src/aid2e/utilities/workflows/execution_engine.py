@@ -693,7 +693,7 @@ class StackExecutionEngine(BaseExecutionEngine):
         self._apply_template_substitution(context)
 
         # Build driver script and command to run it
-        driver = f"{context.execution_dir}/{self.job_id}_driver.sh"
+        driver = f"{context.execution_dir}/{self.engine_id}_driver.sh"
         command = stack.make_driver_command(driver)
         stack.make_driver_script(
             script=driver,

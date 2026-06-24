@@ -27,12 +27,14 @@ Repository: https://github.com/aid2e/AID2E-framework.git
 """
 
 from abc import ABC, abstractmethod
+from ast import literal_eval
 from typing import Any, Callable, Dict, List, Optional
 from dataclasses import dataclass, field
 from functools import reduce
 import subprocess
 import json
 import os
+import re
 from pathlib import Path
 
 from aid2e.utilities.configurations.problem_config import (
@@ -200,13 +202,18 @@ class Template:
         - {{context.execution_dir}} → Current working directory
         - {{context.output_dir}} → Current output directory
         - {{context.geometry_dir}} → Geometry directory to use
+        - {{context.xcom[key]}} → Scalar XCom data with key `key` (e.g.
+            a return code with key `stage:job:returncode`)
+        - {{context.xcom[key](acc)}} → Non-scalar XCom data with XCom
+            key `key` and accessor `acc` (e.g. a list of inputs with
+            key `stage:job:sim:inputs`)
 
     Attributes:
         _substitutions: Dictionary of template variables onto lambdas
-                        to replace them.
+                        to replace them. Format is {'pattern': 'rule'}.
     """
     _substitutions = {
-        "{{design_point.{key}}}":
+        "{{design_point.key}}":
             (lambda text, context: reduce(lambda result, key: result.replace(f"{{{{design_point.{key[0]}}}}}", str(key[1])), context.design_point.items(), text)),
         "{{context.job_id}}":
             (lambda text, context: text.replace("{{context.job_id}}", str(context.job_id))),
@@ -226,6 +233,11 @@ class Template:
             (lambda text, context: text.replace("{{context.geometry_dir}}", str(context.workflow_context.parameters["prepared_geometry_dir"]))
             if context.workflow_context is not None and "prepared_geometry_dir" in context.workflow_context.parameters
             else text.replace("{{context.geometry_dir}}", "NotAvailable")),
+        "{{context.xcom[key]}}":
+            (lambda text, context:
+                re.sub(r"{{context.xcom\[(.*?)\]}}", lambda match: str(context.xcom[match.group(1)]), text)),
+        "{{context.xcom[key](acc)}}":
+            (lambda text, context: re.sub(r"{{context.xcom\[(.*?)\]\((.*?)\)}}", lambda match: str(context.xcom[match.group(1)][literal_eval(match.group(2))]), text)),
     }
 
     @classmethod

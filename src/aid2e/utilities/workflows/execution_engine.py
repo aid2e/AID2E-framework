@@ -202,11 +202,10 @@ class Template:
         - {{context.execution_dir}} → Current working directory
         - {{context.output_dir}} → Current output directory
         - {{context.geometry_dir}} → Geometry directory to use
-        - {{context.xcom[key]}} → Scalar XCom data with key `key` (e.g.
-            a return code with key `stage:job:returncode`)
-        - {{context.xcom[key](acc)}} → Non-scalar XCom data with XCom
-            key `key` and accessor `acc` (e.g. a list of inputs with
-            key `stage:job:sim:inputs`)
+        - {{context.artifacts[key]}} → Artifact path ID'd by `key`
+        - {{context.xcom[key]}} → Scalar XCom data ID'd by `key`
+        - {{context.xcom[key](acc)}} → Non-scalar XCom data ID'd by `key`,
+                                       accessed with `acc`
 
     Attributes:
         _substitutions: Dictionary of template variables onto lambdas
@@ -233,6 +232,9 @@ class Template:
             (lambda text, context: text.replace("{{context.geometry_dir}}", str(context.workflow_context.parameters["prepared_geometry_dir"]))
             if context.workflow_context is not None and "prepared_geometry_dir" in context.workflow_context.parameters
             else text.replace("{{context.geometry_dir}}", "NotAvailable")),
+        "{{context.xcom[key]}}":
+            (lambda text, context:
+                re.sub(r"{{context.artifacts\[(.*?)\]}}", lambda match: str(context.artifacts[match.group(1)]), text)),
         "{{context.xcom[key]}}":
             (lambda text, context:
                 re.sub(r"{{context.xcom\[(.*?)\]}}", lambda match: str(context.xcom[match.group(1)]), text)),

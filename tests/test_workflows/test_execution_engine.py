@@ -119,6 +119,9 @@ class TestTemplateSubstitutions:
                 'returncode': 9,
             },
         }
+        artifacts = {
+            'objective': '/output/here/objective.json',
+        }
         workflow_context = WorkflowSharedContext(
             workflow_id='workflow',
             parameters = {'prepared_geometry_dir': '/geo/here'},
@@ -139,6 +142,7 @@ class TestTemplateSubstitutions:
             workflow_id=workflow_context.workflow_id,
             design_point={'param_a': 'red', 'param_b': 'blue', 'param_c': 'green'},
             xcom=xcom,
+            artifacts=artifacts,
             execution_dir='/execute/here',
             output_dir='/output/here',
             stage_context=stage_context,
@@ -148,15 +152,17 @@ class TestTemplateSubstitutions:
         test_0 = "{{context.output_dir}}/out_{{design_point.param_a}}_{{design_point.param_b}}.root"
         test_1 = "{{context.execution_dir}}/{{context.branch_id}}_{{context.stage_id}}_{{context.job_id}}.log"
         test_2 = "{{context.geometry_dir}}/install/share/epic_{{context.workflow_id}}.xml"
-        test_3 = "{{context.xcom[upstream:job:metric]}}"
-        test_4 = "{{context.xcom[upstream:job:sim:inputs](1)}}"
-        test_5 = "{{context.xcom[upstream:job:return_value]('stdout')}}"
+        test_3 = "{{context.artifacts[objective]}}"
+        test_4 = "{{context.xcom[upstream:job:metric]}}"
+        test_5 = "{{context.xcom[upstream:job:sim:inputs](1)}}"
+        test_6 = "{{context.xcom[upstream:job:return_value]('stdout')}}"
         assert Template.substitute(test_0, job_context) == "/output/here/out_red_blue.root"
         assert Template.substitute(test_1, job_context) == "/execute/here/branch_stage_job.log"
         assert Template.substitute(test_2, job_context) == "/geo/here/install/share/epic_workflow.xml"
-        assert Template.substitute(test_3, job_context) == "9"
-        assert Template.substitute(test_4, job_context) == "in_1.root"
-        assert Template.substitute(test_5, job_context) == "Hello!"
+        assert Template.substitute(test_3, job_context) == "/output/here/objective.json"
+        assert Template.substitute(test_4, job_context) == "9"
+        assert Template.substitute(test_5, job_context) == "in_1.root"
+        assert Template.substitute(test_6, job_context) == "Hello!"
 
 
 class TestBashExecutionEngine:

@@ -202,10 +202,13 @@ class Template:
         - {{execution_dir}} → Current working directory
         - {{output_dir}} → Current output directory
         - {{geometry_dir}} → Geometry directory to use
-        - {{artifacts[key]}} → Artifact path ID'd by `key`
-        - {{xcom[key]}} → Scalar XCom data ID'd by `key`
-        - {{xcom[key](acc)}} → Non-scalar XCom data ID'd by `key`,
-                               accessed with `acc`
+        - {{artifacts[key]}} → Artifact path ID'd by key
+        - {{xcom[key]}} → Scalar XCom data ID'd by key
+        - {{xcom[key](acc)}} → Non-scalar XCom data ID'd by key,
+                               accessed with acc
+        - {{inputs[key](acc)}} → Stack layer input acc, ID'd by key
+        - {{outputs[key](acc}} → Stack layer output acc, ID'd by key
+        - {{arguments[key](acc}} → Stack layer argument acc, ID'd by key
 
     Attributes:
         _substitutions: Dictionary of template variables onto lambdas
@@ -240,6 +243,12 @@ class Template:
                 re.sub(r"{{xcom\[(.*?)\]}}", lambda match: str(context.xcom[match.group(1)]), text)),
         "{{xcom[key](acc)}}":
             (lambda text, context: re.sub(r"{{xcom\[(.*?)\]\((.*?)\)}}", lambda match: str(context.xcom[match.group(1)][literal_eval(match.group(2))]), text)),
+        "{{inputs[key](acc)}}":
+            (lambda text, context: re.sub(r"{{inputs\[(.*?)\]\((.*?)\)}}", lambda match: str(context.xcom[match.group(1) + ':inputs'][literal_eval(match.group(2))]), text)),
+        "{{outputs[key](acc)}}":
+            (lambda text, context: re.sub(r"{{outputs\[(.*?)\]\((.*?)\)}}", lambda match: str(context.xcom[match.group(1) + ':outputs'][literal_eval(match.group(2))]), text)),
+        "{{arguments[key](acc)}}":
+            (lambda text, context: re.sub(r"{{arguments\[(.*?)\]\((.*?)\)}}", lambda match: str(context.xcom[match.group(1) + ':arguments'][literal_eval(match.group(2))]), text)),
     }
 
     @classmethod

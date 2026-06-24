@@ -195,17 +195,17 @@ class Template:
 
     Supports:
         - {{design_point.key}} → Value for design parameter with name `key`
-        - {{context.job_id}} → Name of current job
-        - {{context.stage_id}} → Name of current stage
-        - {{context.branch_id}} → Name of current branch
-        - {{context.workflow_id}} → Name of workflow
-        - {{context.execution_dir}} → Current working directory
-        - {{context.output_dir}} → Current output directory
-        - {{context.geometry_dir}} → Geometry directory to use
-        - {{context.artifacts[key]}} → Artifact path ID'd by `key`
-        - {{context.xcom[key]}} → Scalar XCom data ID'd by `key`
-        - {{context.xcom[key](acc)}} → Non-scalar XCom data ID'd by `key`,
-                                       accessed with `acc`
+        - {{job_id}} → Name of current job
+        - {{stage_id}} → Name of current stage
+        - {{branch_id}} → Name of current branch
+        - {{workflow_id}} → Name of workflow
+        - {{execution_dir}} → Current working directory
+        - {{output_dir}} → Current output directory
+        - {{geometry_dir}} → Geometry directory to use
+        - {{artifacts[key]}} → Artifact path ID'd by `key`
+        - {{xcom[key]}} → Scalar XCom data ID'd by `key`
+        - {{xcom[key](acc)}} → Non-scalar XCom data ID'd by `key`,
+                               accessed with `acc`
 
     Attributes:
         _substitutions: Dictionary of template variables onto lambdas
@@ -214,32 +214,32 @@ class Template:
     _substitutions = {
         "{{design_point.key}}":
             (lambda text, context: reduce(lambda result, key: result.replace(f"{{{{design_point.{key[0]}}}}}", str(key[1])), context.design_point.items(), text)),
-        "{{context.job_id}}":
-            (lambda text, context: text.replace("{{context.job_id}}", str(context.job_id))),
-        "{{context.stage_id}}":
-            (lambda text, context: text.replace("{{context.stage_id}}", str(context.stage_id))),
-        "{{context.branch_id}}":
-            (lambda text, context: text.replace("{{context.branch_id}}", str(context.stage_context.branch_context.branch_id))
+        "{{job_id}}":
+            (lambda text, context: text.replace("{{job_id}}", str(context.job_id))),
+        "{{stage_id}}":
+            (lambda text, context: text.replace("{{stage_id}}", str(context.stage_id))),
+        "{{branch_id}}":
+            (lambda text, context: text.replace("{{branch_id}}", str(context.stage_context.branch_context.branch_id))
              if context.stage_context is not None and context.stage_context.branch_context is not None
-             else text.replace("{{context.branch_id}}", "NotAvailable")),
-        "{{context.workflow_id}}":
-            (lambda text, context: text.replace("{{context.workflow_id}}", str(context.workflow_id))),
-        "{{context.execution_dir}}":
-            (lambda text, context: text.replace("{{context.execution_dir}}", str(context.execution_dir))),
-        "{{context.output_dir}}":
-            (lambda text, context: text.replace("{{context.output_dir}}", str(context.output_dir))),
-        "{{context.geometry_dir}}":
-            (lambda text, context: text.replace("{{context.geometry_dir}}", str(context.workflow_context.parameters["prepared_geometry_dir"]))
+             else text.replace("{{branch_id}}", "NotAvailable")),
+        "{{workflow_id}}":
+            (lambda text, context: text.replace("{{workflow_id}}", str(context.workflow_id))),
+        "{{execution_dir}}":
+            (lambda text, context: text.replace("{{execution_dir}}", str(context.execution_dir))),
+        "{{output_dir}}":
+            (lambda text, context: text.replace("{{output_dir}}", str(context.output_dir))),
+        "{{geometry_dir}}":
+            (lambda text, context: text.replace("{{geometry_dir}}", str(context.workflow_context.parameters["prepared_geometry_dir"]))
             if context.workflow_context is not None and "prepared_geometry_dir" in context.workflow_context.parameters
-            else text.replace("{{context.geometry_dir}}", "NotAvailable")),
-        "{{context.xcom[key]}}":
+            else text.replace("{{geometry_dir}}", "NotAvailable")),
+        "{{artifacts[key]}}":
             (lambda text, context:
-                re.sub(r"{{context.artifacts\[(.*?)\]}}", lambda match: str(context.artifacts[match.group(1)]), text)),
-        "{{context.xcom[key]}}":
+                re.sub(r"{{artifacts\[(.*?)\]}}", lambda match: str(context.artifacts[match.group(1)]), text)),
+        "{{xcom[key]}}":
             (lambda text, context:
-                re.sub(r"{{context.xcom\[(.*?)\]}}", lambda match: str(context.xcom[match.group(1)]), text)),
-        "{{context.xcom[key](acc)}}":
-            (lambda text, context: re.sub(r"{{context.xcom\[(.*?)\]\((.*?)\)}}", lambda match: str(context.xcom[match.group(1)][literal_eval(match.group(2))]), text)),
+                re.sub(r"{{xcom\[(.*?)\]}}", lambda match: str(context.xcom[match.group(1)]), text)),
+        "{{xcom[key](acc)}}":
+            (lambda text, context: re.sub(r"{{xcom\[(.*?)\]\((.*?)\)}}", lambda match: str(context.xcom[match.group(1)][literal_eval(match.group(2))]), text)),
     }
 
     @classmethod

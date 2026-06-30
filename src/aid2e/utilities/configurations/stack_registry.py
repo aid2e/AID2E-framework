@@ -47,7 +47,7 @@ class StackRegistry:
         return cls._env_configs[name]
 
     @classmethod
-    def get_env_loader(cls, nmae: str) -> Type[Any]:
+    def get_env_loader(cls, name: str) -> Type[Any]:
         """Get the environment config loader for a stack."""
         if name not in cls._env_configs:
             raise KeyError(f"Stack config loader not registered: {name}")
@@ -61,7 +61,7 @@ class StackRegistry:
         return cls._design_configs[name]
 
     @classmethod
-    def get_design_loader(cls, nmae: str) -> Type[Any]:
+    def get_design_loader(cls, name: str) -> Type[Any]:
         """Get the design config loader for a stack."""
         if name not in cls._design_configs:
             raise KeyError(f"Stack config loader not registered: {name}")

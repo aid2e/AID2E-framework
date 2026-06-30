@@ -23,7 +23,7 @@ def test_design_config_loader_with_fixture():
     """Load canonical design.params fixture and validate parameters and constraints."""
     design_path = _fixture_dir() / "design.params"
 
-    config = DesignConfigLoader.load(str(design_path))
+    config = DesignConfigLoader.load(file_path=str(design_path))
 
     names = config.get_parameter_names()
     assert "DTLZ2_variables.x1" in names
@@ -201,7 +201,7 @@ def test_design_loader_rejects_legacy_design_constraints(tmp_path):
     )
 
     with pytest.raises(ValueError, match="design_constraints"):
-        DesignConfigLoader.load(str(config_path))
+        DesignConfigLoader.load(file_path=str(config_path))
 
 
 def test_problem_loader_rejects_legacy_problem_type_and_minimize_keys(tmp_path):

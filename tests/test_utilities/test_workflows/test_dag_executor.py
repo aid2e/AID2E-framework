@@ -198,7 +198,7 @@ class TestEvaluatorSelection:
         evaluator = executor._create_evaluator(job, "test_job_id")
         
         assert isinstance(evaluator, BashEvaluator)
-        assert evaluator.job_id == "test_job_id"
+        assert evaluator.engine_id == "test_job_id"
         assert evaluator.bash_command == "echo 'test'"
     
     def test_container_evaluator_selection(self, tmp_path):
@@ -396,9 +396,14 @@ class TestEndToEndExecution:
         # Should have executed 2 jobs (from job_factory n=2)
         assert len(executor.global_xcom) >= 2
         
-        # Check output directory exists
+        # Check output directories exists
         assert executor.output_dir.exists()
-        assert (executor.output_dir / "jobs").exists()
+        assert (executor.output_dir / "evaluate").exists()
+        assert any((executor.output_dir / "evaluate").iterdir())
+
+        # Confirm that 2 job directories were created
+        job_dirs = list((executor.output_dir / "evaluate").glob("eval_job_*"))
+        assert len(job_dirs) == 2
 
 
 # Pytest fixtures

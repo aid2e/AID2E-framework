@@ -37,7 +37,7 @@ def test_canonical_full_config_loads(tmp_path):
                                     }
                                 }
                             },
-                            "parameter_constraints:": [
+                            "parameter_constraints": [
                                 {"name": "bound", "rule": "group.x <= 1.0"}
                             ]
                         }

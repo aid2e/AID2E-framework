@@ -261,7 +261,7 @@ class ProblemConfigLoader:
         for stack, components in StackRegistry.list_registered_stacks().items():
             design_loader = components['design_loader']
             if design_loader.space_key in design_data:
-                design_config = design_loader.load(design_data)
+                design_config = design_loader.load(design_data=design_data)
                 use_stack_design = True
                 break
 

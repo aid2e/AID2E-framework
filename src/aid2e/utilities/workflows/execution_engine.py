@@ -1,5 +1,4 @@
 """ExecutionEngine for DAG-based workflow execution.
-
 ExecutionEngines are the smallest executable units in a workflow. They encapsulate
 the logic to execute a specific job type (bash command, Python function,
 Docker container, etc). Each execution engine runs within a JobContext and can
@@ -28,11 +27,14 @@ Repository: https://github.com/aid2e/AID2E-framework.git
 """
 
 from abc import ABC, abstractmethod
+from ast import literal_eval
 from typing import Any, Callable, Dict, List, Optional
 from dataclasses import dataclass, field
+from functools import reduce
 import subprocess
 import json
 import os
+import re
 from pathlib import Path
 
 from aid2e.utilities.configurations.problem_config import (
@@ -45,10 +47,19 @@ from aid2e.utilities.configurations.stack_registry import StackRegistry
 
 from .experimental_stack import ExperimentStack
 
+
 @dataclass
 class WorkflowSharedContext:
-    """Context shared across all jobs of one workflow execution."""
+    """Context shared across all jobs of one workflow execution.
+
+    Attributes:
+        workflow_id: Unique workflow identifier.
+        parameters: Parameters available to all branches, stages, and
+                    jobs in this workflow.
+    """
+    workflow_id: str
     parameters: Dict[str, Any] = field(default_factory=dict)
+
 
 @dataclass
 class BranchContext:
@@ -65,7 +76,7 @@ class BranchContext:
 @dataclass
 class StageContext:
     """Context for parameters shared across all jobs in a stage.
-    
+
     Attributes:
         stage_id: Unique stage identifier.
         parameters: Parameters available to all jobs in this stage.
@@ -84,7 +95,9 @@ class JobContext:
     Enables data flow between jobs in a workflow.
     
     Attributes:
-        job_id: Unique job identifier within a stage.
+        task_id: Key encoding stage, job ID. Used in XCom,
+                 formatted as {stage_id}:{job_id}
+        job_id: Unique job identifier.
         stage_id: Parent stage identifier.
         workflow_id: Root workflow identifier.
         design_point: Input design point (optimizer output).
@@ -97,6 +110,7 @@ class JobContext:
                         dependent design space
         workflow_context: Shared workflow context (optional).
     """
+    task_id: str
     job_id: str
     stage_id: str
     workflow_id: str
@@ -110,35 +124,51 @@ class JobContext:
     problem_config: Optional[ProblemConfiguration] = None
     workflow_context: Optional[WorkflowSharedContext] = None
 
+    def xcom_key(self, key: str, task_id: str) -> str:
+        """Get xcom key for a given job, stage
+
+        Args:
+            key: XCom key (e.g. 'return_value', 'metrics').
+            task_id: Unique ID of job + stage (e.g. 'sim_stage:sim_job')
+
+        Returns:
+            Key formatted as task_id:key
+        """
+        return f"{task_id}:{key}"
+
     def xcom_push(self, key: str, value: Any) -> None:
         """Push data to XCom for downstream jobs.
-        
+
+        Data stored in a dictionary with the format:
+
+            {'task_id:key': data}
+
         Args:
-            key: XCom key (e.g., 'return_value', 'metrics').
+            key: XCom data key (e.g., 'return_value', 'metrics').
             value: Data to push (any serializable type).
-            
+
         Example:
             >>> context.xcom_push('objectives', {'f1': 0.5, 'f2': 0.3})
         """
-        xcom_key = f"{self.job_id}:{key}"
+        xcom_key = self.xcom_key(key, self.task_id)
         self.xcom[xcom_key] = value
-    
-    def xcom_pull(self, job_id: str, key: str = 'return_value') -> Any:
+
+    def xcom_pull(self, task_id: str, key: str = 'return_value') -> Any:
         """Pull data from upstream job's XCom.
-        
+
         Args:
-            job_id: Upstream job ID.
-            key: XCom key (default 'return_value').
-            
+            task_id: Upstream job key
+            key: XCom data key (optional, default is 'return_value').
+
         Returns:
             Data pushed by upstream job, or None if not found.
-            
+
         Example:
             >>> params = context.xcom_pull('prepare_params', key='params')
         """
-        xcom_key = f"{job_id}:{key}"
+        xcom_key = self.xcom_key(key, task_id)
         return self.xcom.get(xcom_key)
-    
+
     def add_log(self, message: str) -> None:
         """Add a log message.
         
@@ -160,6 +190,81 @@ class JobContext:
         self.artifacts[artifact_key] = artifact_path
 
 
+class Template:
+    """class for common template substitutions
+
+    Supports:
+        - {{design_point.key}} → Value for design parameter with name `key`
+        - {{job_id}} → Name of current job
+        - {{stage_id}} → Name of current stage
+        - {{branch_id}} → Name of current branch
+        - {{workflow_id}} → Name of workflow
+        - {{execution_dir}} → Current working directory
+        - {{output_dir}} → Current output directory
+        - {{geometry_dir}} → Geometry directory to use
+        - {{artifacts[key]}} → Artifact path ID'd by key
+        - {{xcom[key]}} → Scalar XCom data ID'd by key
+        - {{xcom[key](acc)}} → Non-scalar XCom data ID'd by key,
+                               accessed with acc
+        - {{inputs[key](acc)}} → Stack layer input acc, ID'd by key
+        - {{outputs[key](acc}} → Stack layer output acc, ID'd by key
+        - {{arguments[key](acc}} → Stack layer argument acc, ID'd by key
+
+    Attributes:
+        _substitutions: Dictionary of template variables onto lambdas
+                        to replace them. Format is {'pattern': 'rule'}.
+    """
+    _substitutions = {
+        "{{design_point.key}}":
+            (lambda text, context: reduce(lambda result, key: result.replace(f"{{{{design_point.{key[0]}}}}}", str(key[1])), context.design_point.items(), text)),
+        "{{job_id}}":
+            (lambda text, context: text.replace("{{job_id}}", str(context.job_id))),
+        "{{stage_id}}":
+            (lambda text, context: text.replace("{{stage_id}}", str(context.stage_id))),
+        "{{branch_id}}":
+            (lambda text, context: text.replace("{{branch_id}}", str(context.stage_context.branch_context.branch_id))
+             if context.stage_context is not None and context.stage_context.branch_context is not None
+             else text.replace("{{branch_id}}", "NotAvailable")),
+        "{{workflow_id}}":
+            (lambda text, context: text.replace("{{workflow_id}}", str(context.workflow_id))),
+        "{{execution_dir}}":
+            (lambda text, context: text.replace("{{execution_dir}}", str(context.execution_dir))),
+        "{{output_dir}}":
+            (lambda text, context: text.replace("{{output_dir}}", str(context.output_dir))),
+        "{{geometry_dir}}":
+            (lambda text, context: text.replace("{{geometry_dir}}", str(context.workflow_context.parameters["prepared_geometry_dir"]))
+            if context.workflow_context is not None and "prepared_geometry_dir" in context.workflow_context.parameters
+            else text.replace("{{geometry_dir}}", "NotAvailable")),
+        "{{artifacts[key]}}":
+            (lambda text, context:
+                re.sub(r"{{artifacts\[(.*?)\]}}", lambda match: str(context.artifacts[match.group(1)]), text)),
+        "{{xcom[key]}}":
+            (lambda text, context:
+                re.sub(r"{{xcom\[(.*?)\]}}", lambda match: str(context.xcom[match.group(1)]), text)),
+        "{{xcom[key](acc)}}":
+            (lambda text, context: re.sub(r"{{xcom\[(.*?)\]\((.*?)\)}}", lambda match: str(context.xcom[match.group(1)][literal_eval(match.group(2))]), text)),
+        "{{inputs[key](acc)}}":
+            (lambda text, context: re.sub(r"{{inputs\[(.*?)\]\((.*?)\)}}", lambda match: str(context.xcom[match.group(1) + ':inputs'][literal_eval(match.group(2))]), text)),
+        "{{outputs[key](acc)}}":
+            (lambda text, context: re.sub(r"{{outputs\[(.*?)\]\((.*?)\)}}", lambda match: str(context.xcom[match.group(1) + ':outputs'][literal_eval(match.group(2))]), text)),
+        "{{arguments[key](acc)}}":
+            (lambda text, context: re.sub(r"{{arguments\[(.*?)\]\((.*?)\)}}", lambda match: str(context.xcom[match.group(1) + ':arguments'][literal_eval(match.group(2))]), text)),
+    }
+
+    @classmethod
+    def substitute(cls, text: str, context: JobContext) -> str:
+        """Apply template substitutions
+
+        Args:
+            text: The text to apply substitution to
+            context: JobContext holding job, stage, branch, and workflow info
+        """
+        result = text
+        for template, substitution in cls._substitutions.items():
+            result = substitution(result, context)
+        return result
+
+
 class BaseExecutionEngine(ABC):
     """Base class for all execution engines.
     
@@ -168,20 +273,21 @@ class BaseExecutionEngine(ABC):
     a specific type of work (shell command, Python function, container, etc).
     
     Attributes:
-        job_id: Unique task identifier.
+        engine_id: Unique identifier.
         params: Task parameters (executor-dependent).
     """
-    
-    def __init__(self, job_id: str, **kwargs):
+    _template = Template
+
+    def __init__(self, engine_id: str, **kwargs):
         """Initialize execution engine.
         
         Args:
-            job_id: Unique identifier for this task.
+            engine_id: Unique identifier for this task
             **kwargs: Execution engine-specific parameters.
         """
-        self.job_id = job_id
+        self.engine_id = engine_id
         self.params = kwargs
-    
+
     @abstractmethod
     def execute(self, context: JobContext) -> Any:
         """Execute the engine.
@@ -194,7 +300,7 @@ class BaseExecutionEngine(ABC):
         5. Use context.save_artifact() to register outputs
         
         Args:
-            context: Task execution context (XCom, logs, artifacts).
+            context: Operation execution context (XCom, logs, artifacts).
             
         Returns:
             Result of execution (any serializable type).
@@ -203,59 +309,59 @@ class BaseExecutionEngine(ABC):
     
     def __repr__(self) -> str:
         """String representation of execution engine."""
-        return f"{self.__class__.__name__}(job_id='{self.job_id}')"
+        return f"{self.__class__.__name__}(engine_id='{self.engine_id}')"
 
 
 class BashExecutionEngine(BaseExecutionEngine):
     """Execute a bash shell command.
-    
+
     Executes arbitrary shell commands, capturing stdout/stderr.
     Supports template variable substitution in bash_command and env.
-    
+
     Attributes:
         bash_command: Bash command to execute.
         env: Environment variables (optional).
-        
+
     Example:
-        >epic/scripts/bic_angular_reso.py>> engine = BashExecutionEngine(
-        ...     job_id='run_sim',
+        >>> engine = BashExecutionEngine(
+        ...     engine_id='run_sim',
         ...     bash_command='python scripts/simulate.py --input {input_file}',
         ...     env={'PYTHONUNBUFFERED': '1'}
         ... )
         >>> result = engine.execute(context)
     """
-    
-    def __init__(self, job_id: str, bash_command: str, env: Optional[Dict[str, str]] = None, **kwargs):
+
+    def __init__(self, engine_id: str, bash_command: str, env: Optional[Dict[str, str]] = None, **kwargs):
         """Initialize BashExecutionEngine.
-        
+
         Args:
-            job_id: Task identifier.
+            engine_id: Task identifier.
             bash_command: Command to execute (supports template variables).
             env: Environment variables.
             **kwargs: Additional parameters.
         """
-        super().__init__(job_id, **kwargs)
+        super().__init__(engine_id, **kwargs)
         self.bash_command = bash_command
         self.env = env or {}
-    
+
     def execute(self, context: JobContext) -> Dict[str, Any]:
         """Execute bash command.
-        
+
         Args:
             context: Task context.
-            
+
         Returns:
             Dict with 'stdout', 'stderr', 'returncode'.
-            
+
         Raises:
             RuntimeError: If command fails (returncode != 0).
         """
         try:
             # Template substitution (simple string formatting)
-            command = self._substitute_templates(self.bash_command, context)
-            
+            command = self._template.substitute(self.bash_command, context)
+
             context.add_log(f"Executing bash command: {command}")
-            
+
             # Execute command
             result = subprocess.run(
                 command,
@@ -265,13 +371,13 @@ class BashExecutionEngine(BaseExecutionEngine):
                 env={**os.environ, **self.env} if self.env else None,
                 cwd=context.execution_dir
             )
-            
+
             # Log output
             if result.stdout:
                 context.add_log(f"STDOUT:\n{result.stdout}")
             if result.stderr:
                 context.add_log(f"STDERR:\n{result.stderr}")
-            
+
             # Push results to XCom
             output = {
                 'stdout': result.stdout,
@@ -279,51 +385,28 @@ class BashExecutionEngine(BaseExecutionEngine):
                 'returncode': result.returncode
             }
             context.xcom_push('return_value', output)
-            
+
             if result.returncode != 0:
                 raise RuntimeError(f"Command failed with code {result.returncode}")
-            
+
             return output
-            
+
         except Exception as e:
             context.add_log(f"ERROR: {str(e)}")
             raise
-    
-    def _substitute_templates(self, text: str, context: JobContext) -> str:
-        """Simple template variable substitution.
-        
-        Supports:
-        - {design_point.key} → from context.design_point
-        - {xcom.job_id.key} → from context.xcom
-        
-        Args:
-            text: Text with template variables.
-            context: Task context.
-            
-        Returns:
-            Text with variables substituted.
-        """
-        # Simple implementation; extend as needed
-        result = text
-        
-        # Substitute design point variables
-        for key, value in context.design_point.items():
-            result = result.replace(f"{{design_point.{key}}}", str(value))
-        
-        return result
 
 
 class PythonExecutionEngine(BaseExecutionEngine):
     """Execute a Python callable (function).
-    
+
     Executes a Python function with optional arguments.
     The function receives the JobContext as first argument.
-    
+
     Attributes:
         python_callable: Function to execute.
         op_args: Positional arguments to function.
         op_kwargs: Keyword arguments to function.
-        
+
     Example:
         >>> def compute_metrics(context, threshold=0.5):
         ...     data = context.xcom_pull('upstream_task', 'data')
@@ -332,22 +415,22 @@ class PythonExecutionEngine(BaseExecutionEngine):
         ...     return result
         >>> 
         >>> engine = PythonExecutionEngine(
-        ...     job_id='compute',
+        ...     engine_id='compute',
         ...     python_callable=compute_metrics,
         ...     op_kwargs={'threshold': 0.7}
         ... )
     """
-    
+
     def __init__(
         self,
-        job_id: str,
+        engine_id: str,
         python_callable: Callable,
         op_args: Optional[tuple] = None,
         op_kwargs: Optional[Dict[str, Any]] = None,
         **kwargs
     ):
         """Initialize PythonExecutionEngine.
-        
+
         Args:
             job_id: Task identifier.
             python_callable: Function to execute.
@@ -355,36 +438,36 @@ class PythonExecutionEngine(BaseExecutionEngine):
             op_kwargs: Keyword arguments.
             **kwargs: Additional parameters.
         """
-        super().__init__(job_id, **kwargs)
+        super().__init__(engine_id, **kwargs)
         self.python_callable = python_callable
         self.op_args = op_args or ()
         self.op_kwargs = op_kwargs or {}
-    
+
     def execute(self, context: JobContext) -> Any:
         """Execute Python function.
-        
+
         Args:
             context: Task context (passed as first argument to callable).
-            
+
         Returns:
             Function return value.
-            
+
         Raises:
             Exception: Any exception raised by the function.
         """
         try:
             context.add_log(f"Executing Python callable: {self.python_callable.__name__}")
-            
+
             # Call function with context as first argument
             result = self.python_callable(context, *self.op_args, **self.op_kwargs)
-            
+
             context.add_log(f"Function returned: {result}")
-            
+
             # Push return value to XCom
             context.xcom_push('return_value', result)
-            
+
             return result
-            
+
         except Exception as e:
             context.add_log(f"ERROR: {str(e)}")
             raise
@@ -392,23 +475,23 @@ class PythonExecutionEngine(BaseExecutionEngine):
 
 class ContainerExecutionEngine(BaseExecutionEngine):
     """Execute a Docker container.
-    
+
     Runs a Docker image with specified parameters. Supports:
     - Environment variables
     - Volume mounts
     - Resource limits
     - Container command override
-    
+
     Attributes:
         image: Docker image URI (e.g., 'python:3.10', 'ghcr.io/user/sim:latest').
         command: Container command override (optional).
         environment: Environment variables to pass into container.
         volumes: Volume mounts ({host_path: container_path}).
         resources: Resource constraints (memory, cpus, etc).
-        
+
     Example:
         >>> engine = ContainerExecutionEngine(
-        ...     job_id='run_simulation',
+        ...     engine_id='run_simulation',
         ...     image='physics-sim:1.0',
         ...     command=['/app/run_sim.sh'],
         ...     environment={
@@ -425,10 +508,10 @@ class ContainerExecutionEngine(BaseExecutionEngine):
         ...     }
         ... )
     """
-    
+
     def __init__(
         self,
-        job_id: str,
+        engine_id: str,
         image: str,
         command: Optional[List[str]] = None,
         environment: Optional[Dict[str, str]] = None,
@@ -437,9 +520,9 @@ class ContainerExecutionEngine(BaseExecutionEngine):
         **kwargs
     ):
         """Initialize ContainerExecutionEngine.
-        
+
         Args:
-            job_id: Task identifier.
+            engine_id: Task identifier.
             image: Docker image URI.
             command: Container command (overrides ENTRYPOINT).
             environment: Environment variables in container.
@@ -447,33 +530,33 @@ class ContainerExecutionEngine(BaseExecutionEngine):
             resources: Resource constraints.
             **kwargs: Additional parameters.
         """
-        super().__init__(job_id, **kwargs)
+        super().__init__(engine_id, **kwargs)
         self.image = image
         self.command = command
         self.environment = environment or {}
         self.volumes = volumes or {}
         self.resources = resources or {}
-    
+
     def execute(self, context: JobContext) -> Dict[str, Any]:
         """Execute Docker container.
-        
+
         Args:
             context: Task context.
-            
+
         Returns:
             Dict with 'container_id', 'stdout', 'stderr', 'returncode'.
-            
+
         Raises:
             RuntimeError: If docker run fails.
         """
         try:
             context.add_log(f"Running Docker container: {self.image}")
-            
+
             # Build docker run command
             docker_cmd = self._build_docker_command(context)
-            
+
             context.add_log(f"Docker command: {docker_cmd}")
-            
+
             # Execute docker command
             result = subprocess.run(
                 docker_cmd,
@@ -482,13 +565,13 @@ class ContainerExecutionEngine(BaseExecutionEngine):
                 text=True,
                 cwd=context.execution_dir
             )
-            
+
             # Log output
             if result.stdout:
                 context.add_log(f"STDOUT:\n{result.stdout}")
             if result.stderr:
                 context.add_log(f"STDERR:\n{result.stderr}")
-            
+
             # Extract container ID from output (if available)
             output = {
                 'stdout': result.stdout,
@@ -497,16 +580,16 @@ class ContainerExecutionEngine(BaseExecutionEngine):
                 'image': self.image
             }
             context.xcom_push('return_value', output)
-            
+
             if result.returncode != 0:
                 raise RuntimeError(f"Docker container failed with code {result.returncode}")
-            
+
             return output
-            
+
         except Exception as e:
             context.add_log(f"ERROR: {str(e)}")
             raise
-    
+
     def _build_docker_command(self, context: JobContext) -> str:
         """Build docker run command.
         
@@ -521,49 +604,27 @@ class ContainerExecutionEngine(BaseExecutionEngine):
         # Add environment variables
         for key, value in self.environment.items():
             # Template substitution for environment values
-            value_resolved = self._substitute_templates(value, context)
+            value_resolved = self._template.substitute(value, context)
             cmd_parts.append(f'-e {key}={value_resolved}')
-        
+
         # Add volume mounts
         for host_path, container_path in self.volumes.items():
             cmd_parts.append(f'-v {host_path}:{container_path}')
-        
+
         # Add resource constraints
         if 'memory' in self.resources:
             cmd_parts.append(f'-m {self.resources["memory"]}')
         if 'cpus' in self.resources:
             cmd_parts.append(f'--cpus {self.resources["cpus"]}')
-        
+
         # Add image
         cmd_parts.append(self.image)
-        
+
         # Add command override
         if self.command:
             cmd_parts.extend(self.command)
-        
+
         return ' '.join(cmd_parts)
-    
-    def _substitute_templates(self, text: str, context: JobContext) -> str:
-        """Template variable substitution.
-        
-        Supports:
-        - {design_point.key}
-        - {xcom.job_id.key}
-        
-        Args:
-            text: Text with templates.
-            context: Task context.
-            
-        Returns:
-            Text with variables substituted.
-        """
-        result = text
-        
-        # Substitute design point variables
-        for key, value in context.design_point.items():
-            result = result.replace(f"{{design_point.{key}}}", str(value))
-        
-        return result
 
 
 class StackExecutionEngine(BaseExecutionEngine):
@@ -574,7 +635,7 @@ class StackExecutionEngine(BaseExecutionEngine):
 
     Example:
         >>> engine = StackExecutionEngine(
-        ...     job_id='run_simulation',
+        ...     engine_id='run_simulation',
         ...     stack_type='EpicStack',
         ...     layers=[
         ...         StackLayerConfig(
@@ -588,7 +649,7 @@ class StackExecutionEngine(BaseExecutionEngine):
 
     def __init__(
         self,
-        job_id: str,
+        engine_id: str,
         stack_type: str,
         layers: List[StackLayerConfig],
         **kwargs
@@ -596,11 +657,11 @@ class StackExecutionEngine(BaseExecutionEngine):
         """Initialize StackExecutionEngine
 
         Args:
-            job_id: Task identifier
+            engine_id: Task identifier
             stack_type: Which type of stack to use (e.g. 'EpicStack')
             layers: List of layers to run
         """
-        super().__init__(job_id, **kwargs)
+        super().__init__(engine_id, **kwargs)
         self.layers = layers
         self.stack_type = stack_type
         self.stack_class = StackRegistry.get_experimental_stack(self.stack_type)
@@ -614,21 +675,30 @@ class StackExecutionEngine(BaseExecutionEngine):
             context: Task context.
 
         Returns:
-            Dict with 'stdout', 'stderr', 'returncode'.
+            Dict with 'stdout', 'stderr', 'returncode'
 
         Raises:
             RuntimeError: If execution fails
+
+        Note:
+            Layer inputs, outputs, and arguments are pushed
+            to XCom for retrieval downstream.
         """
         stack = self.stack_class()
 
         # Do any preparations ahead of execution
         preparations = stack.prepare_for_execution(context = context)
 
-        # Substitute templates in each layer's inputs, outputs, args
-        self._apply_template_substitution(context)
+        # Substitute templates in each layer's inputs/outputs/args and
+        # push info to XCom for downstream tasks
+        for layer in self.layers:
+            self._apply_template_substitution(layer, context)
+            context.xcom_push(f'{layer.name}:inputs', layer.inputs)
+            context.xcom_push(f'{layer.name}:outputs', layer.outputs)
+            context.xcom_push(f'{layer.name}:arguments', layer.arguments)
 
         # Build driver script and command to run it
-        driver = f"{context.execution_dir}/{self.job_id}_driver.sh"
+        driver = f"{context.execution_dir}/{self.engine_id}_driver.sh"
         command = stack.make_driver_command(driver)
         stack.make_driver_script(
             script=driver,
@@ -648,7 +718,6 @@ class StackExecutionEngine(BaseExecutionEngine):
                 shell=True,
                 capture_output=True,
                 text=True,
-                cwd=context.execution_dir
             )
 
             # Log output
@@ -675,69 +744,42 @@ class StackExecutionEngine(BaseExecutionEngine):
             context.add_log(f"ERROR: {str(e)}")
             raise
 
-    def _apply_template_substitution(self, context: JobContext) -> None:
+    def _apply_template_substitution(self, layer: StackLayerConfig, context: JobContext) -> None:
         """
-        Apply template substitution to layer configs
+        Apply template substitutions to a layer config
 
         Args:
-            context: Task context
+            layer: The layer config to apply substitutions to
+            context: Context for the current job
         """
-        for layer in self.layers:
-            resolved_inputs = list()
-            for layer_input in layer.inputs:
-                layer_input = self._substitute_templates(layer_input, context)
-                resolved_inputs.append(layer_input)
-            layer.inputs = resolved_inputs
+        resolved_inputs = list()
+        for layer_input in layer.inputs:
+            layer_input = self._template.substitute(layer_input, context)
+            resolved_inputs.append(layer_input)
+        layer.inputs = resolved_inputs
 
-            resolved_outputs = list()
-            for layer_output in layer.outputs:
-                layer_output = self._substitute_templates(layer_output, context)
-                resolved_outputs.append(layer_output)
-            layer.outputs = resolved_outputs
+        resolved_outputs = list()
+        for layer_output in layer.outputs:
+            layer_output = self._template.substitute(layer_output, context)
+            resolved_outputs.append(layer_output)
+        layer.outputs = resolved_outputs
 
-            if layer.arguments is not None:
-                resolved_arguments = list()
-                for layer_argument in layer.arguments:
-                    layer_argument = self._substitute_templates(layer_argument, context)
-                    resolved_arguments.append(layer_argument)
-                layer.arguments = resolved_arguments
-
-    def _substitute_templates(self, text: str, context: JobContext) -> str:
-        """Simple template variable substitution.
-        
-        Supports:
-        - {design_point.key} → from context.design_point
-        - {job_id} → from context
-        - {context.execution_dir} → from context
-        
-        Args:
-            text: Text with template variables.
-            context: Task context.
-            
-        Returns:
-            Text with variables substituted.
-        """
-        result = text
-        result = result.replace("{{context.job_id}}", str(context.job_id))
-        result = result.replace("{{context.execution_dir}}", str(context.execution_dir))
-        if "{{context.geometry_dir}}" in result:
-            if context.workflow_context is None or "prepared_geometry_dir" not in context.workflow_context.parameters:
-                raise RuntimeError("{{context.geometry_dir}} requires prepared_geometry_dir in workflow context")
-            result = result.replace(
-                "{{context.geometry_dir}}",
-                str(context.workflow_context.parameters["prepared_geometry_dir"]),
-            )
-        for key, value in context.design_point.items():
-            result = result.replace(f"{{design_point.{key}}}", str(value))
-        return result
+        if layer.arguments is not None:
+            resolved_arguments = list()
+            for layer_argument in layer.arguments:
+                layer_argument = self._template.substitute(layer_argument, context)
+                resolved_arguments.append(layer_argument)
+            layer.arguments = resolved_arguments
 
 
 __all__ = [
     'BranchContext',
     'StageContext',
     'JobContext',
+    'Template',
     'BaseExecutionEngine',
     'BashExecutionEngine',
     'PythonExecutionEngine',
     'ContainerExecutionEngine',
+    'StackExecutionEngine'
 ]

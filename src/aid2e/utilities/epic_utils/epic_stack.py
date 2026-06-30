@@ -29,7 +29,7 @@ class EpicGeoLayer(StackLayer):
     """Geometry layer of ePIC stack"""
     name = "geo"
     command = "checkOverlaps"
-    rule = '{command} {arguments} -c {inputs} {outputs}'
+    rule = '{{command}} {{arguments}} -c {{inputs}} {{outputs}}'
 
     def _make_input_arg(self, inputs: List[str]) -> str:
         """
@@ -75,7 +75,7 @@ class EpicSimLayer(StackLayer):
     """Simulation layer of ePIC stack"""
     name = "sim"
     command = "npsim"
-    rule = '{command} --compactFile $DETECTOR_PATH/$DETECTOR_CONFIG.xml {arguments} {inputs} {outputs}'
+    rule = '{{command}} --compactFile $DETECTOR_PATH/$DETECTOR_CONFIG.xml {{arguments}} {{inputs}} {{outputs}}'
 
     def _make_input_arg(self, inputs: List[str]) -> str:
         """
@@ -115,7 +115,7 @@ class EpicRecLayer(StackLayer):
     """Reconstruction layer of ePIC stack"""
     name = "rec"
     command = "eicrecon"
-    rule = '{command} {arguments} {outputs} {inputs}'
+    rule = '{{command}} {{arguments}} {{outputs}} {{inputs}}'
 
     def _make_input_arg(self, inputs: List[str]) -> str:
         """

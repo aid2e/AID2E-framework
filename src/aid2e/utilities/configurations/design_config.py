@@ -559,7 +559,7 @@ class DesignConfigLoader:
             - File not found errors include full resolved path in message.
         """
         if not Path(file_path).exists():
-            raise FileNotFoundError(f"Design parameters file not found: {full_path}")
+            raise FileNotFoundError(f"Design parameters file not found: {file_path}")
 
         payload = None
         with open(file_path, 'r') as f:
@@ -568,7 +568,7 @@ class DesignConfigLoader:
         return payload
 
     @classmethod
-    def _process_inputs(cls, design_data: Dict[str, Any] = None, file_path: str = None) -> Dict[str, Any]:
+    def _process_inputs(cls, file_path: str = None, design_data: Dict[str, Any] = None) -> Dict[str, Any]:
         """Process inputs to load
 
         Either loads a configuration file and extracts design space config,
@@ -576,8 +576,8 @@ class DesignConfigLoader:
         the extracted design space config as a dictionary.
 
         Args:
-            design_data: Loaded data stored in a dictionary
             file_path: Path to the YAML design config file
+            design_data: Loaded data stored in a dictionary
 
         Returns:
             Extracted data as dictionary mapping keys onto parameter groups and,
@@ -619,21 +619,21 @@ class DesignConfigLoader:
         return data
 
     @staticmethod
-    def load(design_data: Dict[str, Any] = None, file_path: str = None) -> "DesignConfig":
+    def load(file_path: str = None, design_data: Dict[str, Any] = None) -> "DesignConfig":
         """Load design configuration.
 
         Args:
-            design_data: Loaded data stored in a dictionary
             file_path: Path to the YAML design config file.
                        Should be resolved ahead of time.
+            design_data: Loaded data stored in a dictionary
 
         Returns:
             DesignConfig instance ready for use in optimization workflows.
 
         Example:
-            >>> config = DesignConfigLoader.load('examples/design.yml')
+            >>> config = DesignConfigLoader.load(file_path='examples/design.yml')
             >>> print(config.get_parameter_names())
             >>> is_valid, failures = config.validate_constraints({...})
         """
-        data = DesignConfigLoader._process_inputs(design_data, file_path)
+        data = DesignConfigLoader._process_inputs(file_path, design_data)
         return DesignConfig(**data)

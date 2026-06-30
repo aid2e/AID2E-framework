@@ -4,59 +4,13 @@ dRICH optimization utilities and AID2E workflow components.
 
 import json
 import re
-import shutil
-import xml.etree.ElementTree as ET
 from pathlib import Path
 
 import numpy as np
 import uncertainties
 
 from aid2e.utilities.configurations import ObjectiveDirection, load_config, load_raw_config
-from aid2e.utilities.workflows import modify_xml_files
 
-
-
-def prepare_trial_geometry(epic_install, epic_config, trial_tag, design, design_point):
-    """Create trial ePIC/dRICH XML files and apply optimizer-selected edits."""
-
-    epic_dir = Path(epic_install)
-    drich_dir = epic_dir / "compact" / "pid"
-    trial_epic_xml = epic_dir / f"{epic_config}_{trial_tag}.xml"
-    trial_drich_xml = drich_dir / f"drich_{trial_tag}.xml"
-
-    shutil.copyfile(epic_dir / f"{epic_config}.xml", trial_epic_xml)
-    shutil.copyfile(drich_dir / "drich.xml", trial_drich_xml)
-
-    epic_tree = ET.parse(trial_epic_xml)
-    for include in epic_tree.getroot().findall(".//include"):
-        if include.get("ref") == "${DETECTOR_PATH}/compact/pid/drich.xml":
-            include.set("ref", f"${{DETECTOR_PATH}}/compact/pid/drich_{trial_tag}.xml")
-            break
-    epic_tree.write(trial_epic_xml)
-
-    if hasattr(design, "get_xml_modifications"):
-        modifications = design.get_xml_modifications(design_point)
-    else:
-        modifications = {str(trial_drich_xml): []}
-        for name, parameter in design.get_flat_parameters().items():
-            if name not in design_point or not hasattr(parameter, "xml_path"):
-                continue
-            modifications[str(trial_drich_xml)].append(
-                (
-                    parameter.xml_path.replace("/[@", "[@"),
-                    getattr(parameter, "attribute", None) or getattr(parameter, "element", "value"),
-                    parameter.unit or "",
-                    design_point[name],
-                )
-            )
-
-    modify_xml_files(
-        {
-            str(trial_drich_xml) if Path(src_file).name == "drich.xml" else src_file: parameters
-            for src_file, parameters in modifications.items()
-        }
-    )
-    return trial_epic_xml, trial_drich_xml
 
 
 def build_sim_arguments(npart, point, particle):

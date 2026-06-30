@@ -35,10 +35,11 @@ problem:
   # AID2E ePIC environment configuration
   # ===========================================================================
   epic_environment:
-    epic_install: "/hpc/group/vossenlab/cn95/AIDE/AID2E-framework/eic-software"
+    epic_install: "./work/eic-software"
     epic_config: "epic_craterlake"
-    eic_shell: "/hpc/group/vossenlab/cn95/AIDE/AID2E-framework/eic-shell"
-    eic_recon_install: "/hpc/group/vossenlab/cn95/AIDE/AID2E-framework/eic-software/share/epic/local"
+    geometry_mode: "no_build"
+    eic_shell: "./work/eic-shell"
+    eic_recon_install: "./work/eic-software/share/epic/local"
 
   # pipeline configuration
   # ===========================================================================

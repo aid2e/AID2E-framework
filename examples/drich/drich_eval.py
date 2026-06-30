@@ -17,12 +17,13 @@ from drich_utils import (
     build_sim_arguments,
     collect_objectives,
     load_drich_config,
-    prepare_trial_geometry,
 )
 
 
 # Stage runner
 def run_stack_job(job, context):
+    workflow_context = WorkflowSharedContext()
+    workflow_context.parameters["prepared_geometry_dir"] = str(context["prepared_geometry_dir"])
     job_context = JobContext(
         job_id=context["run_name"],
         stage_id=context["stage"],
@@ -31,7 +32,7 @@ def run_stack_job(job, context):
         execution_dir=str(context["output_root"]),
         output_dir=str(context["output_root"]),
         problem_config=context["problem"],
-        workflow_context=WorkflowSharedContext(),
+        workflow_context=workflow_context,
     )
 
     try:
@@ -58,15 +59,6 @@ def run_geo(context):
     overlap_log = context["overlap_log"]
     penalty_file = context["penalty_file"]
     penalty_file.unlink(missing_ok=True)
-
-    enviro = context["problem"].environment_config
-    prepare_trial_geometry(
-        Path(enviro.epic_install) / "share" / "epic",
-        enviro.epic_config,
-        context["trial_tag"],
-        context["problem"].design_config,
-        context["design_point"],
-    )
 
     overlap_job = EpicJobDefinition(
         name="drich_geo",
@@ -160,7 +152,7 @@ def run_stack(context, layer_names):
     return {"ok": 1.0}
 
 
-def evaluate_design_point(design_point, trial_index, output_dir, config_path, stage, job_index):
+def evaluate_design_point(design_point, trial_index, output_dir, config_path, stage, job_index, prepared_geometry_dir=None):
     config_path, cfg, eval_config = load_drich_config(config_path)
     output_root = Path(output_dir).resolve()
     log_dir = output_root / "log"
@@ -191,6 +183,8 @@ def evaluate_design_point(design_point, trial_index, output_dir, config_path, st
 
     if stage != "geo" and penalty_file.exists():
         return {"ok": 1.0}
+    if prepared_geometry_dir is None:
+        raise ValueError("--prepared-geometry-dir is required for dRICH stack stages")
 
     layer_names = stage.split("_")
     if stage != "geo" and not all(layer_name in {"sim", "rec", "ana"} for layer_name in layer_names):
@@ -222,7 +216,8 @@ def evaluate_design_point(design_point, trial_index, output_dir, config_path, st
         "run_name": run_name,
         "results_dir": results_dir,
         "sim_dir": sim_dir,
-        "trial_epic_xml_ref": f"${{DETECTOR_PATH}}/${{DETECTOR_CONFIG}}_{trial_tag}.xml",
+        "prepared_geometry_dir": Path(prepared_geometry_dir),
+        "trial_epic_xml_ref": "${DETECTOR_PATH}/${DETECTOR_CONFIG}.xml",
         "overlap_log": overlaps_dir / f"overlap_log_{trial_tag}.txt",
         "penalty_file": penalty_file,
     }
@@ -238,6 +233,7 @@ def main(argv=None):
     parser.add_argument("--config-path", required=True)
     parser.add_argument("--stage", required=True)
     parser.add_argument("--job-index", type=int, default=0)
+    parser.add_argument("--prepared-geometry-dir")
     args = parser.parse_args(argv)
 
     output_root = Path(args.output_dir)
@@ -249,6 +245,7 @@ def main(argv=None):
         args.config_path,
         args.stage,
         args.job_index,
+        args.prepared_geometry_dir,
     )
 
     if args.stage == "retrieve_results":

@@ -41,22 +41,21 @@ def build_trial_workflow(cfg, config_path, eval_config, output_root, trial_index
     trial_tag = f"{trial_index:03d}"
     result_json = output_root / "log" / "results" / f"drich-out_{trial_tag}.json"
 
-    def worker_command(stage_name, job_index=None):
+    def worker_command():
+        return " ".join(shlex.quote(part) for part in [sys.executable, str(Path(__file__).with_name("drich_eval.py"))])
+
+    def worker_rule(include_job_index):
         parts = [
-            sys.executable,
-            str(Path(__file__).with_name("drich_eval.py")),
-            "--stage",
-            stage_name,
-            "--trial-index",
-            str(trial_index),
-            "--output-dir",
-            str(output_root),
-            "--config-path",
-            str(config_path),
+            "{command}",
+            "--stage {stage_id}",
+            f"--trial-index {trial_index}",
+            f"--output-dir {shlex.quote(str(output_root))}",
+            f"--config-path {shlex.quote(str(config_path))}",
+            "--prepared-geometry-dir {prepared_geometry_dir}",
         ]
-        if job_index is not None:
-            parts.extend(["--job-index", str(job_index)])
-        return " ".join(shlex.quote(part) for part in parts)
+        if include_job_index:
+            parts.append("--job-index {payload[job_index]}")
+        return " ".join(parts)
 
     # dRICH subjob counts depend on scan points and particles
     def job_count(stage_name):
@@ -72,7 +71,9 @@ def build_trial_workflow(cfg, config_path, eval_config, output_root, trial_index
         jobs = [
             JobDefinition(
                 name=f"drich_{source.name}_{job_index}" if count > 1 else f"drich_{source.name}",
-                command=worker_command(source.name, job_index if count > 1 else None),
+                command=worker_command(),
+                rule=worker_rule(count > 1),
+                payload={"job_index": job_index} if count > 1 else {},
                 resources=dict(source.scheduler.parameters) if source.scheduler else {},
                 outputs=outputs,
             )
@@ -82,6 +83,7 @@ def build_trial_workflow(cfg, config_path, eval_config, output_root, trial_index
 
     return WorkflowDefinition(
         name=f"drich_trial_{trial_tag}",
+        stack_type="epic",
         branches=[BranchDefinition(name="main", stages=[make_stage(stage) for stage in source_stages])],
         objectives=[],
     )

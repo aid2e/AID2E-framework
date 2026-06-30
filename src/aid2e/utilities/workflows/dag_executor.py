@@ -610,6 +610,7 @@ class DAGExecutor:
             "design_point": job_context.design_point,
             "design_file": design_file,
             "repo_root": str(Path(__file__).resolve().parents[4]),
+            "prepared_geometry_dir": self.workflow_context.parameters.get("prepared_geometry_dir"),
             "stage_outputs": {},
             "xcom": self.global_xcom,
         }

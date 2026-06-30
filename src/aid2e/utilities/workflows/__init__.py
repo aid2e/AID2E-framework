@@ -31,6 +31,7 @@ from aid2e.utilities.configurations.workflow_config import (
 )
 from .execution_utils import build_objective_call
 from .execution_engine import (
+	WorkflowSharedContext,
 	BranchContext,
 	StageContext,
 	JobContext,
@@ -74,6 +75,7 @@ __all__ = [
 	"topological_sort",
 	"detect_cycles",
 	# ExecutionEngines and Contexts
+	"WorkflowSharedContext",
 	"BranchContext",
 	"StageContext",
 	"JobContext",

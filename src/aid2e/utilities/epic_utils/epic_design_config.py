@@ -4,7 +4,7 @@ ePIC-specific design configuration. Extends the base
 DesignConfig from the configurations module.
 """
 
-from typing import Dict, List, Optional, Tuple, Union, Any
+from typing import ClassVar, Dict, List, Optional, Tuple, Union, Any
 from pydantic import BaseModel, Field, RootModel, model_validator
 from pathlib import Path
 import yaml
@@ -12,7 +12,7 @@ import os
 import re
 
 from aid2e.utilities.configurations.base_models import BaseParameter, RangeParameter, ChoiceParameter
-from aid2e.utilities.configurations.design_config import DesignConfig, ParameterConstraint
+from aid2e.utilities.configurations.design_config import DesignConfig, DesignConfigLoader, ParameterConstraint
 
 
 class EpicRangeParameter(RangeParameter):
@@ -55,7 +55,10 @@ class EpicParameterGroup(BaseModel):
 
 
 class EpicDesignParameters(RootModel[Dict[str, EpicParameterGroup]]):
-    """Collection of ePIC parameter groups."""
+    """
+    Collection of ePIC parameter groups.
+    """
+    key: ClassVar[str] = 'epic_design_parameters'
 
     @model_validator(mode="before")
     @classmethod
@@ -83,8 +86,8 @@ class EpicDesignConfig(DesignConfig):
     # Override to use ePIC-specific parameters
     design_parameters: Optional[Any] = None  # Set to None to avoid conflicts
     epic_design_parameters: EpicDesignParameters
-    optimization_groups: Optional[Dict[str, List[str]]] = Field(default_factory=dict)
-    
+    key: ClassVar[str] = 'epic_design_space'
+
     def get_flat_parameters(self) -> Dict[str, BaseParameter]:
         """Returns a flat dictionary of all parameters keyed by their qualified name."""
         flat = {}
@@ -113,7 +116,7 @@ class EpicDesignConfig(DesignConfig):
             param_values = {name: param.value for name, param in self.get_flat_parameters().items()}
         
         modifications = {}
-        
+
         for group_name, group in self.epic_design_parameters.root.items():
             # Expand environment variables in file path
             file_path = os.path.expandvars(group.file_path)
@@ -137,48 +140,24 @@ class EpicDesignConfig(DesignConfig):
     def get_file_paths(self) -> List[str]:
         """Get all unique file paths referenced in the configuration."""
         return list(set(
-            os.path.expandvars(group.file_path) 
+            os.path.expandvars(group.file_path)
             for group in self.epic_design_parameters.root.values()
         ))
-    
-    def get_optimization_group(self, group_name: str) -> Optional[List[str]]:
-        """Get parameter names for a specific optimization group."""
-        return self.optimization_groups.get(group_name) if self.optimization_groups else None
-    
-    def get_all_optimization_groups(self) -> Dict[str, List[str]]:
-        """Get all optimization groups."""
-        return self.optimization_groups or {}
 
 
-class EpicDesignConfigLoader:
+class EpicDesignConfigLoader(DesignConfigLoader):
     """
-    Loader for ePIC design configurations.
-    Loads YAML files and instantiates EpicDesignConfig objects.
+    Loader for ePIC design configurations. Can load either from
+    external files or inline YAML blocks. instantiates EpicDesignConfig
+    objects.
     """
-    
+    space_key = EpicDesignConfig.key
+    param_key = EpicDesignParameters.key
+
     @staticmethod
-    def load(file_path: str) -> "EpicDesignConfig":
+    def load(design_data: Dict[str, Any] = None, file_path: str = None) -> "EpicDesignConfig":
         """
-        Load an ePIC design configuration from a YAML file.
-        
-        Args:
-            file_path: Path to the YAML configuration file
-            
-        Returns:
-            EpicDesignConfig instance
-            
-        Raises:
-            FileNotFoundError: If the file doesn't exist
-            ValueError: If the file format is invalid
+        Load an ePIC design configuration.
         """
-        path = Path(file_path)
-        if not path.exists():
-            raise FileNotFoundError(f"Configuration file not found: {file_path}")
-        
-        with open(path, 'r') as f:
-            data = yaml.safe_load(f)
-        
-        if 'epic_design_parameters' not in data:
-            raise ValueError(f"Invalid configuration file format: {file_path}. Missing 'epic_design_parameters'.")
-        
+        data = EpicDesignConfigLoader._process_inputs(design_data, file_path)
         return EpicDesignConfig(**data)

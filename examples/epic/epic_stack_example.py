@@ -34,6 +34,7 @@ from aid2e.utilities.workflows import (
     DAGExecutor,
     JobContext,
     modify_xml_files,
+    WorkflowSharedContext,
 )
 
 # constants
@@ -41,45 +42,49 @@ CONST = {
     "test_dir" : "epic_example_test",
     "exec_dir" : "epic_example_exec",
     "design"   : {
-        "epic_design_parameters" : {
-            "bic" : {
-                "file_path" : "compact/ecal/bic_default.xml",
-                "parameters" : {
-                    "EcalBarrel_enable_staves_2" : {
-                        "value"     : 0,
-                        "choices"   : (0, 1),
-                        "xml_path"  : ".//constant[@name='EcalBarrel_enable_staves_2']",
-                        "attribute" : "value",
-                        "unit"      : "",
+        "epic_design_space" : {
+            "epic_design_parameters" : {
+                "bic" : {
+                    "file_path" : "compact/ecal/bic_default.xml",
+                    "parameters" : {
+                        "EcalBarrel_enable_staves_2" : {
+                            "value"     : 0,
+                            "choices"   : (0, 1),
+                            "xml_path"  : ".//constant[@name='EcalBarrel_enable_staves_2']",
+                            "attribute" : "value",
+                            "unit"      : "",
+                        },
+                        "EcalBarrel_enable_staves_4" : {
+                            "value"     : 1,
+                            "choices"   : (0, 1),
+                            "xml_path"  : ".//constant[@name='EcalBarrel_enable_staves_4']",
+                            "attribute" : "value",
+                            "unit"      : "",
+                        },
+                        "EcalBarrel_enable_staves_6" : {
+                            "value"     : 1,
+                            "choices"   : (0, 1),
+                            "xml_path"  : ".//constant[@name='EcalBarrel_enable_staves_6']",
+                            "attribute" : "value",
+                            "unit"      : "",
+                        }
                     },
-                    "EcalBarrel_enable_staves_4" : {
-                        "value"     : 1,
-                        "choices"   : (0, 1),
-                        "xml_path"  : ".//constant[@name='EcalBarrel_enable_staves_4']",
-                        "attribute" : "value",
-                        "unit"      : "",
-                    },
-                    "EcalBarrel_enable_staves_6" : {
-                        "value"     : 1,
-                        "choices"   : (0, 1),
-                        "xml_path"  : ".//constant[@name='EcalBarrel_enable_staves_6']",
-                        "attribute" : "value",
-                        "unit"      : "",
-                    }
-                },
-            }
-        },
-        "optimization_groups" : {"default" : [
-            "bic.EcalBarrel_enable_staves_2",
-            "bic.EcalBarrel_enable_staves_4",
-            "bic.EcalBarrel_enable_staves_6"
-        ]},
+                }
+            },
+            "optimization_groups" : {"default" : [
+                "bic.EcalBarrel_enable_staves_2",
+                "bic.EcalBarrel_enable_staves_3",
+                "bic.EcalBarrel_enable_staves_4",
+                "bic.EcalBarrel_enable_staves_5",
+                "bic.EcalBarrel_enable_staves_6"
+            ]},
+        }
     },
     "enviro" : {
         "epic_environment" : {
             "epic_install" : "epic_example_test/epic",
             "epic_config"  : "epic",
-            "eic_shell"    : "/path/to/my/eic-shell",
+            "eic_shell"    : "/home/dereka/.bin/eic-shell",
         },
     },
 }
@@ -88,6 +93,7 @@ CONST = {
 # =============================================================================
 # Do template substitution
 # =============================================================================
+
 def substitute_templates(layers: List[EpicLayerConfig], context: JobContext):
     """Apply template substitutes (parallels StackExecutionEngie._apply_template_substitution)"""
 
@@ -150,11 +156,12 @@ def setup():
 # =============================================================================
 # Example 0: Modify ePIC geometry
 # =============================================================================
+
 def example_modify_geometry():
     """Modify ePIC geometry"""
 
     # hard code path to compact file for testing
-    design = CONST["design"]
+    design = CONST["design"]["epic_design_space"]
     design["epic_design_parameters"]["bic"]["file_path"] = f"{CONST['test_dir']}/epic/compact/ecal/bic_default.xml"
 
     # set up design configruation and generate
@@ -183,7 +190,7 @@ def example_configure_layers():
     #       during execution
     cfg_geo = EpicLayerConfig(
         name = "geo",
-        inputs = ["{{context.execution_dir}}/epic/install/share/epic/epic.xml"],
+        inputs = ["{{context.geometry_dir}}/install/share/epic/epic.xml"],
         outputs = ["{{context.execution_dir}}/epic_geo.overlaps.txt"],
     )
     cfg_sim_A = EpicLayerConfig(
@@ -236,9 +243,10 @@ def example_configure_layers():
 # =============================================================================
 # Example 2: Instantiate Configurations and Context
 # =============================================================================
+
 def example_make_configs_and_context():
 
-    design = EpicDesignConfig(**CONST['design'])
+    design = EpicDesignConfig(**CONST['design']['epic_design_space'])
     enviro = EpicEnvConfig(**CONST['enviro']['epic_environment'])
     print(f"  -- Created design and environment configs:\n    design = {design}\n    enviro = {enviro}")
 
@@ -271,6 +279,7 @@ def example_make_configs_and_context():
         logs = [f"{CONST['test_dir']}/make_test_driver.log"],
         execution_dir =  f"{CONST['test_dir']}",
         problem_config = problem,
+        workflow_context = WorkflowSharedContext(),
     )
 
     print(f"  -- Created JobContext:\n    context = {context}")
@@ -287,6 +296,10 @@ def example_generate_driver(layers: List[EpicLayerConfig], configs: Tuple[Proble
     # grab context and instantiate an ePIC stack
     context = configs[1]
     epic_stack = EpicStack()
+
+    # add a dummy prepared geometry directory
+    # to workflow_context for testing
+    context.workflow_context.parameters["prepared_geometry_dir"] = CONST["enviro"]["epic_environment"]["epic_install"]
 
     # make sure necessary environment variables are set
     context.problem_config.environment_config.activate()
@@ -423,6 +436,7 @@ def example_run_script(layers: List[EpicLayerConfig], configs: Tuple[ProblemConf
         description = "An ePIC pipeline: check geometry → run simulations → run reco + ana",
         branches = [branch],
         objectives = [],
+        stack_type = 'epic',
     )
     print(f"  -- Defined workflow:\n    {branch}\n    {workflow}")
 

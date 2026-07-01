@@ -1,7 +1,7 @@
 """Rule resolution and payload validation for job execution.
 
-Implements template-based command construction (aligned with experimental_stack.py)
-and payload validation for conditional job execution.
+Implements template-based command construction and payload
+validation for conditional job execution.
 
 Project: AID2E v0.0.0 - AI assisted Detector Design for EIC
 Homepage: https://aid2e.github.io/aid2e-framework
@@ -30,15 +30,15 @@ def resolve_payload_templates(
     logger: Optional[ExecutionLogger] = None
 ) -> Dict[str, Any]:
     """Resolve template variables in payload dict.
-    
+
     Recursively processes payload dict, replacing template variables with
     context values. Supports nested dicts and lists.
-    
+
     Template Variables:
-    - {job_id}: Job index
-    - {output_dir}: Stage output directory
-    - {stage_outputs[stage_name]}: Output path from previous stage
-    - {input_design_params}: Design parameters file path
+    - {{job_id}}: Job name
+    - {{output_dir}}: Job output directory
+    - {{stage_outputs[stage_name]}}: Output path from previous stage
+    - {{input_design_params}}: Design parameters file path
     
     Args:
         payload: Payload dict potentially containing template variables
@@ -53,9 +53,9 @@ def resolve_payload_templates(
     
     Example:
         >>> payload = {
-        ...     "input_file": "{input_design_params}",
-        ...     "output_dir": "{output_dir}",
-        ...     "job_id": "{job_id}"
+        ...     "input_file": "{{input_design_params}}",
+        ...     "output_dir": "{{output_dir}}",
+        ...     "job_id": "{{job_id}}"
         ... }
         >>> context = {
         ...     "input_design_params": "/path/to/design.params",
@@ -114,7 +114,7 @@ def _resolve_template_string(
     """Resolve a single template string.
     
     Args:
-        template: Template string (e.g., "{input_design_params}")
+        template: Template string (e.g., "{{input_design_params}}")
         context: Runtime context
         logger: Optional logger
     
@@ -124,8 +124,8 @@ def _resolve_template_string(
     Raises:
         RuleResolutionError: If variable is undefined
     """
-    # Find all template variables: {var_name} or {dict[key]}
-    pattern = r'\{([^}]+)\}'
+    # Find all template variables: {{var_name}} or {{dict[key]}}
+    pattern = r'\{\{([^}]+)\}\}'
     variables = re.findall(pattern, template)
     
     result = template
@@ -135,7 +135,7 @@ def _resolve_template_string(
         if value is None:
             raise RuleResolutionError(f"Undefined template variable: {{{var}}}")
         
-        result = result.replace(f"{{{var}}}", str(value))
+        result = result.replace(f"{{{{var}}}}", str(value))
     
     return result
 
@@ -197,9 +197,9 @@ def resolve_job_rule(
     Implements experimental_stack.py StackLayer pattern for command construction.
     
     Rule Template Variables:
-    - {command}: Job command
-    - {payload[key]}: Value from resolved payload
-    - {job_id}, {output_dir}, etc.: Context variables
+    - {{command}}: Job command
+    - {{payload[key]}}: Value from resolved payload
+    - {{job_id}}, {{output_dir}}, etc.: Context variables
     
     Args:
         job: JobDefinition with command and optional rule
@@ -216,8 +216,8 @@ def resolve_job_rule(
         >>> job = JobDefinition(
         ...     name="test",
         ...     command="python compute.py",
-        ...     rule="{command} {payload[input]} {payload[output]}",
-        ...     payload={"input": "{input_design_params}", "output": "{output_dir}"}
+        ...     rule="{{command}} {{payload[input]}} {{payload[output]}}",
+        ...     payload={"input": "{{input_design_params}}", "output": "{{output_dir}}"}
         ... )
         >>> context = {
         ...     "input_design_params": "/data/design.params",
@@ -239,7 +239,7 @@ def resolve_job_rule(
     resolved_payload = resolve_payload_templates(job.payload, context, logger)
     
     # Step 2: Determine rule (use default if not specified)
-    rule = job.rule or "{command}"
+    rule = job.rule or "{{command}}"
     
     if logger:
         logger.log_debug("Using rule template", context={"rule": rule})
@@ -284,7 +284,7 @@ def resolve_job_rule(
 def _substitute_rule_template(rule: str, context: Dict[str, Any]) -> str:
     """Substitute variables in rule template.
     
-    Handles {command}, {payload[key]}, and other context variables.
+    Handles {{command}}, {{payload[key]}}, and other context variables.
     
     Args:
         rule: Rule template string
@@ -296,15 +296,15 @@ def _substitute_rule_template(rule: str, context: Dict[str, Any]) -> str:
     result = rule
     
     # Find all template variables: {var_name} or {dict[key]}
-    pattern = r'\{([^}]+)\}'
+    pattern = r'\{\{([^}]+)\}\}'
     variables = re.findall(pattern, rule)
     
     for var in variables:
         value = _get_context_value(var, context)
         if value is None:
-            raise ValueError(f"Undefined variable in rule: {{{var}}}")
+            raise ValueError(f"Undefined variable in rule: {{{{var}}}}")
         
-        result = result.replace(f"{{{var}}}", str(value))
+        result = result.replace(f"{{var}}", str(value))
     
     # Clean up multiple spaces
     result = re.sub(r'\s+', ' ', result).strip()

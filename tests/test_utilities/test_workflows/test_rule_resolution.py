@@ -31,7 +31,7 @@ class TestPayloadTemplateResolution:
     
     def test_simple_string_template(self):
         """Test resolving simple string template."""
-        payload = {"input": "{input_design_params}"}
+        payload = {"input": "{{input_design_params}}"}
         context = {"input_design_params": "/path/to/design.params"}
         
         resolved = resolve_payload_templates(payload, context)
@@ -40,9 +40,9 @@ class TestPayloadTemplateResolution:
     def test_multiple_templates_in_payload(self):
         """Test multiple template variables in payload."""
         payload = {
-            "input_file": "{input_design_params}",
-            "output_dir": "{output_dir}",
-            "job_id": "{job_id}"
+            "input_file": "{{input_design_params}}",
+            "output_dir": "{{output_dir}}",
+            "job_id": "{{job_id}}"
         }
         context = {
             "input_design_params": "/data/design.params",
@@ -59,7 +59,7 @@ class TestPayloadTemplateResolution:
         """Test resolving templates in nested dicts."""
         payload = {
             "metadata": {
-                "input": "{input_design_params}",
+                "input": "{{input_design_params}}",
                 "version": "1.0"
             }
         }
@@ -82,7 +82,7 @@ class TestPayloadTemplateResolution:
     
     def test_undefined_template_variable(self):
         """Test error handling for undefined template variables."""
-        payload = {"input": "{undefined_variable}"}
+        payload = {"input": "{{undefined_variable}}"}
         context = {}
         
         with pytest.raises(RuleResolutionError):
@@ -91,7 +91,7 @@ class TestPayloadTemplateResolution:
     def test_dict_access_template(self):
         """Test dict[key] notation in templates."""
         payload = {
-            "design_params": "{stage_outputs[preparation]}/design_params.json"
+            "design_params": "{{stage_outputs[preparation]}}/design_params.json"
         }
         context = {
             "stage_outputs": {
@@ -125,7 +125,7 @@ class TestRuleResolution:
         job = JobDefinition(
             name="test",
             command="python script.py",
-            rule="{command}",
+            rule="{{command}}",
             payload={}
         )
         context = {}
@@ -138,7 +138,7 @@ class TestRuleResolution:
         job = JobDefinition(
             name="test",
             command="python compute.py",
-            rule="{command} {payload[input]} {payload[output]}",
+            rule="{{command}} {{payload[input]}} {{payload[output]}}",
             payload={
                 "input": "/path/to/input.json",
                 "output": "/path/to/output.json"
@@ -154,9 +154,9 @@ class TestRuleResolution:
         job = JobDefinition(
             name="test",
             command="python compute.py",
-            rule="{command} {payload[input_file]} {output_dir} {job_id}",
+            rule="{{command}} {{payload[input_file]}} {{output_dir}} {{job_id}}",
             payload={
-                "input_file": "{input_design_params}"
+                "input_file": "{{input_design_params}}"
             }
         )
         context = {
@@ -186,7 +186,7 @@ class TestRuleResolution:
         job = JobDefinition(
             name="test",
             command="python run.py",
-            rule="{command} --input {payload[input_file]} --output {payload[output_file]}",
+            rule="{{command}} --input {{payload[input_file]}} --output {{payload[output_file]}}",
             payload={
                 "input_file": "/data/input.json",
                 "output_file": "/data/output.json"
@@ -204,7 +204,7 @@ class TestRuleResolution:
         job = JobDefinition(
             name="test",
             command="python script.py",
-            rule="{command}    {payload[arg1]}    {payload[arg2]}",
+            rule="{{command}}    {{payload[arg1]}}    {{payload[arg2]}}",
             payload={"arg1": "val1", "arg2": "val2"}
         )
         context = {}
@@ -260,7 +260,7 @@ class TestPayloadValidation:
         job = JobDefinition(
             name="test",
             command="python script.py",
-            payload={"input": "{undefined_var}"}
+            payload={"input": "{{undefined_var}}"}
         )
         
         # Test: With context, template resolution should fail if var undefined
@@ -363,10 +363,10 @@ class TestIntegrationWithLogger:
         job = JobDefinition(
             name="dtlz2_eval",
             command="python compute_dtlz2.py",
-            rule="{command} {payload[design_file]} {payload[output_dir]} {job_id}",
+            rule="{{command}} {{payload[design_file]}} {{payload[output_dir]}} {{job_id}}",
             payload={
-                "design_file": "{input_design_params}",
-                "output_dir": "{output_dir}"
+                "design_file": "{{input_design_params}}",
+                "output_dir": "{{output_dir}}"
             }
         )
         
@@ -401,8 +401,8 @@ class TestIntegrationWithLogger:
             command="python script.py",
             rule="{command} {payload[input]} {payload[output]}",
             payload={
-                "input": "{input_design_params}",
-                "output": "{output_dir}/results.json"
+                "input": "{{input_design_params}}",
+                "output": "{{output_dir}}/results.json"
             }
         )
         

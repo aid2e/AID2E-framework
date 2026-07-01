@@ -131,12 +131,13 @@ def _resolve_template_string(
     result = template
     for var in variables:
         # Try to get value from context
+        target = "{{" + f"{var}" + "}}"
         value = _get_context_value(var, context)
         if value is None:
-            raise RuleResolutionError(f"Undefined template variable: {{{var}}}")
-        
-        result = result.replace(f"{{{{var}}}}", str(value))
-    
+            raise RuleResolutionError(f"Undefined template variable: {target}")
+
+        result = result.replace(target, str(value))
+
     return result
 
 
@@ -300,15 +301,16 @@ def _substitute_rule_template(rule: str, context: Dict[str, Any]) -> str:
     variables = re.findall(pattern, rule)
     
     for var in variables:
+        target = "{{" + f"{var}" + "}}"
         value = _get_context_value(var, context)
         if value is None:
-            raise ValueError(f"Undefined variable in rule: {{{{var}}}}")
-        
-        result = result.replace(f"{{var}}", str(value))
-    
+            raise ValueError(f"Undefined variable in rule: {target}")
+
+        result = result.replace(target, str(value))
+
     # Clean up multiple spaces
     result = re.sub(r'\s+', ' ', result).strip()
-    
+
     return result
 
 

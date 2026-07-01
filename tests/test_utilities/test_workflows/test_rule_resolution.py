@@ -72,7 +72,7 @@ class TestPayloadTemplateResolution:
     def test_list_in_payload(self):
         """Test resolving templates in lists."""
         payload = {
-            "inputs": ["{input_design_params}", "/other/file.txt"]
+            "inputs": ["{{input_design_params}}", "/other/file.txt"]
         }
         context = {"input_design_params": "/path/to/design.params"}
         
@@ -247,7 +247,7 @@ class TestPayloadValidation:
         job = JobDefinition(
             name="test",
             command="python script.py",
-            payload={"input": "{input_design_params}"}
+            payload={"input": "{{input_design_params}}"}
         )
         context = {"input_design_params": "/path/to/design.params"}
         
@@ -399,7 +399,7 @@ class TestIntegrationWithLogger:
         job = JobDefinition(
             name="test_job",
             command="python script.py",
-            rule="{command} {payload[input]} {payload[output]}",
+            rule="{{command}} {{payload[input]}} {{payload[output]}}",
             payload={
                 "input": "{{input_design_params}}",
                 "output": "{{output_dir}}/results.json"

@@ -257,7 +257,7 @@ class TestBashExecutionEngine:
 
         op = BashExecutionEngine(
             engine_id='template_test',
-            bash_command='echo {design_point.input_file} {design_point.output_file}'
+            bash_command='echo {{design_point.input_file}} {{design_point.output_file}}'
         )
 
         # Test substitution method

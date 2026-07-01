@@ -33,12 +33,12 @@ def _sample_epic_workflow_payload() -> dict:
                                        "name": "geo_job",
                                        "layers": [
                                            {
-                                               "name": "geo",
+                                               "layer": "geo",
                                                "inputs": [
-                                                   "{{context.geometry_dir}}/install/share/epic/epic.xml"
+                                                   "{{geometry_dir}}/install/share/epic/epic.xml"
                                                ],
                                                "outputs": [
-                                                   "{{context.execution_dir}}/geo.overlaps.txt"
+                                                   "{{execution_dir}}/geo.overlaps.txt"
                                                ]
                                            }
                                        ],
@@ -58,12 +58,12 @@ def _sample_epic_workflow_payload() -> dict:
                                        "name": "sim_job",
                                        "layers": [
                                            {
-                                               "name": "sim",
+                                               "layer": "sim",
                                                "inputs": [
                                                    "inputs/central_photons.py"
                                                ],
                                                "outputs": [
-                                                   "{{context.execution_dir}}/central_photons.edm4hep.root"
+                                                   "{{execution_dir}}/central_photons.edm4hep.root"
                                                ]
                                            }
                                        ],
@@ -83,12 +83,12 @@ def _sample_epic_workflow_payload() -> dict:
                                        "name": "rec_ana_job",
                                        "layers": [
                                            {
-                                               "name": "rec",
+                                               "layer": "rec",
                                                "inputs": [
-                                                   "{{context.exeuction_dir}}/central_photons.edm4hep.root"
+                                                   "{{outputs[sim:sim_job:sim]}}/central_photons.edm4hep.root"
                                                ],
                                                "outputs": [
-                                                   "{{context.execution_dir}}/central_photons.edm4eic.root"
+                                                   "{{execution_dir}}/central_photons.edm4eic.root"
                                                ],
                                                "arguments": [
                                                    "-Pnthreads=8",
@@ -96,19 +96,19 @@ def _sample_epic_workflow_payload() -> dict:
                                                ]
                                            },
                                            {
-                                               "name": "ana",
+                                               "layer": "ana",
                                                "inputs": [
-                                                   "{{context.execution_dir}}/central_photons.edm4eic.root"
+                                                   "{{outputs[rec_and_ana:rec_ana_job:rec]}}/central_photons.edm4eic.root"
                                                ],
                                                "outputs": [
-                                                   "{{context.execution_dir}}/central_photons.hist.root"
+                                                   "{{execution_dir}}/central_photons.hist.root"
                                                ],
                                                "arguments": [
                                                    "-c phi",
                                                    "-s 22"
                                                ],
                                                "command": "scripts/bic_angular_reso.py",
-                                               "rule": "python {command} -i {inputs} -o {outputs} {arguments}"
+                                               "rule": "python {{command}} -i {{inputs}} -o {{outputs}} {{arguments}}"
                                            }
                                        ],
                                        "payload": {
@@ -160,7 +160,7 @@ def test_epic_workflows_validation(tmp_path):
     assert "photon_phi_resolution" == config.workflows[0].branches[0].name
     assert "geo" == config.workflows[0].branches[0].stages[0].name
     assert "epic" == config.workflows[0].branches[0].stages[1].jobs[0].payload["stack_type"]
-    assert "rec" == config.workflows[0].branches[0].stages[2].jobs[0].layers[0].name
+    assert "rec" == config.workflows[0].branches[0].stages[2].jobs[0].layers[0].layer
     assert "-s 22" == config.workflows[0].branches[0].stages[2].jobs[0].layers[1].arguments[1]
 
 def test_epic_executor_from_config(tmp_path):

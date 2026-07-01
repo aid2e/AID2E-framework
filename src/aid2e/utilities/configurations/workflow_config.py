@@ -108,17 +108,17 @@ class JobDefinition(BaseModel):
         >>> job = JobDefinition(
         ...     name="dtlz2_evaluate",
         ...     command="python scripts/dtlz2_problem.py",
-        ...     rule="{command} {payload[design_params_file]} {payload[output_dir]} {payload[job_id]}",
+        ...     rule="{{command}} {{payload[design_params_file]}} {{payload[output_dir]}} {payload[job_id]}",
         ...     payload={
-        ...         "design_params_file": "{input_design_params}",
-        ...         "output_dir": "{output_dir}",
-        ...         "job_id": "{job_id}"
+        ...         "design_params_file": "{{input_design_params}}",
+        ...         "output_dir": "{{output_dir}}",
+        ...         "job_id": "{{job_id}}"
         ...     },
         ...     outputs=[ArtifactSpec(path="objectives_*.json", format="json")]
         ... )
         
     Notes:
-        - Payload supports template substitution: {job_id}, {output_dir}, {stage_outputs[stage_name]}
+        - Payload supports template substitution: {{job_id}}, {{output_dir}}, {{stage_outputs[stage_name]}}
         - Rule template follows experimental_stack.py StackLayer pattern
         - Resources dict is executor-dependent (e.g., JobLibRunner ignores, SlurmRunner uses)
     """
@@ -127,7 +127,7 @@ class JobDefinition(BaseModel):
     payload: Dict[str, Any] = Field(default_factory=dict, description="Command arguments and metadata")
     rule: Optional[str] = Field(
         default=None,
-        description="Template rule for command construction (e.g., '{command} {payload[input]} {payload[output]}')"
+        description="Template rule for command construction (e.g., '{{command}} {{payload[input]}} {{payload[output]}}')"
     )
     resources: Dict[str, Any] = Field(default_factory=dict, description="Resource requirements")
     outputs: List[ArtifactSpec] = Field(default_factory=list, description="Output artifacts")

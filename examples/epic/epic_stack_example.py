@@ -35,6 +35,7 @@ from aid2e.utilities.workflows import (
     DAGExecutor,
     JobContext,
     modify_xml_files,
+    Template,
     WorkflowSharedContext,
 )
 
@@ -96,16 +97,14 @@ CONST = {
 # =============================================================================
 
 def substitute_templates(layers: List[EpicLayerConfig], context: JobContext):
-    """Apply template substitutes (parallels StackExecutionEngie._apply_template_substitution)"""
+    """
+    Apply template substitutes (parallels
+    StackExecutionEngine._apply_template_substitution)
+    """
 
     def substitute(text, context):
         result = text
-        result = result.replace("{{context.job_id}}", str(context.job_id))
-        result = result.replace("{{context.execution_dir}}", str(context.execution_dir))
-        result = result.replace("{{context.geometry_dir}}", str(context.workflow_context.parameters["prepared_geometry_dir"]))
-        
-        for key, value in context.design_point.items():
-            result = result.replace(f"{{design_point.{key}}}", str(value))
+        result = Template.substitute(result, context)
         return result
 
     new_layers = layers
@@ -192,50 +191,57 @@ def example_configure_layers():
     #   --> Note that values in {{ }} will be substituted
     #       during execution
     cfg_geo = EpicLayerConfig(
-        name = "geo",
-        inputs = ["{{context.geometry_dir}}/install/share/epic/epic.xml"],
-        outputs = ["{{context.execution_dir}}/epic_geo.overlaps.txt"],
+        name = "geo", # NOTE this should be a unique identifier for THIS instance of a layer
+        layer = "geo",
+        inputs = ["{{geometry_dir}}/install/share/epic/epic.xml"],
+        outputs = ["{{execution_dir}}/epic_geo.overlaps.txt"],
     )
     cfg_sim_A = EpicLayerConfig(
-        name = "sim",
+        name = "sim_bin0",
+        layer = "sim",
         inputs = ["inputs/central_photons_bin0.py"],
-        outputs = ["{{context.execution_dir}}/central_photons_bin0.edm4hep.root"],
+        outputs = ["{{execution_dir}}/central_photons_bin0.edm4hep.root"],
         command = "ddsim",
     )
     cfg_sim_B = EpicLayerConfig(
-        name = "sim",
+        name = "sim_bin1",
+        layer = "sim",
         inputs = ["inputs/central_photons_bin1.py"],
-        outputs = ["{{context.execution_dir}}/central_photons_bin1.edm4hep.root"],
+        outputs = ["{{execution_dir}}/central_photons_bin1.edm4hep.root"],
     )
     cfg_sim_C = EpicLayerConfig(
-        name = "sim",
+        name = "sim_bin2",
+        layer = "sim",
         inputs = ["inputs/central_photons_bin2.py"],
-        outputs = ["{{context.execution_dir}}/central_photons_bin2.edm4hep.root"],
+        outputs = ["{{execution_dir}}/central_photons_bin2.edm4hep.root"],
     )
     cfg_ana_A = EpicLayerConfig(
-        name = "ana",
+        name = "ana_merge",
+        layer = "ana",
         inputs = [
-            "{{context.execution_dir}}/central_photons_bin0.edm4hep.root",
-            "{{context.execution_dir}}/central_photons_bin1.edm4hep.root",
-            "{{context.execution_dir}}/central_photons_bin2.edm4hep.root"
+            "{{outputs[sim_stage:sim_job_0:sim_bin0](0)}}",
+            "{{outputs[sim_stage:sim_job_1:sim_bin1](0)}}",
+            "{{outputs[sim_stage:sim_job_2:sim_bin2](0)}}"
         ],
-        outputs = ["{{context.execution_dir}}/central_photons.edm4hep.root"],
+        outputs = ["{{execution_dir}}/central_photons.edm4hep.root"],
         command = "hadd",
-        rule = "{command} -f {outputs} {inputs}"
+        rule = "{{command}} -f {{outputs}} {{inputs}}"
     )
     cfg_rec = EpicLayerConfig(
         name = "rec",
-        inputs = ["{{context.execution_dir}}/central_photons.edm4hep.root"],
-        outputs = ["{{context.execution_dir}}/central_photons.edm4eic.root"],
+        layer = "rec",
+        inputs = ["{{outputs[merge_rec_ana_stage:merge_rec_ana_job:ana_merge](0)}}"],
+        outputs = ["{{execution_dir}}/central_photons.edm4eic.root"],
         arguments = ["-Pnthreads=8", "-Peicrecon:LogLevel=debug"],
     )
     cfg_ana_B = EpicLayerConfig(
-        name = "ana",
-        inputs = ["{{context.execution_dir}}/central_photons.edm4eic.root"],
-        outputs = ["{{context.execution_dir}}/central_photon_phi_resolution.hist.root"],
+        name = "ana_reso",
+        layer = "ana",
+        inputs = ["{{outputs[merge_rec_ana_stage:merge_rec_ana_job:rec](0)}}"],
+        outputs = ["{{execution_dir}}/central_photon_phi_resolution.hist.root"],
         arguments = ["-c phi", "-s 22"],
         command = "scripts/bic_angular_reso.py",
-        rule = "python {command} -i {inputs} -o {outputs} {arguments}",
+        rule = "python {{command}} -i {{inputs}} -o {{outputs}} {{arguments}}",
     )
     cfgs = [cfg_geo, cfg_sim_A, cfg_sim_B, cfg_sim_C, cfg_ana_A, cfg_rec, cfg_ana_B]
 
@@ -273,6 +279,7 @@ def example_make_configs_and_context():
     # information like execution directory, ID of current job,
     # etc is available to the stack via the JobContext
     context = JobContext(
+        task_id = "test_stage:make_driver",
         job_id = "make_driver",
         stage_id = "test_stage",
         workflow_id = "test_workflow",
@@ -282,7 +289,7 @@ def example_make_configs_and_context():
         logs = [f"{CONST['test_dir']}/make_test_driver.log"],
         execution_dir =  f"{CONST['test_dir']}",
         problem_config = problem,
-        workflow_context = WorkflowSharedContext(),
+        workflow_context = WorkflowSharedContext("workflow"),
     )
 
     print(f"  -- Created JobContext:\n    context = {context}")
@@ -304,12 +311,48 @@ def example_generate_driver(layers: List[EpicLayerConfig], configs: Tuple[Proble
     # to workflow_context for testing
     context.workflow_context.parameters["prepared_geometry_dir"] = CONST["enviro"]["epic_environment"]["epic_install"]
 
+    # add dummy inputs/outputs to xcom
+    # for testing
+    context.xcom = {
+
+        # simulation jobs
+        "sim_stage:sim_job_0:sim_bin0:inputs": ["inputs/central_photons_bin0.py"],
+        "sim_stage:sim_job_0:sim_bin0:outputs": [f"{CONST['test_dir']}/central_photons_bin0.edm4hep.root"],
+        "sim_stage:sim_job_0:sim_bin0:arguments": [],
+        "sim_stage:sim_job_1:sim_bin1:inputs": ["inputs/central_photons_bin1.py"],
+        "sim_stage:sim_job_1:sim_bin1:outputs": [f"{CONST['test_dir']}/central_photons_bin1.edm4hep.root"],
+        "sim_stage:sim_job_1:sim_bin1:arguments": [],
+        "sim_stage:sim_job_2:sim_bin2:inputs": ["inputs/central_photons_bin2.py"],
+        "sim_stage:sim_job_2:sim_bin2:outputs": [f"{CONST['test_dir']}/central_photons_bin2.edm4hep.root"],
+        "sim_stage:sim_job_2:sim_bin2:arguments": [],
+
+        # merge layer
+        "merge_rec_ana_stage:merge_rec_ana_job:ana_merge:inputs": [
+            f"{CONST['test_dir']}/central_photons_bin0.edm4hep.root",
+            f"{CONST['test_dir']}/central_photons_bin1.edm4hep.root",
+            f"{CONST['test_dir']}/central_photons_bin2.edm4hep.root",
+        ],
+        "merge_rec_ana_stage:merge_rec_ana_job:ana_merge:outputs": [f"{CONST['test_dir']}/central_photons.edm4hep.root"],
+        "merge_rec_ana_stage:merge_rec_ana_job:ana_merge:arguments": [],
+
+        # reconstruction layer
+        "merge_rec_ana_stage:merge_rec_ana_job:rec:inputs": [f"{CONST['test_dir']}/central_photons.edm4hep.root"],
+        "merge_rec_ana_stage:merge_rec_ana_job:rec:outputs": [f"{CONST['test_dir']}/central_photons.edm4eic.root"],
+        "merge_rec_ana_stage:merge_rec_ana_job:rec:arguments": ["-Pnthreads=8", "-Peicrecon:LogLevel=debug"],
+
+        # analysis layer
+        "merge_rec_ana_stage:merge_rec_ana_job:ana_reso:inputs": [f"{CONST['test_dir']}/central_photons.edm4eic.root"],
+        "merge_rec_ana_stage:merge_rec_ana_job:ana_reso:outputs": [f"{CONST['test_dir']}/central_photons_phi_resolution.hist.root"],
+        "merge_rec_ana_stage:merge_rec_ana_job:ana_reso:arguments": ["-c phi", "-s 22"],
+    }
+
     # make sure necessary environment variables are set
     context.problem_config.environment_config.activate()
 
     # copy layers for test and substitute relevant templates
     test_layers = copy.deepcopy(layers)
     resolved_layers = substitute_templates(test_layers, context)
+    print(f"  -- Resolved layers:\n    {resolved_layers}")
 
     # prepare for generating script by modifying geometry
     prep = epic_stack.prepare_for_execution(context = context)

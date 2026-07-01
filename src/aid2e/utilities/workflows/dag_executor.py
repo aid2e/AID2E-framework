@@ -225,7 +225,10 @@ class DAGExecutor:
             context={"design_point": design_point},
         )
 
-        self.workflow_context = WorkflowSharedContext()
+        self.workflow_context = WorkflowSharedContext(
+            workflow_id=self.workflow.name,
+            parameters={},
+        )
 
         try:
             if (
@@ -420,17 +423,23 @@ class DAGExecutor:
         
         self.logger.log_info(f"Stage {stage.name} has {len(jobs)} jobs to execute")
         
-        # Check if scheduler is configured
+        # Use scheduler to execute stage if configured,
+        # otherwise execute directly
         if self.scheduler:
-            # Use scheduler to execute stage
             self._execute_stage_with_scheduler(
                 stage, jobs, stage_context, design_point
             )
         else:
-            # Execute jobs directly (legacy path)
-            for job_idx, job in enumerate(jobs):
-                job_id = f"{stage.name}_{job.name}_{job_idx}"
-                self._execute_job(job, job_id, stage_context, design_point)
+            jobs_seen = []
+            for job in jobs:
+                job_id = job.name
+                n_seen = jobs_seen.count(job_id)
+                jobs_seen.append(job_id)
+                if n_seen > 0:
+                    job_id = job_id + f"_{n_seen - 1}"
+                    job.name = job_id
+                task_id = f"{stage.name}:{job_id}"
+                self._execute_job(job, job_id, task_id, stage_context, design_point)
         
         self.logger.checkpoint(
             "stage_complete",
@@ -460,12 +469,20 @@ class DAGExecutor:
         
         # Convert jobs to scheduler format
         job_definitions = []
-        for job_idx, job in enumerate(jobs):
-            job_id = f"{stage.name}_{job.name}_{job_idx}"
+        jobs_seen = []
+        for job in jobs:
+            job_id = job.name
+            n_seen = jobs_seen.count(job_id)
+            jobs_seen.append(job_id)
+            if n_seen > 0:
+                job_id = job_id + f"_{n_seen - 1}"
+                job.name = job_id
+            task_id = f"{stage.name}:{job_id}"
             execution_dir, output_dir = self._build_job_directories(stage.name, job_id)
             
             # Create job context for this job
             job_context = JobContext(
+                task_id=task_id,
                 job_id=job_id,
                 stage_id=stage_context.stage_id,
                 workflow_id=self.workflow.name,
@@ -690,10 +707,10 @@ class DAGExecutor:
         trial.save_to_json(design_path)
         return str(design_path)
 
-    def _build_job_directories(self, stage_name: str, job_id: str) -> Tuple[Path, Path]:
+    def _build_job_directories(self, stage_id: str, job_id: str) -> Tuple[Path, Path]:
         """Create paired work/output directories for one job."""
-        execution_dir = self.work_dir / stage_name / job_id
-        output_dir = self.output_dir / stage_name / job_id
+        execution_dir = self.work_dir / stage_id / job_id
+        output_dir = self.output_dir / stage_id / job_id
         execution_dir.mkdir(parents=True, exist_ok=True)
         output_dir.mkdir(parents=True, exist_ok=True)
         return execution_dir, output_dir
@@ -815,6 +832,7 @@ class DAGExecutor:
         self,
         job: JobDefinition,
         job_id: str,
+        task_id: str,
         stage_context: StageContext,
         design_point: Dict[str, Any],
     ) -> None:
@@ -823,6 +841,7 @@ class DAGExecutor:
         Args:
             job: Job definition to execute.
             job_id: Unique job identifier.
+            task_id: Key encoding stage, job ID
             stage_context: Parent stage context.
             design_point: Design point parameters.
         """
@@ -837,6 +856,7 @@ class DAGExecutor:
         
         # Create job context
         job_context = JobContext(
+            task_id=task_id,
             job_id=job_id,
             stage_id=stage_context.stage_id,
             workflow_id=self.workflow.name,
@@ -905,7 +925,7 @@ class DAGExecutor:
         if evaluator_type == "container":
             # ContainerExecutionEngine
             return ContainerExecutionEngine(
-                job_id=job_id,
+                engine_id=job_id,
                 image=job.payload.get("image", "python:3.9"),
                 command=job.payload.get("container_command", ["/bin/bash", "-c", job.command]),
                 environment=job.payload.get("environment", {}),
@@ -920,7 +940,7 @@ class DAGExecutor:
                     f"Job {job_id} specifies evaluator_type='python' but missing 'python_callable'"
                 )
             return PythonExecutionEngine(
-                job_id=job_id,
+                engine_id=job_id,
                 python_callable=python_callable,
                 op_args=job.payload.get("op_args", ()),
                 op_kwargs=job.payload.get("op_kwargs", {}),
@@ -938,14 +958,14 @@ class DAGExecutor:
                     f"Job {job_id} specifies evaluator_type='stack' but is missing the layer configurations"
                 )
             return StackExecutionEngine(
-                job_id=job_id,
+                engine_id=job_id,
                 stack_type=stack_type,
                 layers=layers,
             )
         else:
             # Default to BashExecutionEngine
             return BashExecutionEngine(
-                job_id=job_id,
+                engine_id=job_id,
                 bash_command=job.command,
                 env=job.payload.get("env", {}),
             )

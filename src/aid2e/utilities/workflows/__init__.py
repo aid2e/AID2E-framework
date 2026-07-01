@@ -40,6 +40,7 @@ from .execution_engine import (
 	PythonExecutionEngine,
 	ContainerExecutionEngine,
 	StackExecutionEngine,
+	Template
 )
 from .dag_executor import (
 	DAGExecutor,
@@ -84,6 +85,7 @@ __all__ = [
 	"PythonExecutionEngine",
 	"ContainerExecutionEngine",
         "StackExecutionEngine",
+	"Template",
 	# DAG Executor
 	"DAGExecutor",
 	"create_executor_from_config",

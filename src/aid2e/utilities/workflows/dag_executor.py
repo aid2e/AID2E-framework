@@ -434,6 +434,7 @@ class DAGExecutor:
             for job in jobs:
                 job_id = job.name
                 n_seen = jobs_seen.count(job_id)
+                jobs_seen.append(job_id)
                 if n_seen > 0:
                     job_id = job_id + f"_{n_seen - 1}"
                     job.name = job_id
@@ -472,6 +473,7 @@ class DAGExecutor:
         for job in jobs:
             job_id = job.name
             n_seen = jobs_seen.count(job_id)
+            jobs_seen.append(job_id)
             if n_seen > 0:
                 job_id = job_id + f"_{n_seen - 1}"
                 job.name = job_id

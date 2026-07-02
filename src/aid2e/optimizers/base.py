@@ -253,13 +253,14 @@ class Trial:
 def compute_pareto_front(
     trials: List["Trial"],
     objective_names: List[str],
+    objective_directions: Optional[Dict[str, Any]] = None,
 ) -> List["Trial"]:
     """Extract non-dominated (Pareto-optimal) trials from a collection of completed trials.
 
-    All objectives are treated as *minimisation* targets so a trial ``A``
-    dominates trial ``B`` when ``A[i] <= B[i]`` for every objective and
-    ``A[i] < B[i]`` for at least one.  For single-objective problems the
-    function returns the single trial with the lowest value.
+    Objectives are compared using ``objective_directions``. Minimization is the
+    default; maximization objectives treat larger values as better. For
+    single-objective problems the function returns the best trial under that
+    objective's direction.
 
     Args:
         trials: Iterable of Trial objects.  Only trials whose ``status`` is
@@ -267,6 +268,9 @@ def compute_pareto_front(
             considered.
         objective_names: Ordered list of objective metric keys that must be
             present in each trial's ``metrics`` dict.
+        objective_directions: Optional mapping from objective name to
+            ``"minimize"`` or ``"maximize"``. Missing objectives default to
+            minimization.
 
     Returns:
         List of non-dominated Trial objects ordered by their original
@@ -296,12 +300,25 @@ def compute_pareto_front(
     if len(completed) == 1:
         return completed
 
+    directions = objective_directions or {}
+    objective_signs = []
+    for obj in objective_names:
+        direction = getattr(directions.get(obj), "value", directions.get(obj, "minimize"))
+        objective_signs.append(-1.0 if str(direction).lower() == "maximize" else 1.0)
+
+    def score(trial: "Trial", obj: str, sign: float) -> float:
+        value = trial.metrics.get(obj)
+        return float("inf") if value is None else float(value) * sign
+
     try:
         import numpy as np
 
         n = len(completed)
         F = np.array(
-            [[t.metrics.get(obj, float("inf")) for obj in objective_names] for t in completed],
+            [
+                [score(t, obj, sign) for obj, sign in zip(objective_names, objective_signs)]
+                for t in completed
+            ],
             dtype=float,
         )
         is_dominated = np.zeros(n, dtype=bool)
@@ -329,14 +346,12 @@ def compute_pareto_front(
                     continue
                 # Check whether j dominates i
                 all_leq = all(
-                    completed[j].metrics.get(obj, float("inf"))
-                    <= completed[i].metrics.get(obj, float("inf"))
-                    for obj in objective_names
+                    score(completed[j], obj, sign) <= score(completed[i], obj, sign)
+                    for obj, sign in zip(objective_names, objective_signs)
                 )
                 any_lt = any(
-                    completed[j].metrics.get(obj, float("inf"))
-                    < completed[i].metrics.get(obj, float("inf"))
-                    for obj in objective_names
+                    score(completed[j], obj, sign) < score(completed[i], obj, sign)
+                    for obj, sign in zip(objective_names, objective_signs)
                 )
                 if all_leq and any_lt:
                     is_dominated[i] = True
@@ -364,6 +379,7 @@ class BaseOptimizer(ABC):
         search_space: Union[SearchSpace, DesignConfig],
         objective_names: List[str],
         seed: Optional[int] = None,
+        objective_directions: Optional[Dict[str, Any]] = None,
     ) -> None:
         """Initialize the optimizer with a search space and objective specification.
 
@@ -373,6 +389,9 @@ class BaseOptimizer(ABC):
                 must match the keys returned in the ``metrics`` dict when
                 ``update_with_results`` is called.
             seed: Optional integer seed for reproducibility.
+            objective_directions: Optional mapping from objective name to
+                ``"minimize"`` or ``"maximize"``. Missing objectives default to
+                minimization.
 
         Raises:
             ValueError: If the search space is empty or no objective names are
@@ -392,6 +411,7 @@ class BaseOptimizer(ABC):
 
         self.search_space = resolved_space
         self.objective_names: List[str] = list(objective_names)
+        self.objective_directions: Dict[str, Any] = dict(objective_directions or {})
         self.seed = seed
 
         # Shared trial history managed by the base class.
@@ -662,8 +682,8 @@ class BaseOptimizer(ABC):
         Returns:
             List of Trial objects representing Pareto-optimal solutions.
             For single-objective optimisation, returns the single trial with
-            the lowest metric value.  Returns an empty list when no completed
-            trials are available.
+            the best metric value under its configured direction. Returns an
+            empty list when no completed trials are available.
 
         Examples:
             >>> pareto_front = optimizer.get_pareto_front()
@@ -671,19 +691,21 @@ class BaseOptimizer(ABC):
             ...     print(f"Params: {trial.parameters}, Metrics: {trial.metrics}")
 
         Notes:
-            All objectives are assumed to be minimised.  To implement
-            maximisation, negate the metric values before calling
-            ``update_with_results``.
+            Objective directions are read from ``self.objective_directions``.
         """
-        return compute_pareto_front(self.get_trials(), self.objective_names)
+        return compute_pareto_front(
+            self.get_trials(),
+            self.objective_names,
+            self.objective_directions,
+        )
 
     def get_best_trial(self) -> Optional[Trial]:
         """Get the best trial found so far.
 
         For single-objective optimisation, returns the completed trial with the
-        lowest metric value.  For multi-objective, returns the first trial from
-        the Pareto front (arbitrary representative; use :meth:`get_pareto_front`
-        for the full front).
+        best metric value under its configured direction. For multi-objective,
+        returns the first trial from the Pareto front (arbitrary representative;
+        use :meth:`get_pareto_front` for the full front).
 
         Returns:
             Best Trial, or ``None`` if no completed trials exist.

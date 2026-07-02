@@ -1,6 +1,3 @@
-# ============================================================================
-# ePIC dRICH Optimization
-# ============================================================================
 # This example shows:
 #   1. Optimization with Ax (Sobol warmup + BO)
 #   2. Multi-objective dRICH optimization:
@@ -8,9 +5,7 @@
 #   3. ePIC workflow chain: geo -> sim_rec -> ana -> retrieve_results
 # ============================================================================
 
-# ============================================================================
-# SECTION 1: PROBLEM DEFINITION
-# ============================================================================
+# Problem definition
 problem:
   name: "dRICH Optimization"
   problem_type: "EPIC_dRICH"
@@ -19,11 +14,8 @@ problem:
   output_location: "./output"
   work_location: "./work"
 
-  # Design space parameters
   design_parameters_file: "./design.params"
 
-  # OBJECTIVES:
-  # ===========================================================================
   objectives:
     - name: "piKsep_etalow"
       direction: "maximize"
@@ -32,8 +24,6 @@ problem:
     - name: "acceptance"
       direction: "maximize"
 
-  # AID2E ePIC environment configuration
-  # ===========================================================================
   epic_environment:
     epic_install: "./work/eic-software"
     epic_config: "epic_craterlake"
@@ -41,24 +31,19 @@ problem:
     eic_shell: "./work/eic-shell"
     eic_recon_install: "./work/eic-software/share/epic/local"
 
-  # pipeline configuration
-  # ===========================================================================
   evaluation_config:
-    npart: 5
-    bootstrap_samples: 10
-    nbootstraps: 10
+    npart: 500
+    bootstrap_samples: 50
+    nbootstraps: 50
     particles: ["pi+", "kaon+"]
     analysis_executable: "script/dRICHAna_bootstrap"
     output_name: "drich_optimization_toy"
-    reco_collections: "DRICHHits,MCParticles,DRICHRawHits,DRICHRawHitsAssociations,DRICHAerogelTracks,DRICHGasTracks,DRICHAerogelIrtCherenkovParticleID,DRICHGasIrtCherenkovParticleID,DRICHMergedIrtCherenkovParticleID"
     scan_points:
       - {p: 15, eta_min: 1.5, eta_max: 2.0, radiator: 0}
       - {p: 15, eta_min: 2.0, eta_max: 2.5, radiator: 0}
       - {p: 45, eta_min: 2.5, eta_max: 3.0, radiator: 1}
       - {p: 45, eta_min: 3.0, eta_max: 3.5, radiator: 1}
 
-    # Overlap policy:
-    overlap_ok_value: 0
     failure_policy: "penalty" # penalty | fail
     max_failed_trials: 5
     failed_objectives:
@@ -66,8 +51,7 @@ problem:
       piKsep_etahigh: 0.0
       acceptance: 0.0
 
-# SECTION 2: OPTIMIZER CONFIGURATION
-# ============================================================================
+# Optimizer configuration
 optimizer:
   name: "ax"
   type: "bayesian"
@@ -81,83 +65,62 @@ optimizer:
       piKsep_etahigh: 4.04
       acceptance: 0.80
 
-    n_initial_samples: 4 # n_sobol
-    n_iterations: 16
-    batch_size: 2 # n_batch_sobol = n_batch_mobo
+    n_initial_samples: 10 # n_sobol
+    n_iterations: 50
+    batch_size: 5 # n_batch_sobol = n_batch_mobo
 
-# SECTION 3: SCHEDULER CONFIGURATION (global)
-# ============================================================================
+# Global scheduler configuration
 scheduler:
-  runner_type: "SlurmRunner" # JobLibRunner, SlurmRunner, PanDAiDDSRunner
+  runner_type: "JobLibRunner" # JobLibRunner, SlurmRunner, PanDAiDDSRunner
   parameters:
-    job_name_prefix: "drich"
-    account: "vossenlab"
-    partition: "scavenger"
-    nodes: 1
-    ntasks: 1
-    cpus_per_task: 1
-    mem: "2G"
-    time: "04:00:00"
-    poll_interval: 10
-    capture_stdout: true
-    capture_stderr: true
+    n_jobs: 2
+    backend: "threading"
 
-# SECTION 4: WORKFLOW EXECUTION
-# ============================================================================
+# Workflow execution
 workflows:
   workflows:
     - name: "drich_eval"
       description: "dRICH evaluation workflow"
+      stack_type: "epic"
 
-      # BRANCHES: parallel execution paths
-      # ======================================================================
       branches:
         - name: "main"
-          # STAGES: sequential steps in the workflow, executed in order.
-          # Each stage can have one or more jobs, which can be executed in parallel.
-          # ==================================================================
+          scheduler:
+            runner_type: "SlurmRunner"
+            parameters: &drich_stage_slurm
+              job_name_prefix: "drich"
+              account: "vossenlab"
+              partition: "scavenger"
+              nodes: 1
+              ntasks: 1
+              cpus_per_task: 1
+              mem: "4G"
+              time: "04:00:00"
+              poll_interval: 10
+              capture_stdout: true
+              capture_stderr: true
           stages:
             - name: "geo"
               # Edit trial XML and run checkOverlaps.
               jobs:
                 - name: "drich_geo"
-                  command: &drich_command "python examples/drich/drich_eval.py"
-                  rule: &drich_rule_no_job_index "{command} --stage {stage_name} --trial-index {trial_index} --output-dir {output_dir} --config-path {config_path}"
+                  command: &drich_command "{python_executable} {repo_root}/examples/drich/drich_eval.py"
+                  rule: &drich_rule_no_job_index "{command} --stage {stage_id} --trial-index {payload[trial_index]} --output-dir {payload[output_dir]} --config-path {payload[config_path]} --prepared-geometry-dir {prepared_geometry_dir}"
 
             - name: "sim_rec"
               # Run npsim and then eicrecon in the same job
-              # Can optionally split up sim and rec
-              scheduler:
-                runner_type: "SlurmRunner"
-                parameters:
-                  account: "vossenlab"
-                  partition: "scavenger"
-                  nodes: 1
-                  ntasks: 1
-                  cpus_per_task: 1
-                  mem: "4G"
-                  time: "04:00:00"
               jobs:
                 - name: "drich_sim_rec"
                   command: *drich_command
-                  rule: &drich_rule_with_job_index "{command} --stage {stage_name} --job-index {job_index} --trial-index {trial_index} --output-dir {output_dir} --config-path {config_path}"
+                  rule: &drich_rule_with_job_index "{command} --stage {stage_id} --job-index {payload[job_index]} --trial-index {payload[trial_index]} --output-dir {payload[output_dir]} --config-path {payload[config_path]} --prepared-geometry-dir {prepared_geometry_dir}"
               job_factory:
                 type: "range"
                 params:
+                  # scan_points x particles = 4 x 2
                   n: 8
 
             - name: "ana"
               # Run analysis once per scan point using pi+/kaon+ reco files.
-              scheduler:
-                runner_type: "SlurmRunner"
-                parameters:
-                  account: "vossenlab"
-                  partition: "scavenger"
-                  nodes: 1
-                  ntasks: 1
-                  cpus_per_task: 1
-                  mem: "4G"
-                  time: "04:00:00"
               jobs:
                 - name: "drich_ana"
                   command: *drich_command
@@ -165,6 +128,7 @@ workflows:
               job_factory:
                 type: "range"
                 params:
+                  # scan_points = 4
                   n: 4
 
             - name: "retrieve_results"
@@ -174,5 +138,5 @@ workflows:
                   command: *drich_command
                   rule: *drich_rule_no_job_index
                   outputs:
-                    - path: "{output_dir}/log/results/drich-out_{trial_tag}.json"
+                    - path: "{payload[result_json]}"
                       format: "json"

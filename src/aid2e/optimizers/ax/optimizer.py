@@ -126,7 +126,8 @@ class AxOptimizer(BaseOptimizer):
         search_space: Union[SearchSpace, DesignConfig],
         config: AxOptimizerConfig,
         objective_names: List[str],
-        seed: Optional[int] = None
+        seed: Optional[int] = None,
+        objective_directions: Optional[Dict[str, Any]] = None,
     ):
         """Initialize the Ax optimizer.
         
@@ -161,6 +162,7 @@ class AxOptimizer(BaseOptimizer):
         super().__init__(
             search_space=search_space,
             objective_names=objective_names,
+            objective_directions=objective_directions,
             seed=seed if seed is not None else config.seed,
         )
 
@@ -365,30 +367,50 @@ class AxOptimizer(BaseOptimizer):
         """
         if len(self.objective_names) == 1:
             # Single objective case
+            name = self.objective_names[0]
+            direction = getattr(
+                self.objective_directions.get(name),
+                "value",
+                self.objective_directions.get(name, "minimize"),
+            )
+            minimize = str(direction).lower() != "maximize"
             return OptimizationConfig(
                 objective=Objective(
-                    metric=Metric(name=self.objective_names[0], lower_is_better=True),
-                    minimize=True
+                    metric=Metric(name=name, lower_is_better=minimize),
+                    minimize=minimize,
                 )
             )
         else:
             # Multi-objective case
-            objectives = [
-                Objective(
-                    metric=Metric(name=name, lower_is_better=True),
-                    minimize=True,
+            objectives = []
+            for name in self.objective_names:
+                direction = getattr(
+                    self.objective_directions.get(name),
+                    "value",
+                    self.objective_directions.get(name, "minimize"),
                 )
-                for name in self.objective_names
-            ]
+                minimize = str(direction).lower() != "maximize"
+                objectives.append(
+                    Objective(
+                        metric=Metric(name=name, lower_is_better=minimize),
+                        minimize=minimize,
+                    )
+                )
             objective_thresholds = []
             if self.config.objective_thresholds:
                 for name, bound in self.config.objective_thresholds.items():
+                    direction = getattr(
+                        self.objective_directions.get(name),
+                        "value",
+                        self.objective_directions.get(name, "minimize"),
+                    )
+                    minimize = str(direction).lower() != "maximize"
                     objective_thresholds.append(
                         ObjectiveThreshold(
-                            metric=Metric(name=name, lower_is_better=True),
+                            metric=Metric(name=name, lower_is_better=minimize),
                             bound=float(bound),
                             relative=False,
-                            op=ComparisonOp.LEQ,
+                            op=ComparisonOp.LEQ if minimize else ComparisonOp.GEQ,
                         )
                     )
             return MultiObjectiveOptimizationConfig(

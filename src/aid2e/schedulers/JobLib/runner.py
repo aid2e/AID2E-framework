@@ -207,7 +207,7 @@ class JobLibScheduler(BaseScheduler):
 
             for index, (job_def, result) in enumerate(zip(job_definitions, job_results)):
                 job_name = job_def.get("name", f"job_{index}")
-                job_id = f"{stage_name}_{job_name}_{index}"
+                job_id = job_def.get("job_id") or f"{stage_name}_{job_name}_{index}"
 
                 return_code = result.get("return_code", -1)
                 success = return_code == 0

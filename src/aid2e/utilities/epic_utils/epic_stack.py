@@ -297,7 +297,7 @@ class EpicStack(ExperimentStack):
             detector_setup,
         ]
         if preparations != None:
-            commands.extend(preparations)
+            commands.append(preparations)
         commands.extend(self._make_commands(configs))
 
         text = "\n\n".join(commands)

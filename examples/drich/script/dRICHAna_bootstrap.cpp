@@ -117,7 +117,6 @@ BootstrapResults computeBootstrap(
     out.mean_theta     = sum_theta     / total_photons;
     out.mean_theta_mae = sum_theta_err / total_photons;
   } else {
-    //std::cout << "no photons detected " << std::endl;
     out.mean_theta     = 0.0;
     out.mean_theta_mae = 0.0;
   }

@@ -100,7 +100,6 @@ void extractSPEres(const char* filename, const char* outname, const char* outdir
   fprintf(outfile, "%lf %lf %lf %lf \n",
 	  hnPhotons->GetMean(), hSingleTheta->GetMean(),
 	  hSingleThetaError->GetMean(), // MAE
-	  //f1->GetParameter(2),
 	  ndRICHDet/nThrown);
   
   return;

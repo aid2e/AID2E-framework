@@ -93,12 +93,6 @@ void extractSPEres(const char* filename, const char* outname, const char* outdir
     }       
   }
 
-  //double mean = hSingleThetaError->GetMean();
-  //double rms = hSingleThetaError->GetRMS();
-  
-  //TF1 *f1 = new TF1("gaussianFit", "gaus", mean-2*rms, mean+2*rms);  
-  //hSingleThetaError->Fit("gaussianFit","R");
-
   TString outname_wdir = TString(outdir) + TString(outname);
   FILE *outfile = fopen(outname_wdir.Data(),"w");
 

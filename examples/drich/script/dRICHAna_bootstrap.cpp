@@ -2,30 +2,25 @@
 #include <vector>
 #include <numeric>
 #include <cmath>
-#include "podio/ROOTFrameReader.h"
+#include "podio/ROOTReader.h"
 #include "podio/Frame.h"
 #include "edm4eic/CherenkovParticleIDCollection.h"
 #include "edm4hep/MCParticleCollection.h"
 #include <chrono>
-#include <TH1D.h>
-#include <TF1.h>
-#include <TCanvas.h>
-#include <TError.h>
 
 // struct to store needed data from each event,
 // so that we only have to loop over tree once
 struct EventData {
   std::vector<double> theta;      // theta*1000 per photon
-  std::vector<double> thetaMC;      // thetaExpected*1000 per photon
   std::vector<double> thetaErr;   // |theta-expected| per photon
-  double nPhotons;                   // number of photons
+  double nPhotons;                // number of photons
   bool   detected;                // nPhotons > 5
 };
 
 // loop over all events in the file, storing needed dRICH information
 std::vector<EventData> readEventData(const char* infile, int radiator) {
   std::vector<EventData> events;
-  podio::ROOTFrameReader reader;
+  podio::ROOTReader reader;
   reader.openFile(infile);
   int nev = reader.getEntries("events");
   events.reserve(nev);
@@ -34,11 +29,20 @@ std::vector<EventData> readEventData(const char* infile, int radiator) {
   std::string pidCol;
   double n_refr;
   double thmin, thmax;
-  if      (radiator==0){ pidCol="DRICHAerogelIrtCherenkovParticleID"; n_refr=1.019; thmax = 220; thmin = 150;  }
-  else if (radiator==1){ pidCol="DRICHGasIrtCherenkovParticleID";    n_refr=1.00076; thmax = 50; thmin = 20;   }
+  if (radiator == 0) {
+    pidCol = "DRICHAerogelIrtCherenkovParticleID";
+    n_refr = 1.019;
+    thmax = 220;
+    thmin = 150;
+  } else if (radiator == 1) {
+    pidCol = "DRICHGasIrtCherenkovParticleID";
+    n_refr = 1.00076;
+    thmax = 50;
+    thmin = 20;
+  }
   else throw std::runtime_error("bad radiator");
   
-  for(int i=0;i<nev;++i) {
+  for (int i = 0; i < nev; ++i) {
     auto frame = podio::Frame(reader.readNextEntry("events"));
     auto& chcol = frame.get<edm4eic::CherenkovParticleIDCollection>(pidCol);
     auto& mc    = frame.get<edm4hep::MCParticleCollection>("MCParticles");
@@ -51,20 +55,19 @@ std::vector<EventData> readEventData(const char* infile, int radiator) {
     
     // get data for event.
     // only keep reconstructed photons in a (wide) reasonable range
-    for(const auto& pid : chcol) {
+    for (const auto& pid : chcol) {
       EventData ed;
-      ed.nPhotons = 0;//pid.getNpe();
+      ed.nPhotons = 0;
       
-      for(auto& tp : pid.getThetaPhiPhotons()) {
+      for (auto& tp : pid.getThetaPhiPhotons()) {
         double th = tp[0]*1000;
-	if (th < thmax && th > thmin){
-	  ed.theta    .push_back(th);
-	  ed.thetaMC  .push_back(chExpected);
-	  ed.thetaErr .push_back(th - chExpected);
-	  ed.nPhotons+=1.;
-	}
+        if (th < thmax && th > thmin) {
+          ed.theta.push_back(th);
+          ed.thetaErr.push_back(th - chExpected);
+          ed.nPhotons += 1.;
+        }
       }
-      ed.detected = (ed.nPhotons>5); // for efficiency calculation
+      ed.detected = (ed.nPhotons > 5); // for efficiency calculation
       events.push_back(std::move(ed));
     }
   }
@@ -77,7 +80,6 @@ struct BootstrapResults {
   double mean_theta;
   double mean_theta_mae;
   double frac_detected;
-  double theta_error_sigma;
 };
 
 // bootstrap (sample with replacement) sampleSize events
@@ -85,12 +87,9 @@ struct BootstrapResults {
 BootstrapResults computeBootstrap(
     const std::vector<EventData>& events,
     int sampleSize,
-    std::mt19937_64& rng,
-    int doplots
-    
+    std::mt19937_64& rng
 ) {
   std::uniform_int_distribution<> pick(0, events.size() - 1);
-
 
   double sum_nphot = 0.0;
   double sum_theta = 0.0;
@@ -104,8 +103,13 @@ BootstrapResults computeBootstrap(
     sum_nphot += ev.nPhotons;
     if (ev.detected) ++n_detected;
     
-    for (double th : ev.theta){    sum_theta     += th; total_photons += 1.;}
-    for (double err : ev.thetaErr) {sum_theta_err += std::fabs(err);}
+    for (double th : ev.theta) {
+      sum_theta += th;
+      total_photons += 1.;
+    }
+    for (double err : ev.thetaErr) {
+      sum_theta_err += std::fabs(err);
+    }
   }
 
   // for this set of sampled events, get information needed to
@@ -129,17 +133,14 @@ std::tuple<double,double,double,double> bootstrapStats(const std::vector<EventDa
 						       int nBootstrap
 						       ){
   
-  // compute piKsep and acceptance metrics nBoostrap times  
+  // compute piKsep and acceptance metrics nBootstrap times
   std::vector<double> final_piKsep(nBootstrap), final_acc(nBootstrap);
   std::mt19937_64 rng(std::chrono::steady_clock::now().time_since_epoch().count());
   
-  int doplots = 0;
-  for(int b=0; b<nBootstrap; b++){
-    if(b>0) doplots=0;
-
+  for (int b = 0; b < nBootstrap; b++) {
     // get MAE, nPhotons, etc from each resampling
-    auto stats_pi = computeBootstrap(events_pi, sampleSize, rng, doplots);
-    auto stats_K  = computeBootstrap(events_K,  sampleSize, rng, doplots);
+    auto stats_pi = computeBootstrap(events_pi, sampleSize, rng);
+    auto stats_K  = computeBootstrap(events_K,  sampleSize, rng);
 
     double cher_diff = std::fabs(stats_pi.mean_theta  - stats_K.mean_theta);
 
@@ -152,12 +153,12 @@ std::tuple<double,double,double,double> bootstrapStats(const std::vector<EventDa
     final_acc[b] = avg_acc;
   }
   
-  auto compute_stats = [&](const std::vector<double>& v){
+  auto compute_stats = [&](const std::vector<double>& v) {
     double N = v.size();
-    double sum=std::accumulate(v.begin(), v.end(), 0.0);
+    double sum = std::accumulate(v.begin(), v.end(), 0.0);
     double mean = sum/N;
-    double sq=0;
-    for(double x : v) sq += (x-mean)*(x-mean);
+    double sq = 0;
+    for (double x : v) sq += (x-mean)*(x-mean);
     double stdev = std::sqrt(sq/(N-1));
     
     return std::tuple{mean, stdev};
@@ -171,7 +172,7 @@ std::tuple<double,double,double,double> bootstrapStats(const std::vector<EventDa
 }
 
 
-void dRICHAna_boostrap(const char* infile_pi,
+void dRICHAna_bootstrap(const char* infile_pi,
 		       const char* infile_K,
 		       const char* outname,
 		       int radiator,
@@ -184,11 +185,11 @@ void dRICHAna_boostrap(const char* infile_pi,
   auto events_K  = readEventData(infile_K,  radiator);
   
   std::cout << "N ev pi: " << events_pi.size() << " K: " << events_K.size() << std::endl;
-  if(sampleSize > events_pi.size()){
-    sampleSize = events_pi.size();
+  if (sampleSize > static_cast<int>(events_pi.size())) {
+    sampleSize = static_cast<int>(events_pi.size());
   }
-  if(sampleSize > events_K.size()){
-    sampleSize = events_K.size();
+  if (sampleSize > static_cast<int>(events_K.size())) {
+    sampleSize = static_cast<int>(events_K.size());
   }
   
   auto [mean_acc, sd_acc, mean_piKsep, sd_piKsep]  = bootstrapStats(events_pi,                                       
@@ -196,7 +197,7 @@ void dRICHAna_boostrap(const char* infile_pi,
 								    sampleSize,
 								    nBootstrap
 								    );
-  if(sampleSize < events_pi.size()){    
+  if (sampleSize < static_cast<int>(events_pi.size())) {
     double ratio = double(sampleSize)/events_pi.size();    
     sd_piKsep *= ratio;
     sd_acc *= ratio;
@@ -207,9 +208,9 @@ void dRICHAna_boostrap(const char* infile_pi,
   return;
 }
 
-int main(int argc, char* argv[]){
-  if(argc < 7){
-    std::cout << "usage: dRICHAana_boostrap [file, pi] [file, K] [output file name] [radiator: 0 - aerogel, 1 - gas] [N samples (optional)] [N boostraps] \n";
+int main(int argc, char* argv[]) {
+  if (argc < 7) {
+    std::cout << "usage: dRICHAna_bootstrap [file, pi] [file, K] [output file name] [radiator: 0 - aerogel, 1 - gas] [N samples (optional)] [N bootstraps] \n";
     return 1;
   }
   
@@ -217,6 +218,6 @@ int main(int argc, char* argv[]){
   int nsamples    = std::stoi(argv[5]);
   int nbootstraps = std::stoi(argv[6]);
 
-  dRICHAna_boostrap(argv[1], argv[2], argv[3], rad, nsamples, nbootstraps);
+  dRICHAna_bootstrap(argv[1], argv[2], argv[3], rad, nsamples, nbootstraps);
   return 0;
 }

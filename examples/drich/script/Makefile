@@ -1,8 +1,10 @@
 
 # Compiler
 CXX := g++
+TARGET := dRICHAna dRICHAna_bootstrap
+PODIO_PREFIX ?= /opt/local
 # Compiler flags
-CXXFLAGS := -Wall -Wno-deprecated -I$(shell root-config --incdir) $(shell root-config --glibs) -L/opt/local/lib -lpodio -lpodioRootIO -ledm4hep -ledm4eic -I/opt/local/include
+CXXFLAGS := -std=c++20 -Wall -Wno-deprecated -I$(shell root-config --incdir) $(shell root-config --glibs) -L$(PODIO_PREFIX)/lib -lpodio -lpodioRootIO -ledm4hep -ledm4eic -I$(PODIO_PREFIX)/include
 
 dRICHAna: dRICHAna.cpp dRICHAna_bootstrap.cpp
 	$(CXX) -o dRICHAna dRICHAna.cpp $(CXXFLAGS)
@@ -10,4 +12,4 @@ dRICHAna: dRICHAna.cpp dRICHAna_bootstrap.cpp
 
 # Rule to clean the project
 clean:
-	rm -f $(OBJS) $(TARGET)
+	rm -f $(TARGET)

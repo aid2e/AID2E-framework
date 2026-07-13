@@ -1,24 +1,21 @@
 #include "edm4hep/MCParticleCollection.h"
 #include "edm4eic/CherenkovParticleIDCollection.h"
-#include "podio/ROOTFrameReader.h"
+#include "podio/ROOTReader.h"
 #include "podio/Frame.h"
 #include "TH1F.h"
-#include "TF1.h"
-#include "TCanvas.h"
 #include "TString.h"
 using namespace std;
 
 
-void extractSPEres(const char* filename, const char* outname, const char* outdir, int radiator){
+void extractSPEres(const char* filename, const char* outname, const char* outdir, int radiator) {
 
   double thlow, thhigh;
   int nbins;
-  if(radiator==0){
+  if (radiator == 0) {
     thlow = 150;
     thhigh = 220;
     nbins = 200;
-  }
-  else{
+  } else {
     thlow = 20;
     thhigh = 60;
     nbins = 100;
@@ -28,23 +25,22 @@ void extractSPEres(const char* filename, const char* outname, const char* outdir
   TH1F* hSingleTheta = new TH1F("hSingleTheta", "", nbins, thlow, thhigh);
   TH1F* hnPhotons = new TH1F("hnPhotons", "", 60, -0.5, 60.5);  
   
-  podio::ROOTFrameReader reader;
+  podio::ROOTReader reader;
   reader.openFile(filename);
   
   int nev = reader.getEntries("events");
   double nThrown = 0;
   double ndRICHDet = 0;    
   // event loop
-  for(int i = 0; i < nev; i++){
+  for (int i = 0; i < nev; i++) {
     const auto event = podio::Frame(reader.readNextEntry("events"));
 
     std::string pidCollection;
     double n;
-    if(radiator==0){
+    if (radiator == 0) {
       pidCollection = "DRICHAerogelIrtCherenkovParticleID";
       n = 1.019;
-    }
-    else{
+    } else {
       pidCollection = "DRICHGasIrtCherenkovParticleID";
       n = 1.00076;
     }
@@ -55,15 +51,14 @@ void extractSPEres(const char* filename, const char* outname, const char* outdir
     double px, py, pz, p, mass;
     double betaTrue;
     // get true momentum from thrown particle
-    if(MCParticles.isValid()){
+    if (MCParticles.isValid()) {
       px = MCParticles[0].getMomentum().x;
       py = MCParticles[0].getMomentum().y;
       pz = MCParticles[0].getMomentum().z;
       p = sqrt(px*px+py*py+pz*pz);
       mass = MCParticles[0].getMass();
       betaTrue = p/(sqrt(p*p+mass*mass)); 
-    }
-    else{
+    } else {
       cout << "Error: no thrown particles" << endl;
       continue;
     }
@@ -72,23 +67,23 @@ void extractSPEres(const char* filename, const char* outname, const char* outdir
     if (dRichCherenkov.isValid()) {
       double chExpected = acos(1/(n*betaTrue))*1000;
 
-      for(unsigned int j = 0; j < dRichCherenkov.size(); j++){
-	auto thetaPhi = dRichCherenkov[j].getThetaPhiPhotons();
+      for (const auto& pid : dRichCherenkov) {
+        auto thetaPhi = pid.getThetaPhiPhotons();
 
-	int nPhotons = dRichCherenkov[j].getNpe();
-	if(nPhotons == 0){
-	  // if no photons, consider this to be missed
-	  continue;
-	}
-	if(nPhotons > 5){
-	  ndRICHDet += 1.; // if > 5 photons, consider this to be accepted
-	}
-	
-	hnPhotons->Fill(nPhotons);	
-	for(int k = 0; k < thetaPhi.size(); k++){
-	  hSingleThetaError->Fill(abs(thetaPhi[k][0]*1000 - chExpected));
-	  hSingleTheta->Fill(thetaPhi[k][0]*1000);
-	}
+        int nPhotons = pid.getNpe();
+        if (nPhotons == 0) {
+          // if no photons, consider this to be missed
+          continue;
+        }
+        if (nPhotons > 5) {
+          ndRICHDet += 1.; // if > 5 photons, consider this to be accepted
+        }
+
+        hnPhotons->Fill(nPhotons);
+        for (const auto& theta : thetaPhi) {
+          hSingleThetaError->Fill(abs(theta[0]*1000 - chExpected));
+          hSingleTheta->Fill(theta[0]*1000);
+        }
       }      
     }       
   }
@@ -106,9 +101,9 @@ void extractSPEres(const char* filename, const char* outname, const char* outdir
 }
 
 
-int main(int argc, char* argv[]){
-  if(argc < 2){
-    cout << "usage: dRICHAana [filename] [outputname (txt)] [output dir] [radiator: 0 - aerogel, 1 - gas] \n";
+int main(int argc, char* argv[]) {
+  if (argc < 2) {
+    cout << "usage: dRICHAna [filename] [outputname (txt)] [output dir] [radiator: 0 - aerogel, 1 - gas] \n";
     return 1;
   }
   int rad;

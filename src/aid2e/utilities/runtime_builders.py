@@ -43,6 +43,7 @@ def build_optimizer_from_config(
     """Build a concrete optimizer from parsed configs."""
     backend_name = (backend or infer_optimizer_backend(optimizer_cfg)).lower()
     objective_names = [obj.name for obj in problem_cfg.objectives]
+    objective_directions = {obj.name: obj.direction for obj in problem_cfg.objectives}
     params = dict(optimizer_cfg.parameters or {})
 
     if backend_name == "ax":
@@ -53,6 +54,7 @@ def build_optimizer_from_config(
             search_space=problem_cfg.design_config,
             config=ax_cfg,
             objective_names=objective_names,
+            objective_directions=objective_directions,
             seed=ax_cfg.seed,
         )
 

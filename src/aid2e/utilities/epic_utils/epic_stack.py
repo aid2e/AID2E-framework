@@ -165,11 +165,26 @@ class EpicStack(ExperimentStack):
         if not isinstance(problem_config.design_config, EpicDesignConfig):
             raise TypeError("DesignConfig is not an instance of EpicDesignConfig.")
 
-        if 'EPIC_INSTALL' not in os.environ:
+        env_config = problem_config.environment_config
+        geometry_mode = getattr(env_config, "geometry_mode", "build") if env_config else "build"
+        epic_install = getattr(env_config, "epic_install", None) if env_config else None
+
+        if not epic_install and 'EPIC_INSTALL' not in os.environ:
             raise EnvironmentError("Variable 'EPIC_INSTALL' not set. Must define epic_install.")
 
         design = problem_config.design_config
-        template_geo_dir = os.environ['EPIC_INSTALL']
+        template_geo_dir = epic_install or os.environ['EPIC_INSTALL']
+
+        if geometry_mode == "no_build":
+            template_geo_dir = os.path.join(template_geo_dir, "share", "epic")
+            trial_geo_dir = os.path.join(workflow_dir, "geometry", "epic")
+            if os.path.exists(trial_geo_dir):
+                shutil.rmtree(trial_geo_dir)
+            shutil.copytree(template_geo_dir, trial_geo_dir)
+            os.environ["DETECTOR_PATH"] = trial_geo_dir
+            modify_xml_files(design.get_xml_modifications(design_point))
+            return trial_geo_dir
+
         trial_geo_dir = os.path.join(workflow_dir, os.path.basename(template_geo_dir))
 
         if not os.path.exists(trial_geo_dir):
@@ -222,7 +237,9 @@ class EpicStack(ExperimentStack):
         if not trial_geo_dir:
             raise RuntimeError("No prepared geometry directory found in workflow context")
 
-        context.add_log(f"Using pre-built geometry from {trial_geo_dir}")
+        env_config = context.problem_config.environment_config if context.problem_config else None
+        geometry_mode = getattr(env_config, "geometry_mode", "build")
+        context.add_log(f"Using {geometry_mode} geometry from {trial_geo_dir}")
         return None
 
     def make_driver_script(
@@ -250,14 +267,34 @@ class EpicStack(ExperimentStack):
         if not trial_geo_dir:
             raise RuntimeError("No prepared geometry directory found in workflow context")
 
-        # make sure a geometry config has been specififed
-        if 'EPIC_CONFIG' not in os.environ:
-            raise EnvironmentError("Variable 'EPIC_CONFIG' not set. Must define epic_config.")
+        env_config = context.problem_config.environment_config if context.problem_config else None
+        epic_install = getattr(env_config, "epic_install", None)
+        epic_config = getattr(env_config, "epic_config", None) or os.environ.get("EPIC_CONFIG")
+        geometry_mode = getattr(env_config, "geometry_mode", "build")
+        if not epic_config:
+            raise EnvironmentError("Variable 'epic_config' not set. Must define epic_config.")
+
+        if geometry_mode == "no_build":
+            if not epic_install:
+                raise EnvironmentError("Variable 'epic_install' not set. Must define epic_install.")
+            detector_setup = (
+                f"source \"{epic_install}/bin/thisepic.sh\" {epic_config}\n"
+                f"export EPIC_INSTALL=\"{epic_install}\"\n"
+                f"export EPIC_CONFIG=\"{epic_config}\"\n"
+                f"export DETECTOR_PATH=\"{trial_geo_dir}\"\n"
+                f"export DETECTOR_CONFIG=\"{epic_config}\""
+            )
+        else:
+            detector_setup = (
+                f"source \"{trial_geo_dir}/install/bin/thisepic.sh\"\n"
+                f"export EPIC_CONFIG=\"{epic_config}\"\n"
+                f"export DETECTOR_CONFIG=\"{epic_config}\""
+            )
 
         commands = [
             self._determine_shebang(script),
             "set -euo pipefail",
-            f"source {trial_geo_dir}/install/bin/thisepic.sh\nexport DETECTOR_CONFIG={os.environ['EPIC_CONFIG']}",
+            detector_setup,
         ]
         if preparations != None:
             commands.append(preparations)

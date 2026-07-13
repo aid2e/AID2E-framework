@@ -32,12 +32,13 @@ from typing import Dict, Any, List, Optional, Tuple, get_args
 from pathlib import Path
 import json
 import logging
+import sys
 from datetime import datetime
 
 from aid2e.utilities.configurations.problem_config import (
     ProblemConfiguration,
 )
-from .workflow_config import (
+from aid2e.utilities.configurations.workflow_config import (
     WorkflowDefinition,
     BranchDefinition,
     StageDefinition,
@@ -466,7 +467,7 @@ class DAGExecutor:
             design_point: Design point parameters.
         """
         self.logger.log_info(f"Executing stage {stage.name} with scheduler")
-        
+
         # Convert jobs to scheduler format
         job_definitions = []
         jobs_seen = []
@@ -626,10 +627,19 @@ class DAGExecutor:
             "stage_id": job_context.stage_id,
             "design_point": job_context.design_point,
             "design_file": design_file,
+            "python_executable": sys.executable,
             "repo_root": str(Path(__file__).resolve().parents[4]),
+            "prepared_geometry_dir": self.workflow_context.parameters.get("prepared_geometry_dir"),
             "stage_outputs": {},
             "xcom": self.global_xcom,
         }
+        if "{" in job.command and "}" in job.command:
+            resolved_command = resolve_payload_templates(
+                {"command": job.command},
+                rule_context,
+                logger=self.logger,
+            )["command"]
+            job = job.model_copy(update={"command": resolved_command})
         return resolve_job_rule(job, rule_context, logger=self.logger)
 
     def _resolve_scheduler_job_outputs(
@@ -815,6 +825,7 @@ class DAGExecutor:
                 job_copy = JobDefinition(
                     name=f"{template_job.name}_{i}",
                     command=template_job.command,
+                    rule=template_job.rule,
                     payload={**template_job.payload, "job_index": i},
                     resources=template_job.resources,
                     outputs=template_job.outputs,

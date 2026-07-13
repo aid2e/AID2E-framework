@@ -1,0 +1,142 @@
+# This example shows:
+#   1. Optimization with Ax (Sobol warmup + BO)
+#   2. Multi-objective dRICH optimization:
+#        maximize pi/K separation and acceptance
+#   3. ePIC workflow chain: geo -> sim_rec -> ana -> retrieve_results
+# ============================================================================
+
+# Problem definition
+problem:
+  name: "dRICH Optimization"
+  problem_type: "EPIC_dRICH"
+  description: "Optimization of dRICH"
+
+  output_location: "./output"
+  work_location: "./work"
+
+  design_parameters_file: "./design.params"
+
+  objectives:
+    - name: "piKsep_etalow"
+      direction: "maximize"
+    - name: "piKsep_etahigh"
+      direction: "maximize"
+    - name: "acceptance"
+      direction: "maximize"
+
+  epic_environment:
+    epic_install: "./work/eic-software"
+    epic_config: "epic_craterlake"
+    geometry_mode: "no_build"
+    eic_shell: "./work/eic-shell"
+    eic_recon_install: "./work/eic-software/share/epic/local"
+
+  evaluation_config:
+    npart: 500
+    bootstrap_samples: 50
+    nbootstraps: 50
+    particles: ["pi+", "kaon+"]
+    analysis_executable: "script/dRICHAna_bootstrap"
+    output_name: "drich_optimization_toy"
+    scan_points:
+      - {p: 15, eta_min: 1.5, eta_max: 2.0, radiator: 0}
+      - {p: 15, eta_min: 2.0, eta_max: 2.5, radiator: 0}
+      - {p: 45, eta_min: 2.5, eta_max: 3.0, radiator: 1}
+      - {p: 45, eta_min: 3.0, eta_max: 3.5, radiator: 1}
+
+    failure_policy: "penalty" # penalty | fail
+    max_failed_trials: 5
+    failed_objectives:
+      piKsep_etalow: 0.0
+      piKsep_etahigh: 0.0
+      acceptance: 0.0
+
+# Optimizer configuration
+optimizer:
+  name: "ax"
+  type: "bayesian"
+  parameters:
+    initialization_strategy: "sobol"
+    seed: 999
+
+    generator: "BOTORCH_MODULAR"
+    objective_thresholds:
+      piKsep_etalow: 3.62
+      piKsep_etahigh: 4.04
+      acceptance: 0.80
+
+    n_initial_samples: 10 # n_sobol
+    n_iterations: 50
+    batch_size: 5 # n_batch_sobol = n_batch_mobo
+
+# Global scheduler configuration
+scheduler:
+  runner_type: "JobLibRunner" # JobLibRunner, SlurmRunner, PanDAiDDSRunner
+  parameters:
+    n_jobs: 2
+    backend: "threading"
+
+# Workflow execution
+workflows:
+  workflows:
+    - name: "drich_eval"
+      description: "dRICH evaluation workflow"
+      stack_type: "epic"
+
+      branches:
+        - name: "main"
+          scheduler:
+            runner_type: "SlurmRunner"
+            parameters: &drich_stage_slurm
+              job_name_prefix: "drich"
+              account: "vossenlab"
+              partition: "scavenger"
+              nodes: 1
+              ntasks: 1
+              cpus_per_task: 1
+              mem: "4G"
+              time: "04:00:00"
+              poll_interval: 10
+              capture_stdout: true
+              capture_stderr: true
+          stages:
+            - name: "geo"
+              # Edit trial XML and run checkOverlaps.
+              jobs:
+                - name: "drich_geo"
+                  command: &drich_command "{python_executable} {repo_root}/examples/drich/drich_eval.py"
+                  rule: &drich_rule_no_job_index "{command} --stage {stage_id} --trial-index {payload[trial_index]} --output-dir {payload[output_dir]} --config-path {payload[config_path]} --prepared-geometry-dir {prepared_geometry_dir}"
+
+            - name: "sim_rec"
+              # Run npsim and then eicrecon in the same job
+              jobs:
+                - name: "drich_sim_rec"
+                  command: *drich_command
+                  rule: &drich_rule_with_job_index "{command} --stage {stage_id} --job-index {payload[job_index]} --trial-index {payload[trial_index]} --output-dir {payload[output_dir]} --config-path {payload[config_path]} --prepared-geometry-dir {prepared_geometry_dir}"
+              job_factory:
+                type: "range"
+                params:
+                  # scan_points x particles = 4 x 2
+                  n: 8
+
+            - name: "ana"
+              # Run analysis once per scan point using pi+/kaon+ reco files.
+              jobs:
+                - name: "drich_ana"
+                  command: *drich_command
+                  rule: *drich_rule_with_job_index
+              job_factory:
+                type: "range"
+                params:
+                  # scan_points = 4
+                  n: 4
+
+            - name: "retrieve_results"
+              # Read analysis outputs and compute objectives.
+              jobs:
+                - name: "drich_retrieve_results"
+                  command: *drich_command
+                  rule: *drich_rule_no_job_index
+                  outputs:
+                    - path: "{payload[result_json]}"
+                      format: "json"

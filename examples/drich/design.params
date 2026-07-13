@@ -1,0 +1,49 @@
+# dRICH ePIC design space.
+# $DETECTOR_PATH is set to the per-trial copied geometry directory.
+
+epic_design_space:
+  epic_design_parameters:
+    drich_geo:
+      file_path: "$DETECTOR_PATH/compact/pid/drich.xml"
+      parameters:
+        mirror_centerx:
+          value: 114.0
+          bounds: [100.0, 160.0]
+          xml_path: ".//detector/mirror"
+          attribute: "centerx"
+          unit: "cm"
+
+        mirror_radius:
+          value: 219.8
+          bounds: [180.0, 260.0]
+          xml_path: ".//detector/mirror"
+          attribute: "radius"
+          unit: "cm"
+
+        sensor_centerx:
+          value: 0.125
+          bounds: [0.0, 0.25]
+          xml_path: ".//detector/sensors/sphere"
+          attribute: "centerx"
+          unit: "cm"
+
+        sensor_centerz:
+          value: 1.0
+          bounds: [1.0, 3.0]
+          xml_path: ".//detector/sensors/sphere"
+          attribute: "centerz"
+          unit: "cm"
+
+        sensor_radius:
+          value: 110.0
+          bounds: [100.0, 500.0]
+          xml_path: ".//detector/sensors/sphere"
+          attribute: "radius"
+          unit: "cm"
+
+        snout_length:
+          value: 20.0
+          bounds: [10.0, 25.0]
+          xml_path: ".//constant[@name='DRICH_snout_length']"
+          attribute: "value"
+          unit: "cm"

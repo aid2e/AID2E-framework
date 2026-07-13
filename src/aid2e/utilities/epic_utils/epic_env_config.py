@@ -29,11 +29,13 @@ class EpicEnvConfig(EnvironmentConfig):
         epic_install: Optional path to ePIC installation directory, will be
                       used as template for modifying geometry
         epic_config: ePIC geometry configuration to use (e.g. epic, epic_full)
+        geometry_mode: Geometry activation mode, either build or no_build
         eic_recon_install: Optional path to EIC reconstruction installation
         eic_recon: Optional override for EIC reconstruction command
     """
     epic_install:Optional[str]
     epic_config: Optional[str]
+    geometry_mode: Optional[str] = "build"
     eic_shell: Optional[str] = None
     singularity_image: Optional[str] = None
     eic_recon_install: Optional[str] = None

@@ -1,5 +1,6 @@
 """Tests for canonical configuration loaders using DTLZ2-style fixtures."""
 
+import json
 from pathlib import Path
 
 import pytest
@@ -8,6 +9,8 @@ import yaml
 from aid2e.utilities.configurations import (
     DesignConfigLoader,
     ProblemConfigLoader,
+    SchedulerConfigLoader,
+    load_scheduler_config,
     load_config,
     StackRegistry,
 )
@@ -62,6 +65,40 @@ def test_problem_config_loader_with_fixture(tmp_path):
         "minimize:f1",
         "minimize:f2",
     ]
+
+
+def test_scheduler_config_loader_loads_scheduler_sections(tmp_path):
+    """Load scheduler sections for the supported runner config shapes."""
+    scheduler_cases = [
+        ("JobLibRunner", {"n_jobs": 4, "backend": "threading"}),
+        ("SlurmRunner", {"ntasks": 1, "cpus_per_task": 2, "mem": "4G"}),
+        ("PanDAiDDSRunner", {"task_type": "optimization"}),
+    ]
+
+    for runner_type, parameters in scheduler_cases:
+        scheduler_payload = {
+            "scheduler": {
+                "runner_type": runner_type,
+                "parameters": parameters,
+            }
+        }
+        config_path = tmp_path / f"{runner_type}.yml"
+        json_path = tmp_path / f"{runner_type}.json"
+        config_path.write_text(yaml.safe_dump(scheduler_payload))
+        json_path.write_text(json.dumps(scheduler_payload))
+
+        for path in (config_path, json_path):
+            config = SchedulerConfigLoader.load(str(path))
+
+            assert config.runner_type == runner_type
+            assert config.parameters == parameters
+            assert config.parse_runner_params() is not None
+
+        config = load_scheduler_config(str(config_path))
+
+        assert config is not None
+        assert config.runner_type == runner_type
+        assert config.parameters == parameters
 
 
 def test_full_config_loader_combines_problem_optimizer_scheduler_and_workflows(tmp_path):
@@ -122,6 +159,17 @@ def test_full_config_loader_combines_problem_and_optimization(tmp_path):
     work_dir = tmp_path / "work" / "dtlz2"
     output_dir.mkdir(parents=True)
     work_dir.mkdir(parents=True)
+    template_path = tmp_path / "slurm.template"
+    template_path.write_text(
+        json.dumps(
+            {
+                "nodes": 1,
+                "ntasks": 1,
+                "cpus_per_task": 2,
+                "mem": "4G",
+            }
+        )
+    )
 
     full_payload = {
         "problem": {
@@ -158,7 +206,18 @@ def test_full_config_loader_combines_problem_and_optimization(tmp_path):
                 {
                     "name": "main",
                     "objectives": [{"name": "f1", "direction": "minimize"}],
-                    "stages": [],
+                    "branches": [
+                        {
+                            "name": "main",
+                            "scheduler": {
+                                "runner_type": "SlurmRunner",
+                                "parameters": {
+                                    "template_file": "slurm.template",
+                                    "mem": "8G",
+                                },
+                            },
+                        }
+                    ],
                 }
             ]
         },
@@ -178,6 +237,12 @@ def test_full_config_loader_combines_problem_and_optimization(tmp_path):
     assert config.optimizer.parameters["n_iterations"] == 5
     assert config.scheduler.parameters["n_jobs"] == 2
     assert config.workflows.workflows[0].name == "main"
+    scheduler = config.workflows.workflows[0].branches[0].scheduler
+
+    assert scheduler.runner_type == "SlurmRunner"
+    assert scheduler.parameters["cpus_per_task"] == 2
+    assert scheduler.parameters["mem"] == "8G"
+    assert "template_file" not in scheduler.parameters
 
 
 def test_design_loader_rejects_legacy_design_constraints(tmp_path):
@@ -270,7 +335,7 @@ def test_full_config_rejects_legacy_scheduler_shape(tmp_path):
     (tmp_path / "output").mkdir()
     (tmp_path / "work").mkdir()
 
-    with pytest.raises(ValueError, match="Extra inputs are not permitted|joblib"):
+    with pytest.raises(ValueError, match="missing keys: parameters"):
         load_config(str(config_path))
 
 

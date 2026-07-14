@@ -45,6 +45,7 @@ from .objectives import (
 )
 from .scheduler_config import (
     SchedulerConfiguration,
+    SchedulerConfigLoader,
 )
 from .scheduler_cascade import (
     resolve_scheduler_cascade,
@@ -113,6 +114,7 @@ __all__ = [
     "ObjectivesRegistry",
     # Scheduler/Runner configuration
     "SchedulerConfiguration",
+    "SchedulerConfigLoader",
     # Scheduler cascade utilities
     "resolve_scheduler_cascade",
     "create_scheduler_context",

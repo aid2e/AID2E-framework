@@ -8,7 +8,10 @@ from pydantic import BaseModel
 
 from .problem_config import ProblemConfiguration, ProblemConfigLoader
 from .optimizer_config import OptimizerConfiguration
-from .scheduler_config import SchedulerConfiguration
+from .scheduler_config import (
+    SchedulerConfigLoader,
+    SchedulerConfiguration,
+)
 from .stack_registry import StackRegistry
 from .workflow_config import WorkflowDefinition, WorkflowsConfiguration
 
@@ -21,7 +24,33 @@ class FullConfig(BaseModel):
     workflows: Optional[WorkflowsConfiguration] = None
 
 
-def _normalize_workflows_data(data: Dict[str, Any]) -> Optional[WorkflowsConfiguration]:
+def _normalize_workflow_schedulers(data: Any, base_dir: Path) -> Any:
+    """Normalize scheduler mappings nested inside workflow payloads."""
+    if isinstance(data, list):
+        return [_normalize_workflow_schedulers(item, base_dir) for item in data]
+    if not isinstance(data, dict):
+        return data
+
+    normalized = {}
+    for key, value in data.items():
+        if (
+            key in {"scheduler", "global_scheduler"}
+            and isinstance(value, dict)
+            and "runner_type" in value
+        ):
+            normalized[key] = SchedulerConfigLoader.from_dict(
+                value,
+                base_dir=str(base_dir),
+            )
+        else:
+            normalized[key] = _normalize_workflow_schedulers(value, base_dir)
+    return normalized
+
+
+def _normalize_workflows_data(
+    data: Dict[str, Any],
+    base_dir: Path,
+) -> Optional[WorkflowsConfiguration]:
     """Normalize canonical workflow payloads to a WorkflowsConfiguration model."""
     if "workflow" in data:
         raise ValueError(
@@ -38,6 +67,7 @@ def _normalize_workflows_data(data: Dict[str, Any]) -> Optional[WorkflowsConfigu
             "'workflows' must use the canonical wrapper form "
             "'workflows: { workflows: [...] }'."
         )
+    workflows_raw = _normalize_workflow_schedulers(workflows_raw, base_dir)
 
     # if any worklows are stack-based (indicated by the presence of `stack_type`),
     # validate workflows against stack-specific models
@@ -94,9 +124,12 @@ def _normalize_full_config_data(data: Dict[str, Any], config_path: Path) -> Dict
     # Load scheduler configuration if present
     scheduler_cfg = None
     if "scheduler" in data:
-        scheduler_cfg = SchedulerConfiguration(**data["scheduler"])
+        scheduler_cfg = SchedulerConfigLoader.from_dict(
+            data["scheduler"],
+            base_dir=str(base_dir),
+        )
 
-    workflows_cfg = _normalize_workflows_data(data)
+    workflows_cfg = _normalize_workflows_data(data, base_dir)
 
     return {
         "problem": problem_cfg,

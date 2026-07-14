@@ -3,7 +3,7 @@
 
 problem:
   name: "DTLZ2 Multi-Objective Optimization on HPC"
-  type: "toy"
+  problem_type: "toy"
   output_location: "/tmp"
   work_location: "/tmp"
 
@@ -11,22 +11,29 @@ problem:
     - name: "f1"
       direction: "minimize"
       computation:
-        script:
-          path: "scripts/dtlz2_problem.py"
-          output_file: "objectives_{job_id}.json"
-          timeout_sec: 600
+        multi_steps:
+          stages:
+            - name: "evaluate_f1"
+              script:
+                path: "scripts/dtlz2_problem.py"
+                output_file: "objectives_{job_id}.json"
+                timeout_sec: 600
+              produces_objective: true
       metrics_keys: ["f1"]
     - name: "f2"
       direction: "minimize"
       computation:
-        script:
-          path: "scripts/dtlz2_problem.py"
-          output_file: "objectives_{job_id}.json"
-          timeout_sec: 600
+        multi_steps:
+          stages:
+            - name: "evaluate_f2"
+              script:
+                path: "scripts/dtlz2_problem.py"
+                output_file: "objectives_{job_id}.json"
+                timeout_sec: 600
+              produces_objective: true
       metrics_keys: ["f2"]
 
-  design_space:
-    path: "design.params"
+  design_parameters_file: "design.params"
 
 optimizer:
   name: "ax"
@@ -42,19 +49,15 @@ optimizer:
 # Scheduler configuration for HPC execution using SLURM
 scheduler:
   runner_type: "SlurmRunner"
-  slurm:
+  parameters:
     partition: "gpu"  # SLURM queue/partition name
     ntasks: 1
     cpus_per_task: 8  # Use 8 CPUs per task
-    mem_per_task: "32GB"  # Allocate 32 GB memory per task
-    time_limit: "12:00:00"  # 12 hour wall clock limit
+    mem: "32GB"  # Allocate 32 GB memory per task
+    time: "12:00:00"  # 12 hour wall clock limit
     gres: "gpu:1"  # Request 1 GPU per task
-    job_name: "aid2e_dtlz2"
-    output_dir: "./slurm_logs"
-    additional_params:
-      mail-type: "END"
-      mail-user: "user@example.com"
-      constraint: "gpu:v100"  # Specific GPU constraint
+    job_name_prefix: "aid2e_dtlz2"
+    constraint: "gpu:v100"  # Specific GPU constraint
   max_retries: 3
   output_location: "./slurm_output"
   monitor_interval: 60  # Check job status every 60 seconds

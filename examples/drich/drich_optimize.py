@@ -13,15 +13,17 @@ import shlex
 
 from ax.service.utils.report_utils import exp_to_df
 
-from aid2e.utilities import build_optimizer_from_config, build_scheduler_from_config, build_scheduler_runtime_config
+from aid2e.utilities import (
+    build_optimizer_from_config,
+    build_scheduler_from_config,
+    build_workflow_executor_from_config,
+)
 from aid2e.utilities.configurations import (
     BranchDefinition,
     JobDefinition,
     StageDefinition,
     WorkflowDefinition,
-    resolve_scheduler_cascade,
 )
-from aid2e.utilities.workflows import DAGExecutor
 from drich_utils import load_drich_config, make_paths
 
 
@@ -81,7 +83,6 @@ def build_trial_workflow(cfg, config_path, paths, trial_index):
                 scheduler=source_branch.scheduler,
             )
         ],
-        objectives=list(cfg.problem.objectives),
         scheduler=source_workflow.scheduler,
     )
 
@@ -92,17 +93,12 @@ def run_trial(config_path, output_dir, trial_index, design_point):
     config_path, cfg, paths = load_trial_config(config_path, output_dir)
 
     workflow = build_trial_workflow(cfg, config_path, paths, trial_index)
-    dag_scheduler = resolve_scheduler_cascade(
-        branch_scheduler=workflow.branches[0].scheduler,
-        workflow_scheduler=workflow.scheduler,
-        global_scheduler=cfg.scheduler,
-    )
-    executor = DAGExecutor(
-        workflow=workflow,
+    executor = build_workflow_executor_from_config(
+        workflow,
+        problem_cfg=cfg.problem,
+        scheduler_cfg=cfg.scheduler,
         base_output_dir=str(paths.output_root),
         log_level="WARNING",
-        problem_config=cfg.problem,
-        scheduler_config=build_scheduler_runtime_config(dag_scheduler),
     )
     executor.execute(design_point)
 

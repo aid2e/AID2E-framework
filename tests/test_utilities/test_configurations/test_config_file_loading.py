@@ -10,7 +10,6 @@ from aid2e.utilities.configurations import (
     DesignConfigLoader,
     ProblemConfigLoader,
     SchedulerConfigLoader,
-    load_scheduler_config,
     load_config,
     StackRegistry,
 )
@@ -94,15 +93,6 @@ def test_scheduler_config_loader_loads_scheduler_sections(tmp_path):
             assert config.parameters == parameters
             assert config.parse_runner_params() is not None
 
-        config = load_scheduler_config(str(config_path))
-
-        assert config is not None
-        assert config.runner_type == runner_type
-        assert config.parameters == parameters
-
-
-def test_full_config_loader_combines_problem_optimizer_scheduler_and_workflows(tmp_path):
-    """Load a canonical FullConfig with inline design and workflow wrapper."""
 def test_problem_config_loader_stack_registry(tmp_path):
     """Load problem config with stack_configurations and registry deserialization."""
     fixture_dir = _fixture_dir()

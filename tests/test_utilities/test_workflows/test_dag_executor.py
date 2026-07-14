@@ -29,6 +29,8 @@ from aid2e.utilities.workflows import (
     BashEvaluator,
     JobContext,
 )
+from aid2e.utilities.configurations import SchedulerConfiguration
+from aid2e.utilities.runtime_builders import build_workflow_executor_from_config
 
 
 class TestDAGExecutorBasics:
@@ -177,6 +179,75 @@ class TestStageExecution:
         assert len(expanded) == 2
         assert expanded[0].name == "job1"
         assert expanded[1].name == "job2"
+
+    def test_runtime_builder_resolves_stage_scheduler_cascade(self, tmp_path):
+        """Stage scheduler overrides branch, workflow, and global schedulers."""
+        global_scheduler = SchedulerConfiguration(
+            runner_type="JobLibRunner",
+            parameters={"n_jobs": 1},
+        )
+        workflow_scheduler = SchedulerConfiguration(
+            runner_type="SlurmRunner",
+            parameters={"ntasks": 1, "mem": "2G"},
+        )
+        branch_scheduler = SchedulerConfiguration(
+            runner_type="JobLibRunner",
+            parameters={"n_jobs": 3},
+        )
+        stage_scheduler = SchedulerConfiguration(
+            runner_type="SlurmRunner",
+            parameters={"ntasks": 1, "mem": "4G"},
+        )
+        stage = StageDefinition(
+            name="stage_override",
+            scheduler=stage_scheduler,
+            jobs=[
+                JobDefinition(
+                    name="job",
+                    command="echo test",
+                    payload={"evaluator_type": "bash"},
+                )
+            ],
+        )
+        branch_stage = StageDefinition(
+            name="branch_default",
+            jobs=[
+                JobDefinition(
+                    name="job",
+                    command="echo test",
+                    payload={"evaluator_type": "bash"},
+                )
+            ],
+        )
+        branch = BranchDefinition(
+            name="main",
+            scheduler=branch_scheduler,
+            stages=[stage, branch_stage],
+        )
+        workflow = WorkflowDefinition(
+            name="cascade_workflow",
+            scheduler=workflow_scheduler,
+            branches=[branch],
+            objectives=[],
+        )
+
+        executor = build_workflow_executor_from_config(
+            workflow,
+            scheduler_cfg=global_scheduler,
+            base_output_dir=str(tmp_path),
+        )
+
+        resolved = {}
+
+        def capture_scheduler_config(stage, jobs, stage_context, design_point, scheduler_config):
+            resolved[stage.name] = scheduler_config
+
+        executor._execute_stage_with_scheduler = capture_scheduler_config
+        executor.execute({"x": 1.0})
+
+        assert resolved["stage_override"]["runner_type"] == "SlurmRunner"
+        assert resolved["stage_override"]["config"].mem == "4G"
+        assert resolved["branch_default"]["config"].n_jobs == 3
 
 
 class TestEvaluatorSelection:

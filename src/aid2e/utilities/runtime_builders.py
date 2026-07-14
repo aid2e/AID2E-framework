@@ -8,6 +8,7 @@ from typing import Any, Dict, Optional, Union
 from aid2e.utilities.configurations.optimizer_config import OptimizerConfiguration
 from aid2e.utilities.configurations.problem_config import ProblemConfiguration
 from aid2e.utilities.configurations.scheduler_config import SchedulerConfiguration
+from aid2e.utilities.configurations.scheduler_cascade import resolve_scheduler_cascade
 from aid2e.utilities.configurations.workflow_config import (
     JobDefinition,
     WorkflowDefinition,
@@ -81,8 +82,6 @@ def build_scheduler_runtime_config(
     if scheduler_cfg is None:
         return None
 
-    # TODO(scheduler-cascade): honor workflow/branch/stage scheduler overrides via
-    # resolve_scheduler_cascade() instead of using only the global scheduler.
     runner_type = scheduler_cfg.runner_type
     params = dict(scheduler_cfg.parameters or {})
 
@@ -215,13 +214,26 @@ def build_workflow_executor_from_config(
     if problem_cfg is not None:
         resolved.objectives = list(problem_cfg.objectives)
 
-    runtime_scheduler_cfg = build_scheduler_runtime_config(scheduler_cfg)
-    if runtime_scheduler_cfg is None and isinstance(
-        workflows_cfg, WorkflowsConfiguration
-    ):
-        runtime_scheduler_cfg = build_scheduler_runtime_config(
-            workflows_cfg.global_scheduler
+    workflow_global_scheduler = (
+        workflows_cfg.global_scheduler
+        if isinstance(workflows_cfg, WorkflowsConfiguration)
+        else None
+    )
+    global_scheduler = (
+        scheduler_cfg if scheduler_cfg is not None else workflow_global_scheduler
+    )
+
+    def resolve_stage_scheduler(branch, stage):
+        return build_scheduler_runtime_config(
+            resolve_scheduler_cascade(
+                stage_scheduler=stage.scheduler,
+                branch_scheduler=branch.scheduler,
+                workflow_scheduler=resolved.scheduler,
+                global_scheduler=global_scheduler,
+            )
         )
+
+    runtime_scheduler_cfg = build_scheduler_runtime_config(global_scheduler)
 
     return DAGExecutor(
         workflow=resolved,
@@ -229,4 +241,5 @@ def build_workflow_executor_from_config(
         log_level=log_level,
         problem_config=problem_cfg,
         scheduler_config=runtime_scheduler_cfg,
+        scheduler_config_resolver=resolve_stage_scheduler,
     )

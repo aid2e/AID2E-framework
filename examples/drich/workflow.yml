@@ -25,11 +25,11 @@ problem:
       direction: "maximize"
 
   epic_environment:
-    epic_install: "./work/eic-software"
+    epic_install: "/hpc/home/cn95/group_vl_cn95/AIDE/AID2E-framework/eic-software"
     epic_config: "epic_craterlake"
     geometry_mode: "no_build"
-    eic_shell: "./work/eic-shell"
-    eic_recon_install: "./work/eic-software/share/epic/local"
+    eic_shell: "/hpc/home/cn95/group_vl_cn95/AIDE/AID2E-framework/eic-shell"
+    eic_recon_install: "/hpc/home/cn95/group_vl_cn95/AIDE/AID2E-framework/eic-software/share/epic/local"
 
   evaluation_config:
     npart: 500
@@ -65,9 +65,9 @@ optimizer:
       piKsep_etahigh: 4.04
       acceptance: 0.80
 
-    n_initial_samples: 10 # n_sobol
-    n_iterations: 50
-    batch_size: 5 # n_batch_sobol = n_batch_mobo
+    n_initial_samples: 4 # n_sobol
+    n_iterations: 8
+    batch_size: 2 # n_batch_sobol = n_batch_mobo
 
 # Global scheduler configuration
 scheduler:
@@ -104,15 +104,15 @@ workflows:
               # Edit trial XML and run checkOverlaps.
               jobs:
                 - name: "drich_geo"
-                  command: &drich_command "{python_executable} {repo_root}/examples/drich/drich_eval.py"
-                  rule: &drich_rule_no_job_index "{command} --stage {stage_id} --trial-index {payload[trial_index]} --output-dir {payload[output_dir]} --config-path {payload[config_path]} --prepared-geometry-dir {prepared_geometry_dir}"
+                  command: &drich_command "{{python_executable}} {{repo_root}}/examples/drich/drich_eval.py"
+                  rule: &drich_rule_no_job_index "{{command}} --stage {{stage_id}} --trial-index {{payload[trial_index]}} --output-dir {{payload[output_dir]}} --config-path {{payload[config_path]}} --prepared-geometry-dir {{prepared_geometry_dir}}"
 
             - name: "sim_rec"
               # Run npsim and then eicrecon in the same job
               jobs:
                 - name: "drich_sim_rec"
                   command: *drich_command
-                  rule: &drich_rule_with_job_index "{command} --stage {stage_id} --job-index {payload[job_index]} --trial-index {payload[trial_index]} --output-dir {payload[output_dir]} --config-path {payload[config_path]} --prepared-geometry-dir {prepared_geometry_dir}"
+                  rule: &drich_rule_with_job_index "{{command}} --stage {{stage_id}} --job-index {{payload[job_index]}} --trial-index {{payload[trial_index]}} --output-dir {{payload[output_dir]}} --config-path {{payload[config_path]}} --prepared-geometry-dir {{prepared_geometry_dir}}"
               job_factory:
                 type: "range"
                 params:
@@ -138,5 +138,5 @@ workflows:
                   command: *drich_command
                   rule: *drich_rule_no_job_index
                   outputs:
-                    - path: "{payload[result_json]}"
+                    - path: "{{payload[result_json]}}"
                       format: "json"

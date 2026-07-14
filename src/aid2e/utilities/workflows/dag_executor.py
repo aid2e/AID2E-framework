@@ -104,6 +104,7 @@ class DAGExecutor:
         log_level: str = "INFO",
         problem_config: Optional[ProblemConfiguration] = None,
         scheduler_config: Optional[Dict[str, Any]] = None,
+        scheduler_config_resolver=None,
     ):
         """Initialize DAG Executor.
         
@@ -120,6 +121,7 @@ class DAGExecutor:
         self.log_level = log_level
         self.problem_config = problem_config
         self.scheduler_config = scheduler_config or {}
+        self.scheduler_config_resolver = scheduler_config_resolver
         
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         if self.problem_config is not None:
@@ -163,7 +165,7 @@ class DAGExecutor:
             runner_type = self.scheduler_config.get("runner_type", "unknown")
             self.logger.log_info(f"Scheduler: {runner_type}")
     
-    def _create_scheduler(self):
+    def _create_scheduler(self, scheduler_config: Optional[Dict[str, Any]] = None):
         """Create and initialize the scheduler from configuration.
         
         Returns:
@@ -172,11 +174,12 @@ class DAGExecutor:
         Raises:
             ValueError: If scheduler_config is invalid or scheduler type not found.
         """
-        runner_type = self.scheduler_config.get("runner_type")
+        scheduler_config = scheduler_config or self.scheduler_config
+        runner_type = scheduler_config.get("runner_type")
         if not runner_type:
             raise ValueError("scheduler_config must specify 'runner_type'")
         
-        config = self.scheduler_config.get("config")
+        config = scheduler_config.get("config")
         
         # Import scheduler dynamically based on runner_type
         try:
@@ -335,7 +338,7 @@ class DAGExecutor:
             for node in layer:
                 stage = self._get_stage_by_name(branch.stages, node.node_id)
                 if stage:
-                    self._execute_stage(stage, branch_context, design_point)
+                    self._execute_stage(stage, branch, branch_context, design_point)
         
         self.logger.checkpoint(
             "branch_complete",
@@ -395,6 +398,7 @@ class DAGExecutor:
     def _execute_stage(
         self,
         stage: StageDefinition,
+        branch: BranchDefinition,
         branch_context: BranchContext,
         design_point: Dict[str, Any],
     ) -> None:
@@ -424,11 +428,16 @@ class DAGExecutor:
         
         self.logger.log_info(f"Stage {stage.name} has {len(jobs)} jobs to execute")
         
+        if self.scheduler_config_resolver is not None:
+            scheduler_config = self.scheduler_config_resolver(branch, stage)
+        else:
+            scheduler_config = self.scheduler_config or None
+
         # Use scheduler to execute stage if configured,
         # otherwise execute directly
-        if self.scheduler:
+        if scheduler_config:
             self._execute_stage_with_scheduler(
-                stage, jobs, stage_context, design_point
+                stage, jobs, stage_context, design_point, scheduler_config
             )
         else:
             jobs_seen = []
@@ -448,13 +457,14 @@ class DAGExecutor:
             f"Stage {stage.name} completed with {len(jobs)} jobs",
             context={"stage_name": stage.name, "num_jobs": len(jobs)},
         )
-    
+
     def _execute_stage_with_scheduler(
         self,
         stage: StageDefinition,
         jobs: List[JobDefinition],
         stage_context: StageContext,
         design_point: Dict[str, Any],
+        scheduler_config: Dict[str, Any],
     ) -> None:
         """Execute a stage using the configured scheduler.
         
@@ -467,6 +477,10 @@ class DAGExecutor:
             design_point: Design point parameters.
         """
         self.logger.log_info(f"Executing stage {stage.name} with scheduler")
+        if scheduler_config == self.scheduler_config and self.scheduler is not None:
+            scheduler = self.scheduler
+        else:
+            scheduler = self._create_scheduler(scheduler_config)
 
         # Convert jobs to scheduler format
         job_definitions = []
@@ -497,7 +511,7 @@ class DAGExecutor:
             
             # Convert to scheduler job definition format
             scheduler_job = self._convert_job_to_scheduler_format(
-                job, job_id, job_context
+                job, job_id, job_context, scheduler_config
             )
             job_definitions.append(scheduler_job)
         
@@ -511,7 +525,7 @@ class DAGExecutor:
         
         # Execute stage via scheduler
         try:
-            result = self.scheduler.run_stage(
+            result = scheduler.run_stage(
                 stage_name=stage.name,
                 job_definitions=job_definitions,
                 parallelism_policy=parallelism_policy,
@@ -540,6 +554,7 @@ class DAGExecutor:
         job: JobDefinition,
         job_id: str,
         job_context: JobContext,
+        scheduler_config: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """Convert a JobDefinition to scheduler job format.
         
@@ -551,7 +566,7 @@ class DAGExecutor:
         Returns:
             Dict in scheduler format with keys: name, command, payload, outputs, etc.
         """
-        runner_type = self.scheduler_config.get("runner_type")
+        runner_type = (scheduler_config or self.scheduler_config).get("runner_type")
         evaluator_type = job.payload.get("evaluator_type", "bash")
         design_file = self._materialize_design_file(job_id, job_context)
         if runner_type == "SlurmRunner" and evaluator_type == "python":

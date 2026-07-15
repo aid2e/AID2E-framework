@@ -286,7 +286,20 @@ class ProblemConfigLoader:
         if base_dir and not work_location.is_absolute():
             work_location = (base_dir / work_location).resolve()
 
-        return ProblemConfiguration(
+        config_model = ProblemConfiguration
+        if env_config is not None:
+            from aid2e.utilities.epic_utils.epic_design_config import EpicDesignConfig
+            from aid2e.utilities.epic_utils.epic_env_config import EpicEnvConfig
+            from aid2e.utilities.epic_utils.epic_problem_config import (
+                EpicProblemConfiguration,
+            )
+
+            if isinstance(design_config, EpicDesignConfig) and isinstance(
+                env_config, EpicEnvConfig
+            ):
+                config_model = EpicProblemConfiguration
+
+        return config_model(
             name=problem["name"],
             problem_type=problem["problem_type"],
             output_location=str(output_location),

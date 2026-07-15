@@ -109,8 +109,7 @@ class SchedulerConfigLoader:
 
     Notes:
         Use `SchedulerConfigLoader.load()` to load from a file path or
-        `SchedulerConfigLoader.from_dict()` to construct from an in-memory
-        dictionary.
+        `SchedulerConfigLoader.from_dict()` to construct from an in-memory dictionary.
     """
 
     @staticmethod
@@ -125,72 +124,52 @@ class SchedulerConfigLoader:
         required_keys = ["runner_type", "parameters"]
         missing = [key for key in required_keys if key not in scheduler_payload]
         if missing:
-            raise ValueError(
-                "Invalid scheduler definition, missing keys: " + ", ".join(missing)
-            )
-        parameters = scheduler_payload["parameters"]
-        if not isinstance(parameters, dict):
-            raise ValueError(
-                "Invalid scheduler definition: 'parameters' must be a mapping"
-            )
-        runner_type = scheduler_payload["runner_type"]
-        if runner_type == "JobLibRunner":
-            if "n_jobs" not in parameters:
-                raise ValueError(
-                    "Invalid JobLibRunner scheduler parameters, missing keys: n_jobs"
-                )
-        if runner_type == "SlurmRunner":
+            raise ValueError("Invalid scheduler definition, missing keys: " + ", ".join(missing))
+        config = SchedulerConfiguration(**scheduler_payload)
+        parameters = dict(config.parameters)
+        if config.runner_type == "SlurmRunner":
             template_file = parameters.get("template_file")
             if template_file is None:
                 if not parameters:
-                    raise ValueError(
-                        "Invalid SlurmRunner scheduler parameters, provide inline definitions or template_file"
-                    )
+                    raise ValueError("Invalid SlurmRunner scheduler parameters, provide inline definitions or template_file")
             else:
                 template_path = Path(template_file).expanduser()
                 if base_dir and not template_path.is_absolute():
                     template_path = (base_dir / template_path).resolve()
                 if not template_path.exists():
-                    raise FileNotFoundError(
-                        f"Slurm template file not found: {template_file}"
-                    )
+                    raise FileNotFoundError(f"Slurm template file not found: {template_file}")
 
                 with open(template_path, "r") as f:
                     template_data = json.load(f)
                 if not isinstance(template_data, dict):
-                    raise ValueError(
-                        "Invalid Slurm template file: expected a JSON object"
-                    )
+                    raise ValueError("Invalid Slurm template file: expected a JSON object")
 
                 inline_parameters = dict(parameters)
                 inline_parameters.pop("template_file")
                 if not template_data and not inline_parameters:
-                    raise ValueError(
-                        "Invalid Slurm template file: expected scheduler parameters"
-                    )
+                    raise ValueError("Invalid Slurm template file: expected scheduler parameters")
                 scheduler_payload["parameters"] = {
                     **template_data,
                     **inline_parameters,
                 }
-            parameters = scheduler_payload["parameters"]
-        if runner_type == "PanDAiDDSRunner":
+            config = SchedulerConfiguration(**scheduler_payload)
+            parameters = dict(config.parameters)
+        if config.runner_type == "PanDAiDDSRunner":
             if not parameters:
-                raise ValueError(
-                    "Invalid PanDAiDDSRunner scheduler parameters, provide PanDA definitions"
-                )
+                raise ValueError("Invalid PanDAiDDSRunner scheduler parameters, provide PanDA definitions")
 
-        Model = get(runner_type)
+        Model = get(config.runner_type)
         if Model is None:
-            raise ValueError(f"Unsupported scheduler runner_type: {runner_type}")
+            raise RuntimeError(f"No scheduler config model registered for {config.runner_type}")
         unknown_keys = sorted(set(parameters) - set(Model.model_fields))
         if unknown_keys:
             raise ValueError(
-                f"Invalid {runner_type} scheduler parameters, unknown keys: "
+                f"Invalid {config.runner_type} scheduler parameters, unknown keys: "
                 + ", ".join(unknown_keys)
             )
         Model(**parameters)
 
-        return SchedulerConfiguration(**scheduler_payload)
+        return config
 
     @staticmethod
     def load(file_path: str) -> SchedulerConfiguration:

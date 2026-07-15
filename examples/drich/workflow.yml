@@ -25,11 +25,11 @@ problem:
       direction: "maximize"
 
   epic_environment:
-    epic_install: "/hpc/home/cn95/group_vl_cn95/AIDE/AID2E-framework/eic-software"
+    epic_install: "./work/eic-software"
     epic_config: "epic_craterlake"
     geometry_mode: "no_build"
-    eic_shell: "/hpc/home/cn95/group_vl_cn95/AIDE/AID2E-framework/eic-shell"
-    eic_recon_install: "/hpc/home/cn95/group_vl_cn95/AIDE/AID2E-framework/eic-software/share/epic/local"
+    eic_shell: "./work/eic-shell"
+    eic_recon_install: "./work/eic-software/share/epic/local"
 
   evaluation_config:
     npart: 500
@@ -65,9 +65,9 @@ optimizer:
       piKsep_etahigh: 4.04
       acceptance: 0.80
 
-    n_initial_samples: 4 # n_sobol
-    n_iterations: 8
-    batch_size: 2 # n_batch_sobol = n_batch_mobo
+    n_initial_samples: 10 # n_sobol
+    n_iterations: 50
+    batch_size: 5 # n_batch_sobol = n_batch_mobo
 
 # Global scheduler configuration
 scheduler:

@@ -28,7 +28,7 @@ Homepage: https://aid2e.github.io/aid2e-framework
 Repository: https://github.com/aid2e/AID2E-framework.git
 """
 
-from typing import Dict, Any, List, Optional, Tuple, get_args
+from typing import Dict, Any, List, Optional, Tuple
 from pathlib import Path
 import json
 import logging
@@ -1063,33 +1063,13 @@ def create_executor_from_config(
         >>> executor = create_executor_from_config("configs/dtlz2.yml")
         >>> objectives = executor.execute({"x1": 0.5, "x2": 0.7})
     """
-    import yaml
+    from aid2e.utilities.configurations import load_config
+    from aid2e.utilities.runtime_builders import build_workflow_executor_from_config
 
-    # TODO(workflow-entrypoint): teach create_executor_from_config() to load
-    # canonical full config files with scheduler/workflows sections.
-
-    with open(workflow_config_path, 'r') as f:
-        if workflow_config_path.endswith('.json'):
-            config = json.load(f)
-        else:
-            config = yaml.safe_load(f)
-
-    # if workflow is stack-based (stack_type keyword is present),
-    # build workflow from that
-    workflow = None
-    if "stack_type" in config:
-        stack = config["stack_type"]
-        registry = StackRegistry.list_registered_stacks()
-        if stack not in registry:
-            raise KeyError(f"Stack {stack} not listed in StackRegistry")
-        else:
-            # extract type of WorkflowDefinition for stack, and
-            # instatiate one of it
-            workflows_config = registry[stack]['workflow_config']
-            workflows_list = workflows_config.model_fields.get('workflows')
-            workflow_define = get_args(workflows_list)
-            workflow = workflow_define[0](**config)
-    else:
-        workflow = WorkflowDefinition(**config)
-
-    return DAGExecutor(workflow, base_output_dir=output_dir)
+    config = load_config(workflow_config_path)
+    return build_workflow_executor_from_config(
+        config.workflows,
+        problem_cfg=config.problem,
+        scheduler_cfg=config.scheduler,
+        base_output_dir=output_dir,
+    )

@@ -54,7 +54,7 @@ class TestDAGExecutorBasics:
         assert executor.output_dir.exists()
         assert executor.global_xcom == {}
         assert executor.logger is not None
-    
+
     def test_executor_output_directory_creation(self, tmp_path):
         """Test that executor creates unique output directories."""
         workflow = WorkflowDefinition(name="test_workflow", branches=[], objectives=[])

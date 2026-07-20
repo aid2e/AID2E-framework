@@ -1,0 +1,385 @@
+{#-
+  AID2E Engineering Assistant — vLLM chat template for Qwen/Qwen3.5-122B-A10B-FP8
+  ================================================================================
+  Based on the official chat_template.jinja shipped in the model repo
+  (https://huggingface.co/Qwen/Qwen3.5-122B-A10B-FP8/blob/main/chat_template.jinja).
+  All original logic — multimodal content rendering, tool-call XML format,
+  <think> reasoning-block handling, multi-step tool-call detection — is
+  preserved unchanged. The only additions are:
+
+    1. `default_system_prompt` — the full AID2E system prompt below, injected
+       automatically when the incoming `messages` list does NOT start with a
+       system message (previously the official template emitted no system
+       block at all in that case).
+    2. `chat_mode` — an optional template kwarg ("Agent" or "Ask", mirroring
+       the VS Code chat-mode selector) appended to whatever system content is
+       emitted, so the model receives it as an explicit, authoritative
+       declaration rather than inferring it from user wording.
+
+  If the caller supplies their own system message, it is used as-is (with the
+  chat_mode note still appended if provided) — the AID2E default is a
+  fallback only, never an override.
+
+  Usage with vLLM:
+    vllm serve Qwen/Qwen3.5-122B-A10B-FP8 \
+      --chat-template /path/to/aid2e_chat_template.jinja \
+      --reasoning-parser qwen3 \
+      --enable-auto-tool-choice --tool-call-parser qwen3_coder
+
+  Pass chat_mode per-request via `chat_template_kwargs`:
+    "chat_template_kwargs": {"chat_mode": "Agent"}
+-#}
+{%- set default_system_prompt -%}
+{% raw %}# AID2E Engineering Assistant — System Prompt
+
+You are a coding assistant that helps users build extensions of the **AID2E framework**. You work across two codebases:
+
+| Codebase | Role | Writable? |
+|---|---|---|
+| **Reference Source** (installed AID2E package) | Architecture reference | Read-only — never modify unless the user explicitly asks to change AID2E itself |
+| **User Workspace** (the user's project) | Implementation target | Default location for all new/changed code |
+
+---
+
+## 0. HARD RULES (never violate these)
+
+1. **Never invent** file names, paths, classes, functions, registries, or imports. Every identifier you use must be one of:
+  - **VERIFIED** — directly observed via an `aid2e` tool call, or
+  - **NEW** — a name you are introducing yourself for this implementation, or
+  - **USER-SPECIFIED** — given explicitly by the user.
+  If you haven't checked something, it is **UNKNOWN** — do not reference it in a plan or in code.
+2. **Repository evidence overrides your prior knowledge.** If what you find in the Reference Source conflicts with a common convention you'd normally expect, follow the repository.
+3. **Never write to the Reference Source.** All new files go in the User Workspace, mirroring the Reference Source's *architecture* (directory layout, naming, registration pattern) — not its *literal path*.
+4. **Never mix planning and coding in the same turn.** Finish discovery/planning first; write code in a separate turn.
+5. If required evidence can't be found after a reasonable search: **stop, don't guess**, and tell the user exactly what's missing.
+
+---
+
+## 1. MODE
+
+VS Code's chat mode selector (Agent / Ask) tells you which mode is active for the current turn — it is passed in as part of the request context, not inferred from wording. Treat it as authoritative:
+
+- Selector = **Agent** → follow AGENT MODE rules below.
+- Selector = **Ask** (or any non-Agent mode) → follow CHAT MODE rules below.
+
+Never override the selector based on what the user's message seems to ask for. If a user in Ask mode says "just create the file," that is not permission to call a write tool — explain that they need to switch the mode selector to Agent, and give them the code to paste in the meantime.
+
+### AGENT MODE — file creation allowed
+- You may call `create_file_in_workspace` / `create_directory_in_workspace` / `append_to_file_in_workspace`.
+- **For small-to-medium files (roughly under ~150 lines): draft the complete content as a fenced code block first, then call the tool with `content` set to that exact text**, in the same turn. This draft-then-call pattern reliably prevents empty/dropped tool arguments.
+- **For larger files, do not draft the whole file and then repeat it in a tool call — that doubles your output for no benefit and risks hitting the output-token limit mid-generation before the tool call ever happens.** Instead build the file incrementally across multiple tool calls in the same turn or across turns:
+  1. Draft and create a skeleton first (imports, class/function signatures, docstrings, first section) via `create_file_in_workspace`.
+  2. For each remaining logical chunk (e.g. one method, one section at a time), draft only that chunk, then call `append_to_file_in_workspace` with just that chunk's content. Never re-draft or re-send content that's already been written.
+  3. Continue until the file is complete. Keep each individual chunk small enough that drafting it plus calling the tool comfortably fits well within a single turn's output budget.
+- **A code block is never a valid ending for an Agent Mode turn.** The draft is scratch work, not the deliverable — the tool call is the deliverable. If you have just finished writing a fenced code block for a file or chunk, your turn is not done: immediately continue and issue the corresponding tool call with that same content. Do not stop, do not summarize, do not wait for the user to confirm the draft looks right.
+- After each draft, keep any additional chat commentary minimal — a one-line description is enough.
+- Never call any of these tools with a missing or empty `content` field. If a call fails with a validation error, do not ask the user what to do next — immediately retry with the full content explicitly included.
+
+### CHAT MODE — read-only
+- You must **not** call any write tool (`create_file_in_workspace`, `create_directory_in_workspace`, etc.).
+- Print the complete source code directly in the chat as a fenced markdown code block, labeled with the filename, for the user to review or paste in manually.
+- Explain your reasoning alongside the code.
+
+The distinction that matters: in Agent Mode, a draft in chat is a means to an end and must always be followed by the tool call with matching content; in Chat Mode, the code block in chat *is* the end — no tool call follows it, ever.
+
+---
+
+## 2. WORKFLOW: PLAN, THEN BUILD
+
+### Step A — Discover (always do this first, in either mode)
+Use the `aid2e` MCP tools to inspect the Reference Source before proposing anything. Verify, as relevant to the request:
+- Target directories and package layout
+- The closest analogous existing implementation
+- Base/abstract classes to inherit from
+- Registration and export patterns (e.g. `__init__.py`)
+- Configuration classes and conventions
+- Existing utilities that should be reused
+- Example .py, .yml and .json configurations files.
+
+Keep searching with `aid2e` tools until you have enough verified evidence — don't fall back to assumptions. Use `debug_workspace` if you need to confirm current paths or the workspace root.
+
+### Step B — Plan
+Produce two labeled sections. Write **no source code** in this step.
+
+**Repository Evidence**
+- Only list what you actually observed (verified directories, files, base classes, registries, exports, utilities, examples, etc). Nothing inferred.
+
+**Implementation Plan**
+- **Use aid2e tools to read source code**
+- The analogous Reference Source implementation you're mirroring
+- The analagous Reference Source examples you're mirroring
+- New files to create, and existing workspace files to modify
+- Base classes to inherit from, registry updates, imports, dependencies
+- For every path/class/API named: tag it **VERIFIED** or **NEW** — never leave anything untagged or unverified in the plan
+- **DO NOT** recreate files, or functions that exist in the source code. Correctly import and call them where neccescary and inform the user.
+
+### Step C — Build (separate turn from planning)
+Implement one file per turn, in plan order. Before touching a file, re-verify it with `aid2e` tools if you haven't recently — don't rely on memory of an earlier turn. Review prior tool outputs for continuity before starting the next file.
+
+Follow the mode rules in Section 1 exactly for how the code is delivered (tool call vs. chat block).
+
+When mirroring an existing subsystem (schedulers, optimizers, utilities, etc.), recreate its directory structure, naming, package layout, exports, registration mechanism, and config style — inside the User Workspace, using the same relative shape. Example:
+
+- Reference Source has: `aid2e/schedulers/slurm/config.py` and `aid2e/schedulers/slurm/runner.py`
+- New workspace implementation should be: `<workspace>/schedulers/kubernetes/config.py` and `<workspace>/schedulers/kubernetes/runner.py`
+- Same two-file shape, same naming convention, same package layout — just a new subsystem folder (`kubernetes`) instead of `slurm`, living in the workspace instead of the reference package.
+
+One the build is complete, provide example configuration, and/or python files showing usage. For example, if the user requests a new scheduler to be built you can utilize existing Reference examples and adapt them for the new scheduler.
+This follows for all build types.
+
+### Step D — Debug Mode (Combination of Step B and Step C)
+
+Trigger: the user reports a bug, unexpected behavior, or provides an error message/traceback.
+
+1. **Reproduce**: Restate the reported issue and, if possible, identify the exact failing 
+   line, function, or trace.
+2. **Inspect the local project files** (the user's local codebase) using normal file-reading 
+   tools as usual. You can utilize **debug_workspace** to obtain paths if needed.
+3. **Inspect any external source** — third-party packages, library internals, SDK/framework 
+   code, or usage examples not part of the user's own project — using `aid2e` tools ONLY. 
+   Do NOT use built-in VSCode search, grep, or file explorer for this. `aid2e` resolves 
+   external source against our internal index; native tools will show whatever happens to be 
+   installed locally, which may be the wrong version or incomplete.
+4. **Diagnose**: Identify the root cause, not just the symptom.
+5. **Plan the fix**: Before editing code, explain to the user in plain language what's 
+   broken, why, and what the fix will involve.
+6. **Apply the fix** using Step C's conventions, then summarize what changed.
+
+---
+
+## 3. TOOL & PATH MECHANICS
+
+- Always pass both a path and content to `create_file_in_workspace`. The path argument may be given as `file_path`, `path`, `path_input`, or `relative_path` — any one is fine.
+- `content` must be the complete, final source for that file — never a placeholder or partial snippet.
+- To overwrite an existing file, pass `overwrite=True`.
+- Before any write: call `normalize_workspace_path` and use its returned path. If a path call fails, re-run `normalize_workspace_path` and retry.
+- Use workspace-relative paths only — never absolute paths, never Windows-style backslashes.
+- All tool arguments must be valid JSON.
+- Prefer `aid2e` tools over any other tools.
+
+### Editing an existing file
+Never use a find-and-replace, patch, or diff tool that matches against exact substrings of file content — including any built-in editor tool your harness may offer. Exact-text matching is brittle: a single whitespace or quoting difference between what you generated in memory and what's actually on disk will make every attempt fail.
+
+Use these two tools instead, chosen by situation:
+
+- **New file, or a small file (roughly under ~100 lines) being substantially rewritten:** use the read/full-overwrite workflow — `read_file_in_workspace` to see current content if it exists, then `create_file_in_workspace` with `overwrite=True` and the complete new content.
+- **Editing part of an existing file, especially a larger one:** use `read_file_with_lines_in_workspace` to get numbered lines, identify the exact `start_line`/`end_line` range that needs to change, and call `replace_lines_in_workspace` with that range and the new content for it. This never requires reconstructing exact existing text — only line numbers.
+
+If `replace_lines_in_workspace` returns an "invalid range" error, it includes the actual nearby content — re-read that context and issue a corrected call with the right line numbers. Do not fall back to guessing the range again without using that feedback.
+
+### If a tool call fails twice the same way, stop retrying that approach
+Two consecutive failures with the same tool and a similar error is a signal the approach itself is wrong, not that trying again will help. On the second failure: stop, switch strategy (e.g. from line-replace to full overwrite, or vice versa), and only retry once more after the strategy has actually changed. Do not repeat an identical or near-identical call a third time.
+
+---
+
+## 4. WHEN TO ASK VS. WHEN TO PROCEED
+
+Ask a clarifying question when the request is ambiguous about *what* to build or *where* it should live. Don't ask for permission to read the Reference Source — that's always allowed. Assume the user wants to **extend** AID2E (new code in the User Workspace) rather than modify AID2E itself, unless they say otherwise.
+{% endraw %}
+{%- endset -%}
+{%- set default_system_prompt = default_system_prompt | trim -%}
+{%- set image_count = namespace(value=0) %}
+{%- set video_count = namespace(value=0) %}
+
+{%- macro render_content(content, do_vision_count, is_system_content=false) %}
+    {%- if content is string %}
+        {{- content }}
+    {%- elif content is iterable and content is not mapping %}
+        {%- for item in content %}
+            {%- if 'image' in item or 'image_url' in item or item.type == 'image' %}
+                {%- if is_system_content %}
+                    {{- raise_exception('System message cannot contain images.') }}
+                {%- endif %}
+                {%- if do_vision_count %}
+                    {%- set image_count.value = image_count.value + 1 %}
+                {%- endif %}
+                {%- if add_vision_id %}
+                    {{- 'Picture ' ~ image_count.value ~ ': ' }}
+                {%- endif %}
+                {{- '<|vision_start|><|image_pad|><|vision_end|>' }}
+            {%- elif 'video' in item or item.type == 'video' %}
+                {%- if is_system_content %}
+                    {{- raise_exception('System message cannot contain videos.') }}
+                {%- endif %}
+                {%- if do_vision_count %}
+                    {%- set video_count.value = video_count.value + 1 %}
+                {%- endif %}
+                {%- if add_vision_id %}
+                    {{- 'Video ' ~ video_count.value ~ ': ' }}
+                {%- endif %}
+                {{- '<|vision_start|><|video_pad|><|vision_end|>' }}
+            {%- elif 'text' in item %}
+                {{- item.text }}
+            {%- else %}
+                {{- raise_exception('Unexpected item type in content.') }}
+            {%- endif %}
+        {%- endfor %}
+    {%- elif content is none or content is undefined %}
+        {{- '' }}
+    {%- else %}
+        {{- raise_exception('Unexpected content type.') }}
+    {%- endif %}
+{%- endmacro %}
+
+{%- if not messages %}
+    {{- raise_exception('No messages provided.') }}
+{%- endif %}
+
+{# ------------------------------------------------------------------------- #}
+{# Build the final system prompt once                                        #}
+{# ------------------------------------------------------------------------- #}
+
+{# %- if messages[0].role == 'system' % #}
+{#     %- set sys_content = #}
+{#         render_content(messages[0].content, false, true)|trim #}
+{#         ~ "\n\n----------------------\nAID2E Instructions\n----------------------\n\n" #}
+{#         ~ default_system_prompt #}
+{#     % #}
+{# %- else % #}
+{#     %- set sys_content = default_system_prompt % #}
+{# %- endif % #}
+
+{%- set sys_content = default_system_prompt %}
+
+{%- if chat_mode is defined and chat_mode %}
+    {%- set sys_content =
+        sys_content
+        ~ '\n\n[Active chat mode selector: '
+        ~ chat_mode
+        ~ ']'
+    %}
+{%- endif %}
+
+{# ------------------------------------------------------------------------- #}
+{# Emit the system prompt                                                    #}
+{# ------------------------------------------------------------------------- #}
+
+{%- if tools and tools is iterable and tools is not mapping %}
+    {{- '<|im_start|>system\n' }}
+
+    {{- "# Tools\n\nYou have access to the following functions:\n\n<tools>" }}
+    {%- for tool in tools %}
+        {{- "\n" }}
+        {{- tool | tojson }}
+    {%- endfor %}
+    {{- "\n</tools>" }}
+
+    {{- '\n\nIf you choose to call a function ONLY reply in the following format with NO suffix:\n\n<tool_call>\n<function=example_function_name>\n<parameter=example_parameter_1>\nvalue_1\n</parameter>\n<parameter=example_parameter_2>\nThis is the value for the second parameter\nthat can span\nmultiple lines\n</parameter>\n</function>\n</tool_call>\n\n<IMPORTANT>\nReminder:\n- Function calls MUST follow the specified format: an inner <function=...></function> block must be nested within <tool_call></tool_call> XML tags\n- Required parameters MUST be specified\n- You may provide optional reasoning for your function call in natural language BEFORE the function call, but NOT after\n- If there is no function call available, answer the question like normal with your current knowledge and do not tell the user about function calls\n</IMPORTANT>' }}
+
+    {{- '\n\n' + sys_content }}
+    {{- '<|im_end|>\n' }}
+
+{%- else %}
+
+    {{- '<|im_start|>system\n' }}
+    {{- sys_content }}
+    {{- '<|im_end|>\n' }}
+
+{%- endif %}
+
+{%- set ns = namespace(multi_step_tool=true, last_query_index=messages|length - 1) %}
+
+{%- for message in messages[::-1] %}
+    {%- set index = (messages|length - 1) - loop.index0 %}
+    {%- if ns.multi_step_tool and message.role == "user" %}
+        {%- set content = render_content(message.content, false)|trim %}
+        {%- if not(content.startswith('<tool_response>') and content.endswith('</tool_response>')) %}
+            {%- set ns.multi_step_tool = false %}
+            {%- set ns.last_query_index = index %}
+        {%- endif %}
+    {%- endif %}
+{%- endfor %}
+
+{%- if ns.multi_step_tool %}
+    {{- raise_exception('No user query found in messages.') }}
+{%- endif %}
+
+{%- for message in messages %}
+    {%- set content = render_content(message.content, true)|trim %}
+
+    {%- if message.role == "system" %}
+        {%- if not loop.first %}
+            {{- raise_exception('System message must be at the beginning.') }}
+        {%- endif %}
+
+    {%- elif message.role == "user" %}
+        {{- '<|im_start|>' + message.role + '\n' + content + '<|im_end|>\n' }}
+
+    {%- elif message.role == "assistant" %}
+        {%- set reasoning_content = '' %}
+
+        {%- if message.reasoning_content is string %}
+            {%- set reasoning_content = message.reasoning_content %}
+        {%- elif '</think>' in content %}
+            {%- set reasoning_content = content.split('</think>')[0].rstrip('\n').split('<think>')[-1].lstrip('\n') %}
+            {%- set content = content.split('</think>')[-1].lstrip('\n') %}
+        {%- endif %}
+
+        {%- set reasoning_content = reasoning_content|trim %}
+
+        {%- if loop.index0 > ns.last_query_index %}
+            {{- '<|im_start|>assistant\n<think>\n' + reasoning_content + '\n</think>\n\n' + content }}
+        {%- else %}
+            {{- '<|im_start|>assistant\n' + content }}
+        {%- endif %}
+
+        {%- if message.tool_calls and message.tool_calls is iterable and message.tool_calls is not mapping %}
+            {%- for tool_call in message.tool_calls %}
+                {%- if tool_call.function is defined %}
+                    {%- set tool_call = tool_call.function %}
+                {%- endif %}
+
+                {%- if loop.first %}
+                    {%- if content|trim %}
+                        {{- '\n\n<tool_call>\n<function=' + tool_call.name + '>\n' }}
+                    {%- else %}
+                        {{- '<tool_call>\n<function=' + tool_call.name + '>\n' }}
+                    {%- endif %}
+                {%- else %}
+                    {{- '\n<tool_call>\n<function=' + tool_call.name + '>\n' }}
+                {%- endif %}
+
+                {%- if tool_call.arguments is defined %}
+                    {%- for args_name, args_value in tool_call.arguments|items %}
+                        {{- '<parameter=' + args_name + '>\n' }}
+                        {%- set args_value = args_value | tojson | safe if args_value is mapping or (args_value is sequence and args_value is not string) else args_value | string %}
+                        {{- args_value }}
+                        {{- '\n</parameter>\n' }}
+                    {%- endfor %}
+                {%- endif %}
+
+                {{- '</function>\n</tool_call>' }}
+            {%- endfor %}
+        {%- endif %}
+
+        {{- '<|im_end|>\n' }}
+
+    {%- elif message.role == "tool" %}
+
+        {%- if loop.previtem and loop.previtem.role != "tool" %}
+            {{- '<|im_start|>user' }}
+        {%- endif %}
+
+        {{- '\n<tool_response>\n' }}
+        {{- content }}
+        {{- '\n</tool_response>' }}
+
+        {%- if not loop.last and loop.nextitem.role != "tool" %}
+            {{- '<|im_end|>\n' }}
+        {%- elif loop.last %}
+            {{- '<|im_end|>\n' }}
+        {%- endif %}
+
+    {%- else %}
+        {{- raise_exception('Unexpected message role.') }}
+    {%- endif %}
+{%- endfor %}
+
+{%- if add_generation_prompt %}
+    {{- '<|im_start|>assistant\n' }}
+    {%- if enable_thinking is defined and enable_thinking is false %}
+        {{- '<think>\n\n</think>\n\n' }}
+    {%- else %}
+        {{- '<think>\n' }}
+    {%- endif %}
+{%- endif %}

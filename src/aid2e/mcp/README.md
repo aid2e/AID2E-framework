@@ -126,7 +126,7 @@ To get the autocompletion model working:
 3. Select **Inline Chat**.
 4. Set **Inline Chat: Default Model** to the correct model (e.g., `Qwen 3.5 4B (Inline Autocomplete)`).
 
-[Autocomplete setup](assets/autocomplete.png)
+![Autocomplete setup](assets/autocomplete.png)
 
 ---
 
@@ -152,7 +152,7 @@ Note I am using conda to hold the AID2E environment, if you are using virtual en
 
 If the tools are enabled correctly, you will be able to see them by clicking "configure tools" beside the model name inside the chatbox.
 
-[MCP Tools](assets/tools.png)
+![MCP Tools](assets/tools.png)
 
 ## Notes
 

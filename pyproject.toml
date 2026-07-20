@@ -51,6 +51,7 @@ panda = [
     "idds-workflow>=2.5.5",
     "panda-client>=1.6.0",
 ]
+mcp = ["mcp>=1.0"]
 
 dev = [
     "pytest>=6.0",
@@ -98,8 +99,11 @@ Issues = "https://github.com/aid2e/AID2E-framework/issues"
 [project.scripts]
 aid2e = "aid2e.cli.aid2e_cli:cli"
 
+[project.entry-points."aid2e.commands"]
+mcp = "aid2e.mcp.server:mcp_command"
+
 [tool.setuptools]
-packages = ["aid2e", "aid2e.cli", "aid2e.optimizers", "aid2e.optimizers.ax", "aid2e.optimizers.pymoo", "aid2e.schedulers", "aid2e.utilities", "aid2e.utilities.configurations", "aid2e.utilities.epic_utils"]
+packages = ["aid2e", "aid2e.cli", "aid2e.mcp", "aid2e.optimizers", "aid2e.optimizers.ax", "aid2e.optimizers.pymoo", "aid2e.schedulers", "aid2e.utilities", "aid2e.utilities.configurations", "aid2e.utilities.epic_utils"]
 package-dir = {"" = "src"}
 
 [tool.setuptools.package-data]

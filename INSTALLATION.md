@@ -150,12 +150,23 @@ aid2e --version
 # Show available commands
 aid2e --help
 
+# Launch the MCP server command
+aid2e mcp
+
 # Load and display configuration
 aid2e load examples/basic/full_example.yml
 
 # Show configuration details
 aid2e info examples/basic/full_example.yml
 ```
+
+For the MCP extra, install it with:
+
+```bash
+python -m pip install -e ".[mcp]"
+```
+
+The standalone `mcp` console script is also installed.
 
 ## Import Examples
 

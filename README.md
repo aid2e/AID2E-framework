@@ -86,6 +86,21 @@ pytest
 
 ------------------------------------------------------------------------
 
+## MCP Server
+
+To use AID2E from Copilot or another MCP-aware assistant, install the package
+with the MCP extra and launch the server command:
+
+```bash
+python -m pip install -e ".[mcp]"
+aid2e mcp
+```
+
+The standalone `mcp` console script is also installed. Once connected, the
+assistant can query AID2E's package overview, module list, and API references.
+
+------------------------------------------------------------------------
+
 ## Dev Setup
 
 ``` bash

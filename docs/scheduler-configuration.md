@@ -118,6 +118,8 @@ scheduler:
 | `task_type` | str/None | "AID2E" | Type of processing (PanDA classification) |
 | `cloud` | str/None | None | Target cloud/region |
 | `max_walltime` | int/None | None | Maximum walltime in seconds |
+| `job_name_prefix` | str | "aid2e" | Prefix for generated PaNDA job names for tracking |
+
 
 ### Example
 
@@ -128,6 +130,7 @@ scheduler:
     cloud: null              # Auto-select best site
     task_type: "optimization"
     max_walltime: 7200   # 2 hours
+    job_name_prefix: "aid2e_dtlz2_run1"
   max_retries: 5
   output_location: "./panda_output"
   monitor_interval: 120

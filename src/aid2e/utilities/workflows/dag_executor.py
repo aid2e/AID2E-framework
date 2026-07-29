@@ -511,11 +511,13 @@ class DAGExecutor:
         
         # Execute stage via scheduler
         try:
+            scheduler_working_dir = self.scheduler_submit_dir / stage.name
+            scheduler_working_dir.mkdir(parents=True, exist_ok=True)
             result = self.scheduler.run_stage(
                 stage_name=stage.name,
                 job_definitions=job_definitions,
                 parallelism_policy=parallelism_policy,
-                working_dir=str(self.scheduler_submit_dir / stage.name),
+                working_dir=str(scheduler_working_dir),
             )
             
             # Process results and update XCom
@@ -562,8 +564,8 @@ class DAGExecutor:
             )
 
         command = job.command
-        outputs = job.outputs or []
-        if runner_type == "SlurmRunner":
+        outputs: List[Dict[str, Any]] = []
+        if evaluator_type != "python":
             command = self._resolve_scheduler_job_command(
                 job,
                 job_id,
@@ -576,6 +578,8 @@ class DAGExecutor:
                 job_context,
                 design_file=design_file,
             )
+        elif job.outputs:
+            outputs = [output_spec.model_dump() for output_spec in job.outputs]
 
         scheduler_job = {
             "job_id": job_id,
@@ -981,51 +985,58 @@ class DAGExecutor:
                 env=job.payload.get("env", {}),
             )
     
+    def _extract_objectives_from_value(
+        self,
+        value: Any,
+        objective_names: List[str],
+    ) -> Dict[str, float]:
+        """Extract configured objective names from an XCom or artifact value."""
+        if isinstance(value, str):
+            try:
+                value = json.loads(value)
+            except json.JSONDecodeError:
+                return {}
+
+        if not isinstance(value, dict):
+            return {}
+
+        if isinstance(value.get("objectives"), dict):
+            value = value["objectives"]
+
+        extracted: Dict[str, float] = {}
+        for name in objective_names:
+            if name in value:
+                extracted[name] = float(value[name])
+        return extracted
+
     def _compute_objectives(self) -> Dict[str, float]:
-        """Compute objectives from workflow outputs.
-        
-        For now, returns a placeholder. This should be extended to:
-        1. Read output artifacts from jobs
-        2. Apply objective computation plans
-        3. Return final objective values
-        
-        Returns:
-            objectives: {objective_name: value}.
-        """
+        """Compute configured objectives from workflow XCom values and artifacts."""
         self.logger.checkpoint(
             "objectives_compute",
             "start",
             "Computing objectives from outputs",
             context={},
         )
-        
-        # Placeholder implementation
-        # TODO: Implement objective computation from:
-        # - self.workflow.objectives
-        # - self.workflow.combined_objectives
-        # - Job outputs stored in XCom or artifacts
-        
-        objectives = {}
-        
-        # Extract from XCom
-        # XCom keys are in format "job_id:key"
+
+        objective_names = [obj_def.name for obj_def in self.workflow.objectives]
+        objectives: Dict[str, float] = {}
+
         for xcom_key, value in self.global_xcom.items():
-            # Check for objectives dict (from single branch case)
-            if xcom_key.endswith(":objectives") and isinstance(value, dict):
-                objectives.update(value)
-            
-            # Check for individual objective values (from separate branches case)
+            objectives.update(
+                self._extract_objectives_from_value(value, objective_names)
+            )
+
             for obj_def in self.workflow.objectives:
                 if xcom_key.endswith(f":{obj_def.name}"):
-                    objectives[obj_def.name] = value
-        
+                    objectives[obj_def.name] = float(value)
+
         self.logger.checkpoint(
             "objectives_computed",
             "success",
             f"Objectives computed: {objectives}",
             context={"objectives": objectives},
         )
-        
+
         return objectives
 
 

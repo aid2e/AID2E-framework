@@ -16,15 +16,43 @@ from typing import Optional
 import click
 
 from aid2e.utilities.configurations import load_config
+from aid2e.utilities.optimization_runner import (
+    OptimizationRunOptions,
+    run_optimization_from_config,
+)
 
-from aid2e.utilities.workflows.toy_evaluator import run_epic_b0_toy_optimization
 
 @click.command(name="optimize")
 @click.argument("config_file", type=click.Path(exists=True))
 @click.option("--validate-only", is_flag=True, help="Validate config but do not run")
-@click.option("-v", "--verbosity", count=True, help="Increase verbosity (can be used multiple times)")
+@click.option(
+    "--workflow",
+    "workflow_name",
+    help="Workflow name to execute when multiple workflows are configured",
+)
+@click.option(
+    "--output",
+    "output_dir",
+    type=click.Path(file_okay=False),
+    help="Override optimization output directory",
+)
+@click.option("--run-id", help="Stable run identifier for output/checkpoint files")
+@click.option(
+    "-v",
+    "--verbosity",
+    count=True,
+    help="Increase verbosity (can be used multiple times)",
+)
 @click.option("--log", "log_file", type=click.Path(dir_okay=False), help="Path to log file")
-def optimize(config_file: str, validate_only: bool, verbosity: int, log_file: Optional[str]):
+def optimize(
+    config_file: str,
+    validate_only: bool,
+    workflow_name: Optional[str],
+    output_dir: Optional[str],
+    run_id: Optional[str],
+    verbosity: int,
+    log_file: Optional[str],
+):
     """
     Run optimization based on configuration file.
     
@@ -42,32 +70,49 @@ def optimize(config_file: str, validate_only: bool, verbosity: int, log_file: Op
         config = load_config(config_file)
         
         if validate_only:
-            click.echo(click.style("✓ Configuration validated; skipping execution.", fg="green"))
+            click.echo(
+                click.style("✓ Configuration validated; skipping execution.", fg="green")
+            )
             return
         
-        # Display optimization info
-        click.echo(click.style(f"Running optimization: {config.optimizer.name}", fg="cyan", bold=True))
+        click.echo(
+            click.style(
+                f"Running optimization: {config.optimizer.name}",
+                fg="cyan",
+                bold=True,
+            )
+        )
         click.echo(f"  Algorithm: {config.optimizer.name} ({config.optimizer.type})")
         click.echo(f"  Iterations: {config.optimizer.parameters.get('n_iterations', 'N/A')}")
+        if workflow_name:
+            click.echo(f"  Workflow: {workflow_name}")
+        if output_dir:
+            click.echo(f"  Output: {output_dir}")
+        if run_id:
+            click.echo(f"  Run ID: {run_id}")
         click.echo(f"  Verbosity: {verbosity}")
         if log_file:
             click.echo(f"  Log file: {log_file}")
         click.echo()
-        
-        # TODO: Implement actual optimization execution
-        # This will involve:
-        # 1. Instantiate optimizer from config.optimizer
-        # 2. Setup problem evaluator from config.problem
-        # 3. Run optimization loop
-        # 4. Save results to config.problem.output_location
-        
-        # click.echo(click.style("Note: Optimizer execution not yet implemented.", fg="yellow"))
-        # click.echo("The configuration has been validated and is ready for optimization.")
 
-        # === Addressed TODO for B0 (toy model placeholder as objective function, to be replaced by Geant4 simulations later)
-        if config.problem.problem_type == "EPIC_B0":
-            run_epic_b0_toy_optimization(config, verbosity)
-            return
+        log_level = "DEBUG" if verbosity > 1 else "INFO"
+        result = run_optimization_from_config(
+            config,
+            options=OptimizationRunOptions(
+                workflow_name=workflow_name,
+                output_dir=output_dir,
+                run_id=run_id,
+                log_level=log_level,
+            ),
+        )
+
+        click.echo(click.style("✓ Optimization completed.", fg="green"))
+        click.echo(f"  Run directory: {result.run_dir}")
+        click.echo(
+            f"  Trials: {result.completed_trials} completed, "
+            f"{result.failed_trials} failed"
+        )
+        click.echo(f"  Pareto front size: {len(result.pareto_front)}")
 
     except Exception as e:
         click.echo(click.style(f"✗ Error: {e}", fg="red"), err=True)

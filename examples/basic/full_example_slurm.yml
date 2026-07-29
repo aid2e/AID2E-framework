@@ -11,7 +11,7 @@ problem:
     - name: "f1"
       direction: "minimize"
       computation:
-        multi_steps:
+        steps:
           stages:
             - name: "evaluate_f1"
               script:
@@ -23,7 +23,7 @@ problem:
     - name: "f2"
       direction: "minimize"
       computation:
-        multi_steps:
+        steps:
           stages:
             - name: "evaluate_f2"
               script:

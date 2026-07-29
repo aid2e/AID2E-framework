@@ -125,10 +125,14 @@ problem:
       # isn't clear to me. We might consider renaming this to be
       # indicative of when to use plan vs. a workflow
       objective_plan:
-        script:
-          path: "scripts/test.py"
-          output_file: "photon_phi_resolution.json"
-          timeout_sec: 60  # should take no more than 1 min to extract
+        steps:
+          stages:
+            - name: "evaluate_phi_resolution"
+              script:
+                path: "scripts/test.py"
+                output_file: "photon_phi_resolution.json"
+                timeout_sec: 60  # should take no more than 1 min to extract
+              produces_objective: true
       
       # Metrics to extract from the objective plan output
       metrics_keys: ["phi_resolution"]

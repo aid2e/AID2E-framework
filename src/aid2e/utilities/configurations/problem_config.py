@@ -14,7 +14,7 @@ Notes:
             behavior.
         - Objectives now normalize to the unified
             `objectives.ObjectiveDefinition` model with support for script,
-            inline, or multi-steps computation.
+            inline, or steps computation.
 """
 
 from typing import Optional, List, Dict, Any
@@ -54,6 +54,7 @@ class ProblemConfiguration(BaseModel):
     objectives: List[ObjectiveDefinition]
     observations: Optional[List[Dict[str, Any]]] = Field(default=None)
     environment_config: Optional[EnvironmentConfig] = Field(default=None)
+    evaluation_config: Dict[str, Any] = Field(default_factory=dict)
 
     @field_validator("objectives", mode="before")
     @classmethod
@@ -191,9 +192,13 @@ class ProblemConfigLoader:
                         - name: "f1"
                             direction: "minimize"
                             computation:
-                                script:
-                                    path: "scripts/dtlz2_problem.py"
-                                    output_file: "objectives_{job_id}.json"
+                                steps:
+                                    stages:
+                                        - name: "evaluate_f1"
+                                            script:
+                                                path: "scripts/dtlz2_problem.py"
+                                                output_file: "objectives_{job_id}.json"
+                                            produces_objective: true
                             metrics_keys: ["f1"]
                         - name: "f2"
                             direction: "minimize"
@@ -308,6 +313,7 @@ class ProblemConfigLoader:
             objectives=objectives_raw,
             observations=problem.get("observations"),
             environment_config=env_config,
+            evaluation_config=problem.get("evaluation_config", {}),
         )
 
     @staticmethod

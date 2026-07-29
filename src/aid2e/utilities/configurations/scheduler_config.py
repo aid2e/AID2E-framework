@@ -160,7 +160,7 @@ class SchedulerConfigLoader:
 
         Model = get(config.runner_type)
         if Model is None:
-            raise RuntimeError(f"No scheduler config model registered for {config.runner_type}")
+            raise ValueError(f"No scheduler config model registered for {config.runner_type}")
         unknown_keys = sorted(set(parameters) - set(Model.model_fields))
         if unknown_keys:
             raise ValueError(

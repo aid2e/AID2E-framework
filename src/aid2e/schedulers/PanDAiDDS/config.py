@@ -23,14 +23,12 @@ class PanDAiDDSRunnerConfig(BaseModel):
     Auto-generation behavior:
     - name: Auto-generates as 'user.<username>.aid2e_job' if not provided
             Override username via PANDA_USERNAME environment variable
-    - source_dir: Auto-sets to project root directory if not provided
+    - source_dir: Auto-sets to cwd/src if it exists, otherwise cwd
                   Override via PANDA_SOURCE_DIR environment variable
-    - init_env: Auto-sets to 'source setup_aid2e.sh' if not provided
-                If provided as string, appends ' && source setup_aid2e.sh'
 
     Fields:
     - name: str (auto-generated)
-    - init_env: any (auto-set to source setup script, or prepended if string)
+    - init_env: any
     - cloud: str
     - queue: str
     - working_group: str
@@ -57,8 +55,7 @@ class PanDAiDDSRunnerConfig(BaseModel):
         default=None,
         description=(
             "Initialization environment (callable, dict, or other) to prepare remote jobs. "
-            "If not provided, defaults to 'source setup_aid2e.sh'. "
-            "If a string is provided, 'source setup_aid2e.sh' will be appended to it."
+            "Passed through unchanged when provided."
         ),
     )
     post_script: Optional[Any] = Field(
@@ -77,14 +74,12 @@ class PanDAiDDSRunnerConfig(BaseModel):
         The name must start with 'user.<username>'. If not provided, it will be
         auto-generated using the system username (or PANDA_USERNAME env var).
         
-        The source_dir defaults to the project root directory. Can be overridden
-        via PANDA_SOURCE_DIR environment variable.
-        
-        The init_env defaults to sourcing setup_aid2e.sh. If a string value is
-        already provided, the setup script will be appended to it.
+        The source_dir defaults to cwd/src when present, otherwise the current
+        working directory. Can be overridden via PANDA_SOURCE_DIR environment
+        variable.
         
         Returns:
-            Self with validated/generated name, source_dir, and init_env.
+            Self with validated/generated name and source_dir.
             
         Raises:
             ValueError: If the provided name doesn't start with 'user.'.
@@ -101,28 +96,16 @@ class PanDAiDDSRunnerConfig(BaseModel):
             username = os.environ.get("PANDA_USERNAME") or getpass.getuser()
             self.name = f"user.{username}.aid2e_job"
         
-        # Set source_dir to project root if not provided
+        # Set source_dir to cwd/src when present, otherwise cwd, if not provided.
         if self.source_dir is None:
             # Check environment variable first
             env_source = os.environ.get("PANDA_SOURCE_DIR")
             if env_source:
                 self.source_dir = env_source
             else:
-                # Default to project root directory
-                # Navigate from this config file: .../src/aid2e/schedulers/PanDAiDDS/config.py
-                # Go up to project root: ../../../.. from this file
-                config_file_dir = os.path.dirname(os.path.abspath(__file__))
-                project_root = os.path.abspath(os.path.join(config_file_dir, "..", "..", "..", ".."))
-                self.source_dir = project_root
-        
-        # Set init_env to source setup_aid2e.sh, or append to existing
-        if self.init_env is None:
-            self.init_env = "source setup_aid2e.sh; bash install_aid2e_dependencies.sh; "
-        else:
-            # If init_env is already set, append the setup script after it
-            if isinstance(self.init_env, str):
-                self.init_env = f"source setup_aid2e.sh && bash install_aid2e_dependencies.sh && {self.init_env}"
-            # Note: If init_env is a callable or other type, leave it as-is
+                cwd = os.getcwd()
+                src_dir = os.path.join(cwd, "src")
+                self.source_dir = src_dir if os.path.isdir(src_dir) else cwd
         
         return self
 
@@ -142,11 +125,11 @@ class PanDAiDDSRunnerConfig(BaseModel):
         default="AID2E",
         description="Task type for PanDA job classification (e.g. 'test', 'prod', 'analysis', 'AID2E')",
     )
-    source_dir: str = Field(
+    source_dir: Optional[str] = Field(
         default=None,
         description=(
             "Directory whose contents should be uploaded to PanDA for remote jobs. "
-            "If not provided, defaults to project root directory. "
+            "If not provided, defaults to cwd/src when present, otherwise cwd. "
             "Set PANDA_SOURCE_DIR environment variable to override."
         ),
     )

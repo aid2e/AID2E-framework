@@ -24,10 +24,14 @@ problem:
       
       # Objective plan: HOW to compute f1
       objective_plan:
-        script:
-          path: "examples/complete/scripts/dtlz2_f1.py"
-          output_file: "f1.json"
-          timeout_sec: 600
+        steps:
+          stages:
+            - name: "evaluate_f1"
+              script:
+                path: "examples/complete/scripts/dtlz2_f1.py"
+                output_file: "f1.json"
+                timeout_sec: 600
+              produces_objective: true
       
       # Metrics to extract from the objective plan output
       metrics_keys: ["f1"]

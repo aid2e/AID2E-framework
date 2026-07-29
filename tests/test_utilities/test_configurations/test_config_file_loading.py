@@ -1,5 +1,6 @@
 """Tests for canonical configuration loaders using DTLZ2-style fixtures."""
 
+import json
 from pathlib import Path
 
 import pytest
@@ -8,10 +9,14 @@ import yaml
 from aid2e.utilities.configurations import (
     DesignConfigLoader,
     ProblemConfigLoader,
+    SchedulerConfigLoader,
     load_config,
     StackRegistry,
 )
 from aid2e.utilities.epic_utils import EpicEnvConfig
+from aid2e.utilities.epic_utils.epic_design_config import EpicDesignConfig
+from aid2e.utilities.epic_utils.epic_problem_config import EpicProblemConfiguration
+from aid2e.utilities.workflows import create_executor_from_config
 
 
 def _fixture_dir() -> Path:
@@ -64,8 +69,33 @@ def test_problem_config_loader_with_fixture(tmp_path):
     ]
 
 
-def test_full_config_loader_combines_problem_optimizer_scheduler_and_workflows(tmp_path):
-    """Load a canonical FullConfig with inline design and workflow wrapper."""
+def test_scheduler_config_loader_loads_scheduler_sections(tmp_path):
+    """Load scheduler sections for the supported runner config shapes."""
+    scheduler_cases = [
+        ("JobLibRunner", {"n_jobs": 4, "backend": "threading"}),
+        ("SlurmRunner", {"ntasks": 1, "cpus_per_task": 2, "mem": "4G"}),
+        ("PanDAiDDSRunner", {"task_type": "optimization"}),
+    ]
+
+    for runner_type, parameters in scheduler_cases:
+        scheduler_payload = {
+            "scheduler": {
+                "runner_type": runner_type,
+                "parameters": parameters,
+            }
+        }
+        config_path = tmp_path / f"{runner_type}.yml"
+        json_path = tmp_path / f"{runner_type}.json"
+        config_path.write_text(yaml.safe_dump(scheduler_payload))
+        json_path.write_text(json.dumps(scheduler_payload))
+
+        for path in (config_path, json_path):
+            config = SchedulerConfigLoader.load(str(path))
+
+            assert config.runner_type == runner_type
+            assert config.parameters == parameters
+            assert config.parse_runner_params() is not None
+
 def test_problem_config_loader_stack_registry(tmp_path):
     """Load problem config with stack_configurations and registry deserialization."""
     fixture_dir = _fixture_dir()
@@ -99,17 +129,67 @@ def test_problem_config_loader_stack_registry(tmp_path):
                 "singularity_image": "/home/eic/local/lib/eic_xl-nightly.sif",
                 "epic_install": "/home/eic/epic",
                 "epic_config": "epic_full",
-            }
+            },
         }
     }
 
-    # Write and load as YAML
     config_path = tmp_path / "test.config.yml"
     config_path.write_text(yaml.safe_dump(problem_payload))
 
     problem_config = ProblemConfigLoader.load(str(config_path))
     assert isinstance(problem_config.environment_config, EpicEnvConfig)
     assert problem_config.environment_config.epic_install == "/home/eic/epic"
+
+
+def test_problem_config_loader_returns_epic_problem_configuration(tmp_path):
+    """Load an ePIC problem payload into the specialized problem model."""
+    output_dir = tmp_path / "output"
+    work_dir = tmp_path / "work"
+    output_dir.mkdir()
+    work_dir.mkdir()
+
+    problem_payload = {
+        "problem": {
+            "name": "DTLZ2 Multi-Objective Optimization",
+            "problem_type": "toy",
+            "output_location": str(output_dir),
+            "work_location": str(work_dir),
+            "inline_design": {
+                "epic_design_space": {
+                    "epic_design_parameters": {
+                        "DTLZ2_variables": {
+                            "file_path": "dtlz2.xml",
+                            "parameters": {
+                                "x1": {
+                                    "value": 0.5,
+                                    "bounds": [0.0, 1.0],
+                                    "xml_path": "//constant[@name='x1']",
+                                }
+                            },
+                        }
+                    }
+                }
+            },
+            "objectives": [
+                {"name": "f1", "direction": "minimize"},
+                {"name": "f2", "direction": "minimize"},
+            ],
+            "epic_environment": {
+                "eic_shell": "/home/eic/.bin/eic-shell",
+                "epic_install": "epic",
+                "epic_config": "cfg",
+            },
+        }
+    }
+
+    config_path = tmp_path / "epic_problem.yml"
+    config_path.write_text(yaml.safe_dump(problem_payload))
+
+    problem_config = ProblemConfigLoader.load(str(config_path))
+
+    assert isinstance(problem_config, EpicProblemConfiguration)
+    assert isinstance(problem_config.design_config, EpicDesignConfig)
+    assert isinstance(problem_config.environment_config, EpicEnvConfig)
 
 
 def test_full_config_loader_combines_problem_and_optimization(tmp_path):
@@ -122,6 +202,17 @@ def test_full_config_loader_combines_problem_and_optimization(tmp_path):
     work_dir = tmp_path / "work" / "dtlz2"
     output_dir.mkdir(parents=True)
     work_dir.mkdir(parents=True)
+    template_path = tmp_path / "slurm.template"
+    template_path.write_text(
+        json.dumps(
+            {
+                "nodes": 1,
+                "ntasks": 1,
+                "cpus_per_task": 2,
+                "mem": "4G",
+            }
+        )
+    )
 
     full_payload = {
         "problem": {
@@ -157,8 +248,18 @@ def test_full_config_loader_combines_problem_and_optimization(tmp_path):
             "workflows": [
                 {
                     "name": "main",
-                    "objectives": [{"name": "f1", "direction": "minimize"}],
-                    "stages": [],
+                    "branches": [
+                        {
+                            "name": "main",
+                            "scheduler": {
+                                "runner_type": "SlurmRunner",
+                                "parameters": {
+                                    "template_file": "slurm.template",
+                                    "mem": "8G",
+                                },
+                            },
+                        }
+                    ],
                 }
             ]
         },
@@ -178,6 +279,20 @@ def test_full_config_loader_combines_problem_and_optimization(tmp_path):
     assert config.optimizer.parameters["n_iterations"] == 5
     assert config.scheduler.parameters["n_jobs"] == 2
     assert config.workflows.workflows[0].name == "main"
+    scheduler = config.workflows.workflows[0].branches[0].scheduler
+
+    assert scheduler.runner_type == "SlurmRunner"
+    assert scheduler.parameters["cpus_per_task"] == 2
+    assert scheduler.parameters["mem"] == "8G"
+    assert "template_file" not in scheduler.parameters
+
+    executor = create_executor_from_config(
+        str(full_config_path),
+        output_dir=str(tmp_path / "runs"),
+    )
+
+    assert executor.scheduler_config["runner_type"] == "JobLibRunner"
+    assert executor.scheduler_config["config"].n_jobs == 2
 
 
 def test_design_loader_rejects_legacy_design_constraints(tmp_path):
@@ -270,7 +385,7 @@ def test_full_config_rejects_legacy_scheduler_shape(tmp_path):
     (tmp_path / "output").mkdir()
     (tmp_path / "work").mkdir()
 
-    with pytest.raises(ValueError, match="Extra inputs are not permitted|joblib"):
+    with pytest.raises(ValueError, match="missing keys: parameters"):
         load_config(str(config_path))
 
 

@@ -21,6 +21,12 @@ class TestPanDAiDDSRunnerConfig:
         with patch.dict(os.environ, {"PANDA_USERNAME": "envuser"}):
             config = PanDAiDDSRunnerConfig()
             assert config.name == "user.envuser.aid2e_job"
+
+    def test_job_name_prefix_used_for_auto_generation(self):
+        """Test that job_name_prefix controls generated PanDA names."""
+        with patch.dict(os.environ, {"PANDA_USERNAME": "envuser"}):
+            config = PanDAiDDSRunnerConfig(job_name_prefix="custom_job")
+            assert config.name == "user.envuser.custom_job"
     
     def test_name_validation_valid_prefix(self):
         """Test that valid names starting with 'user.' are accepted."""
@@ -59,10 +65,14 @@ class TestPanDAiDDSRunnerConfig:
     def test_other_fields_defaults(self):
         """Test that other fields have expected defaults."""
         config = PanDAiDDSRunnerConfig()
-        assert config.init_env is None
+        init_env_list = [
+            "source setup_aid2e.sh;",
+            "bash install_aid2e_dependencies.sh;",
+        ]
+        assert config.init_env == " ".join(init_env_list) + " "
         assert config.cloud is None
         assert config.queue is None
-        assert config.source_dir is not None  # Auto-set to current directory
+        assert config.source_dir is not None  # Auto-set to project root
         assert os.path.isabs(config.source_dir)  # Should be absolute path
         assert config.source_dir_parent_level == 1
         assert config.max_walltime is None
@@ -71,34 +81,13 @@ class TestPanDAiDDSRunnerConfig:
         assert config.enable_separate_log is True
         assert config.job_dir is None
     
-    def test_source_dir_auto_set_to_current_dir(self):
-        """Test that source_dir is auto-set to src/ directory or current working directory."""
-        import tempfile
-        import shutil
-        
-        # Test in a temporary directory without src/
-        with tempfile.TemporaryDirectory() as tmpdir:
-            orig_cwd = os.getcwd()
-            try:
-                os.chdir(tmpdir)
-                config = PanDAiDDSRunnerConfig()
-                # Should fall back to current directory when src/ doesn't exist
-                assert config.source_dir == tmpdir
-            finally:
-                os.chdir(orig_cwd)
-        
-        # Test in a directory with src/ subdirectory
-        with tempfile.TemporaryDirectory() as tmpdir:
-            src_dir = os.path.join(tmpdir, "src")
-            os.makedirs(src_dir)
-            orig_cwd = os.getcwd()
-            try:
-                os.chdir(tmpdir)
-                config = PanDAiDDSRunnerConfig()
-                # Should use src/ subdirectory when it exists
-                assert config.source_dir == src_dir
-            finally:
-                os.chdir(orig_cwd)
+    def test_source_dir_auto_set_to_project_root(self):
+        """Test that source_dir defaults to the project root."""
+        config = PanDAiDDSRunnerConfig()
+        expected = os.path.abspath(
+            os.path.join(os.path.dirname(__file__), "..", "..")
+        )
+        assert config.source_dir == expected
     
     def test_source_dir_from_env_variable(self):
         """Test that PANDA_SOURCE_DIR env variable overrides auto-setting."""
@@ -115,6 +104,7 @@ class TestPanDAiDDSRunnerConfig:
         """Test creating a full configuration with custom name."""
         config = PanDAiDDSRunnerConfig(
             name="user.scientist.epic_tracking",
+            job_name_prefix="custom_prefix",
             cloud="US",
             queue="BNL_PanDA_1",
             source_dir="/custom/source",
@@ -125,6 +115,7 @@ class TestPanDAiDDSRunnerConfig:
             job_dir="/tmp/panda_jobs",
         )
         assert config.name == "user.scientist.epic_tracking"
+        assert config.job_name_prefix == "custom_prefix"
         assert config.cloud == "US"
         assert config.queue == "BNL_PanDA_1"
         assert config.source_dir == "/custom/source"

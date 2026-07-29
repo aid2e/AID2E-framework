@@ -14,7 +14,7 @@ Notes:
             behavior.
         - Objectives now normalize to the unified
             `objectives.ObjectiveDefinition` model with support for script,
-            inline, or multi-steps computation.
+            inline, or steps computation.
 """
 
 from typing import Optional, List, Dict, Any
@@ -54,6 +54,7 @@ class ProblemConfiguration(BaseModel):
     objectives: List[ObjectiveDefinition]
     observations: Optional[List[Dict[str, Any]]] = Field(default=None)
     environment_config: Optional[EnvironmentConfig] = Field(default=None)
+    evaluation_config: Dict[str, Any] = Field(default_factory=dict)
 
     @field_validator("objectives", mode="before")
     @classmethod
@@ -191,9 +192,13 @@ class ProblemConfigLoader:
                         - name: "f1"
                             direction: "minimize"
                             computation:
-                                script:
-                                    path: "scripts/dtlz2_problem.py"
-                                    output_file: "objectives_{job_id}.json"
+                                steps:
+                                    stages:
+                                        - name: "evaluate_f1"
+                                            script:
+                                                path: "scripts/dtlz2_problem.py"
+                                                output_file: "objectives_{job_id}.json"
+                                            produces_objective: true
                             metrics_keys: ["f1"]
                         - name: "f2"
                             direction: "minimize"
@@ -286,7 +291,20 @@ class ProblemConfigLoader:
         if base_dir and not work_location.is_absolute():
             work_location = (base_dir / work_location).resolve()
 
-        return ProblemConfiguration(
+        config_model = ProblemConfiguration
+        if env_config is not None:
+            from aid2e.utilities.epic_utils.epic_design_config import EpicDesignConfig
+            from aid2e.utilities.epic_utils.epic_env_config import EpicEnvConfig
+            from aid2e.utilities.epic_utils.epic_problem_config import (
+                EpicProblemConfiguration,
+            )
+
+            if isinstance(design_config, EpicDesignConfig) and isinstance(
+                env_config, EpicEnvConfig
+            ):
+                config_model = EpicProblemConfiguration
+
+        return config_model(
             name=problem["name"],
             problem_type=problem["problem_type"],
             output_location=str(output_location),
@@ -295,6 +313,7 @@ class ProblemConfigLoader:
             objectives=objectives_raw,
             observations=problem.get("observations"),
             environment_config=env_config,
+            evaluation_config=problem.get("evaluation_config", {}),
         )
 
     @staticmethod

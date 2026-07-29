@@ -37,14 +37,15 @@ from .objectives import (
     ObjectiveDirection,
     ObjectiveDefinition,
     ObjectivePlanSpec,
-    MultiStepStage,
-    MultiStepPlanSpec,
+    StepStage,
+    StepPlanSpec,
     ScriptObjective,
     InlineObjective,
     ObjectivesRegistry,
 )
 from .scheduler_config import (
     SchedulerConfiguration,
+    SchedulerConfigLoader,
 )
 from .scheduler_cascade import (
     resolve_scheduler_cascade,
@@ -106,13 +107,14 @@ __all__ = [
     "ObjectiveDirection",
     "ObjectiveDefinition",
     "ObjectivePlanSpec",
-    "MultiStepStage",
-    "MultiStepPlanSpec",
+    "StepStage",
+    "StepPlanSpec",
     "ScriptObjective",
     "InlineObjective",
     "ObjectivesRegistry",
     # Scheduler/Runner configuration
     "SchedulerConfiguration",
+    "SchedulerConfigLoader",
     # Scheduler cascade utilities
     "resolve_scheduler_cascade",
     "create_scheduler_context",

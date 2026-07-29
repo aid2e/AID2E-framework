@@ -104,15 +104,15 @@ workflows:
               # Edit trial XML and run checkOverlaps.
               jobs:
                 - name: "drich_geo"
-                  command: &drich_command "{python_executable} {repo_root}/examples/drich/drich_eval.py"
-                  rule: &drich_rule_no_job_index "{command} --stage {stage_id} --trial-index {payload[trial_index]} --output-dir {payload[output_dir]} --config-path {payload[config_path]} --prepared-geometry-dir {prepared_geometry_dir}"
+                  command: &drich_command "{{python_executable}} {{repo_root}}/examples/drich/drich_eval.py"
+                  rule: &drich_rule_no_job_index "{{command}} --stage {{stage_id}} --trial-index {{payload[trial_index]}} --output-dir {{payload[output_dir]}} --config-path {{payload[config_path]}} --prepared-geometry-dir {{prepared_geometry_dir}}"
 
             - name: "sim_rec"
               # Run npsim and then eicrecon in the same job
               jobs:
                 - name: "drich_sim_rec"
                   command: *drich_command
-                  rule: &drich_rule_with_job_index "{command} --stage {stage_id} --job-index {payload[job_index]} --trial-index {payload[trial_index]} --output-dir {payload[output_dir]} --config-path {payload[config_path]} --prepared-geometry-dir {prepared_geometry_dir}"
+                  rule: &drich_rule_with_job_index "{{command}} --stage {{stage_id}} --job-index {{payload[job_index]}} --trial-index {{payload[trial_index]}} --output-dir {{payload[output_dir]}} --config-path {{payload[config_path]}} --prepared-geometry-dir {{prepared_geometry_dir}}"
               job_factory:
                 type: "range"
                 params:
@@ -138,5 +138,5 @@ workflows:
                   command: *drich_command
                   rule: *drich_rule_no_job_index
                   outputs:
-                    - path: "{payload[result_json]}"
+                    - path: "{{payload[result_json]}}"
                       format: "json"

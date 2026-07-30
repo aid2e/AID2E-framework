@@ -346,6 +346,62 @@ def test_problem_loader_rejects_legacy_problem_type_and_minimize_keys(tmp_path):
         ProblemConfigLoader.load(str(problem_path))
 
 
+def test_problem_loader_uses_objective_plan_key(tmp_path):
+    """Objective plans should use the canonical objective_plan YAML key."""
+    design_path = tmp_path / "design.params"
+    design_path.write_text((_fixture_dir() / "design.params").read_text())
+    output_dir = tmp_path / "output"
+    work_dir = tmp_path / "work"
+    output_dir.mkdir()
+    work_dir.mkdir()
+
+    problem_payload = {
+        "problem": {
+            "name": "Objective Plan Problem",
+            "problem_type": "toy",
+            "output_location": str(output_dir),
+            "work_location": str(work_dir),
+            "design_parameters_file": "design.params",
+            "objectives": [
+                {
+                    "name": "f1",
+                    "direction": "minimize",
+                    "objective_plan": {
+                        "steps": {
+                            "stages": [
+                                {
+                                    "name": "evaluate",
+                                    "inline": {
+                                        "entrypoint": (
+                                            "examples.evaluators.dtlz2:"
+                                            "objective_payload"
+                                        )
+                                    },
+                                    "produces_objective": True,
+                                }
+                            ]
+                        }
+                    },
+                    "metrics_keys": ["f1"],
+                }
+            ],
+        }
+    }
+    problem_path = tmp_path / "problem.config"
+    problem_path.write_text(yaml.safe_dump(problem_payload))
+
+    config = ProblemConfigLoader.load(str(problem_path))
+    assert config.objectives[0].objective_plan is not None
+
+    problem_payload["problem"]["objectives"][0]["computation"] = (
+        problem_payload["problem"]["objectives"][0].pop("objective_plan")
+    )
+    problem_path.write_text(yaml.safe_dump(problem_payload))
+
+    with pytest.raises(ValueError, match="objective_plan"):
+        ProblemConfigLoader.load(str(problem_path))
+
+
 def test_full_config_rejects_legacy_scheduler_shape(tmp_path):
     """Nested scheduler runner blocks should be rejected."""
     config_path = tmp_path / "full.yml"

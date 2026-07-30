@@ -20,7 +20,7 @@ src/aid2e/cli/
 ├── config_commands.py          # Config inspection: describe, inspect, validate
 ├── workflow_commands.py        # Execution: optimize, run (future)
 ├── utility_commands.py         # Utilities: list, version
-└── legacy_commands.py          # Deprecated: load, info
+
 ```
 
 ### Module Responsibilities
@@ -32,23 +32,16 @@ src/aid2e/cli/
 | `config_commands.py` | Configuration inspection and validation | ~170 | describe, inspect, validate |
 | `workflow_commands.py` | Workflow execution and lifecycle management | ~150 | optimize, run*, resume*, stop*, status*, clean* |
 | `utility_commands.py` | Information and resource listing | ~90 | list, version, init*, graph* |
-| `legacy_commands.py` | Backward compatibility (with deprecation warnings) | ~210 | load, info |
 
 *Planned commands not yet implemented
 
 ### Import Patterns
 
-The CLI supports both legacy and new import patterns for backward compatibility:
+The CLI group is exported from `aid2e.cli`:
 
 ```python
-# Legacy pattern (still works)
-from aid2e.cli.aid2e_cli import cli
-
-# New preferred pattern
 from aid2e.cli import cli
 ```
-
-Both patterns work identically due to the export in `__init__.py`.
 
 ## CLI Command Structure
 
@@ -59,8 +52,8 @@ aid2e
 │   ├── inspect      # Detailed inspection with section filtering
 │   └── validate     # Syntax and structure validation
 ├── [Workflow Execution]
-│   ├── optimize     # Run optimization (current implementation)
-│   ├── run          # Execute full workflow (planned)
+│   ├── optimize     # Run optimization from full config
+│   ├── run          # Execute one workflow without optimizer loop (planned)
 │   ├── resume       # Restart from checkpoint (planned)
 │   ├── stop         # Halt running optimization (planned)
 │   ├── status       # Check progress (planned)
@@ -278,35 +271,78 @@ Supported Problem Types:
 
 ## Planned Commands (Not Yet Implemented)
 
+The current public workflow command is `aid2e optimize`, which owns the full
+optimization loop: config loading, optimizer setup, scheduler/workflow
+execution per trial, objective collection, optimizer updates, and result
+writing.
+
 ### 5. `aid2e run <config_file>` (HIGH PRIORITY)
 
-**Purpose:** Execute complete optimization workflow.
+**Purpose:** Execute one configured workflow without the optimizer loop.
+
+This is intended as a debugging and validation path for one workflow execution,
+not as a replacement for `aid2e optimize`.
 
 **Planned features:**
-- Full orchestration: config → problem → optimizer → execution → results
-- Checkpoint/resume support
+- Single workflow execution from config
+- Problem/workflow/scheduler setup
+- Objective/result collection
 - Output directory override
 - Dry-run mode
 
 **Planned usage:**
 ```bash
-# Run full workflow
+# Run one configured workflow
 aid2e run config.yml
 
-# Dry run (validate and show plan)
+# Dry run (validate and show execution plan)
 aid2e run config.yml --dry-run
 
 # Override output location
 aid2e run config.yml --output results/experiment_1/
 
-# Resume from checkpoint
-aid2e run config.yml --resume checkpoint.json
-
 # Verbose logging
 aid2e run config.yml -vv --log output.log
 ```
 
-### 6. `aid2e init` (MEDIUM PRIORITY)
+### 6. `aid2e resume <checkpoint>` (HIGH PRIORITY)
+
+**Purpose:** Resume an interrupted optimization run.
+
+**Planned features:**
+- Restart interrupted optimization from saved state
+- Continue from specific iteration
+- Merge results with previous runs
+
+### 7. `aid2e status` (MEDIUM PRIORITY)
+
+**Purpose:** Check progress of active or completed optimization runs.
+
+**Planned features:**
+- Show active runs
+- Display iteration progress
+- Show current best objectives
+- List completed runs
+
+### 8. `aid2e stop <run_id>` (MEDIUM PRIORITY)
+
+**Purpose:** Gracefully halt a running optimization.
+
+**Planned features:**
+- Stop by run ID or process ID
+- Save checkpoint before stopping
+- Force stop option
+
+### 9. `aid2e clean <output_dir>` (LOW PRIORITY)
+
+**Purpose:** Remove temporary and intermediate files.
+
+**Planned features:**
+- Clean work directories
+- Remove old checkpoints
+- Dry-run to preview deletions
+
+### 10. `aid2e init` (MEDIUM PRIORITY)
 
 **Purpose:** Create new configuration files from templates.
 
@@ -329,7 +365,7 @@ aid2e init --type optimization --optimizer ax > optimization.yml
 aid2e init --interactive
 ```
 
-### 7. `aid2e graph <config_file>` (LOW PRIORITY)
+### 11. `aid2e graph <config_file>` (LOW PRIORITY)
 
 **Purpose:** Visualize workflow structure and dependencies.
 
@@ -393,32 +429,53 @@ FullConfiguration (loaded via load_config())
 ```yaml
 problem:
   name: DTLZ2 Optimization
-  type: toy
+  problem_type: toy
   output_location: ./output/dtlz2
   work_location: ./work/dtlz2
   design_parameters_file: ./design.params
   objectives:
     - name: f1
-      minimize: true
+      direction: minimize
+      objective_plan:
+        steps:
+          stages:
+            - name: evaluate
+              inline:
+                entrypoint: examples.evaluators.dtlz2:objective_payload
+              produces_objective: true
+      metrics_keys: [f1]
     - name: f2
-      minimize: true
+      direction: minimize
+      objective_plan:
+        steps:
+          stages:
+            - name: evaluate
+              inline:
+                entrypoint: examples.evaluators.dtlz2:objective_payload
+              produces_objective: true
+      metrics_keys: [f2]
 
-optimization:
-  name: dtlz2-optimization
-  optimizer:
-    name: ax
-    type: Bayesian
-    parameters:
-      initialization_strategy: sobol
-      surrogate_model: saasbo
-      acquisition_function: qnehvi
-      n_initial_samples: 10
-      batch_size: 3
-      seed: 42
-  objectives: ["minimize:f1", "minimize:f2"]
-  n_iterations: 50
-  n_initial_samples: 10
-  parallel_evaluations: 1
+optimizer:
+  name: ax
+  type: bayesian
+  parameters:
+    initialization_strategy: sobol
+    generator: BOTORCH_MODULAR
+    n_initial_samples: 4
+    n_iterations: 8
+    batch_size: 2
+    seed: 42
+
+scheduler:
+  runner_type: JobLibRunner
+  parameters:
+    n_jobs: 2
+    backend: threading
+
+workflows:
+  workflows:
+    - name: dtlz2_eval
+      branches: []
 ```
 
 ### Design Configuration (design.params)
@@ -441,27 +498,24 @@ design_space:
 ```yaml
 problem:
   name: My Problem
-  type: toy
+  problem_type: toy
   output_location: ./output
   work_location: ./work
   design_parameters_file: ./design.params
   objectives:
     - name: f1
-      minimize: true
+      direction: minimize
 ```
 
-### Optimization Configuration Only
+### Optimizer Configuration Section
 ```yaml
-optimization:
-  name: my-optimization
-  optimizer:
-    name: ax
-    type: Bayesian
-    parameters:
-      n_initial_samples: 10
-      batch_size: 4
-  objectives: ["minimize:f1"]
-  n_iterations: 20
+optimizer:
+  name: ax
+  type: bayesian
+  parameters:
+    n_initial_samples: 4
+    n_iterations: 8
+    batch_size: 2
 ```
 
 ## Implementation Status
@@ -474,8 +528,8 @@ optimization:
 |--------|--------|-------|---------|
 | `_helpers.py` | ✅ Complete | ~400 | Shared utilities and formatters |
 | `config_commands.py` | ✅ Complete | ~170 | Config inspection commands |
-| `workflow_commands.py` | ✅ Complete | ~150 | Workflow execution (optimize placeholder) |
-| `utility_commands.py` | ✅ Complete | ~90 | Resource listing and version |
+| `workflow_commands.py` | ✅ Complete | ~150 | Optimization execution and planned workflow lifecycle commands |
+| `utility_commands.py` | ✅ Complete | ~90 | Resource listing, version, and planned utility commands |
 | `aid2e_cli.py` | ✅ Complete | ~100 | Main group and command registration |
 | `__init__.py` | ✅ Complete | ~20 | Package exports |
 
@@ -488,8 +542,8 @@ optimization:
 | `validate` | config_commands | ✅ Complete | High | Type-aware validation |
 | `list` | utility_commands | ✅ Complete | Medium | Optimizers/templates/problems |
 | `version` | utility_commands | ✅ Complete | Low | Version display |
-| `optimize` | workflow_commands | ⚠️ Placeholder | High | Config loading works, execution pending |
-| `run` | workflow_commands | ⏳ Planned | High | Full workflow orchestration |
+| `optimize` | workflow_commands | ✅ Complete | High | Runs config-driven optimization |
+| `run` | workflow_commands | ⏳ Planned | High | Single workflow execution without optimizer loop |
 | `resume` | workflow_commands | ⏳ Planned | High | Checkpoint restart |
 | `stop` | workflow_commands | ⏳ Planned | Medium | Graceful halt |
 | `status` | workflow_commands | ⏳ Planned | Medium | Progress monitoring |
@@ -520,19 +574,15 @@ optimization:
 - [x] Reorganize CLI into modular structure
 - [x] Create `_helpers.py` for shared utilities
 - [x] Create `config_commands.py` (describe/inspect/validate)
-- [x] Create `workflow_commands.py` (optimize placeholder)
+- [x] Create `workflow_commands.py` (optimize execution)
 - [x] Create `utility_commands.py` (list/version)
 - [x] Refactor `aid2e_cli.py` to main group coordinator
 - [x] Update `__init__.py` for backward compatibility
 - [x] Update CLI_DESIGN.md documentation
 
-### Immediate (Next PR)
-- [ ] Write unit tests for each command module
-  - [ ] Test `config_commands` (describe/inspect/validate)
-  - [ ] Test `workflow_commands` (optimize)
-  - [ ] Test `utility_commands` (list/version)
-  - [ ] Test plugin discovery in `aid2e_cli`
+### Immediate
 - [ ] Test all commands with example configs
+- [ ] Add single-workflow execution as a separate `aid2e run` command
   - [ ] Test with `examples/basic/full_example.yml`
   - [ ] Test with `examples/configurations/dtlz2_optimization.yml`
   - [ ] Test with `tests/test_utilities/fixtures/dtlz2/design.params`

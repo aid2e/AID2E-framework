@@ -4,7 +4,7 @@ AID2E Command Line Interface.
 
 Main CLI entry point that coordinates all command modules:
 - Config commands: describe, inspect, validate (config_commands.py)
-- Workflow commands: optimize, run (workflow_commands.py)
+- Workflow commands: optimize, run (future) (workflow_commands.py)
 - Utility commands: list, version (utility_commands.py)
 """
 

@@ -2,7 +2,7 @@
 #   1. Optimization with Ax (Sobol warmup + BO)
 #   2. Multi-objective dRICH optimization:
 #        maximize pi/K separation and acceptance
-#   3. ePIC workflow chain: geo -> sim_rec -> ana -> retrieve_results
+#   3. ePIC workflow chain: geo -> sim_rec -> ana
 # ============================================================================
 
 # Problem definition
@@ -83,6 +83,26 @@ workflows:
       description: "dRICH evaluation workflow"
       stack_type: "epic"
 
+      combined_objectives:
+        - name: "drich_objectives"
+          objective_plan:
+            steps:
+              stages:
+                - name: "merge"
+                  inline:
+                    entrypoint: "drich_utils:objective_payload"
+                  produces_objective: true
+          metrics:
+            - name: "piKsep_etalow"
+              direction: "maximize"
+              metric_key: "piKsep_etalow"
+            - name: "piKsep_etahigh"
+              direction: "maximize"
+              metric_key: "piKsep_etahigh"
+            - name: "acceptance"
+              direction: "maximize"
+              metric_key: "acceptance"
+
       branches:
         - name: "main"
           scheduler:
@@ -130,13 +150,3 @@ workflows:
                 params:
                   # scan_points = 4
                   n: 4
-
-            - name: "retrieve_results"
-              # Read analysis outputs and compute objectives.
-              jobs:
-                - name: "drich_retrieve_results"
-                  command: *drich_command
-                  rule: *drich_rule_no_job_index
-                  outputs:
-                    - path: "{{payload[result_json]}}"
-                      format: "json"

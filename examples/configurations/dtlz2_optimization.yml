@@ -1,58 +1,41 @@
-# Example Optimization Configuration for DTLZ2 Toy Problem
-# This demonstrates a basic multi-objective optimization setup
+# DTLZ2 toy optimization using the current canonical full-config schema.
 
 problem:
   name: "DTLZ2 Multi-Objective Optimization"
-  problem_type: "DTLZ2"
-  output_location: "./output/dtlz2"
-  work_location: "./work/dtlz2"
-  
-  design_config:
-    design_parameters:
-      DTLZ2_variables:
-        parameters:
-          x1:
-            value: 0.5
-            bounds: [0.0, 1.0]
-          x2:
-            value: 0.5
-            bounds: [0.0, 1.0]
-          x3:
-            value: 0.5
-            bounds: [0.0, 1.0]
-          x4:
-            value: 0.5
-            bounds: [0.0, 1.0]
-          x5:
-            value: 0.5
-            bounds: [0.0, 1.0]
-          x6:
-            value: 0.5
-            bounds: [0.0, 1.0]
-          x7:
-            value: 0.5
-            bounds: [0.0, 1.0]
-          x8:
-            value: 0.5
-            bounds: [0.0, 1.0]
-          x9:
-            value: 0.5
-            bounds: [0.0, 1.0]
-          x10:
-            value: 0.5
-            bounds: [0.0, 1.0]
-    
-    parameter_constraints:
-      - name: "x1_upper_bound"
-        description: "x1 must be less than 1.0"
-        rule: "DTLZ2_variables.x1 < 1.0"
-      - name: "sum_constraint"
-        description: "Sum of x1 and x2 must be less than 1.5"
-        rule: "DTLZ2_variables.x1 + DTLZ2_variables.x2 < 1.5"
-      
+  problem_type: "toy"
+  output_location: "/tmp"
+  work_location: "/tmp"
+  inline_design:
+    design_space:
+      design_parameters:
+        DTLZ2_variables:
+          parameters:
+            x1: {value: 0.5, bounds: [0.0, 1.0]}
+            x2: {value: 0.5, bounds: [0.0, 1.0]}
+            x3: {value: 0.5, bounds: [0.0, 1.0]}
+            x4: {value: 0.5, bounds: [0.0, 1.0]}
+            x5: {value: 0.5, bounds: [0.0, 1.0]}
   objectives:
-  - "minimize:f1"
-  - "minimize:f2"
+    - name: "f1"
+      direction: "minimize"
+      objective_plan:
+        steps:
+          stages:
+            - name: "evaluate"
+              inline:
+                entrypoint: "examples.evaluators.dtlz2:objective_payload"
+              produces_objective: true
+      metrics_keys: ["f1"]
+    - name: "f2"
+      direction: "minimize"
+      objective_plan:
+        steps:
+          stages:
+            - name: "evaluate"
+              inline:
+                entrypoint: "examples.evaluators.dtlz2:objective_payload"
+              produces_objective: true
+      metrics_keys: ["f2"]
 
 optimizer:
   name: "ax"
@@ -60,7 +43,18 @@ optimizer:
   parameters:
     initialization_strategy: "sobol"
     generator: "BOTORCH_MODULAR"
-    n_initial_samples: 20
-    n_iterations: 100
-    batch_size: 4
+    n_initial_samples: 4
+    n_iterations: 8
+    batch_size: 2
     seed: 42
+
+scheduler:
+  runner_type: "JobLibRunner"
+  parameters:
+    n_jobs: 2
+    backend: "threading"
+
+workflows:
+  workflows:
+    - name: "dtlz2_eval"
+      branches: []

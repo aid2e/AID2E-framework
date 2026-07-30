@@ -297,6 +297,41 @@ class AbstractOptimizerTestSuite(ABC):
         pareto = optimizer.get_pareto_front()
         assert len(pareto) == 1
         assert pareto[0].metrics[objective_names[0]] == 1.0
+
+    def test_save_result_outputs(self, tmp_path) -> None:
+        """Test optimizer result writers for trial history and Pareto JSON."""
+        search_space = self.get_search_space()
+        config = self.create_default_config()
+        objective_names = self.get_objective_names()
+
+        optimizer = self.create_optimizer(
+            search_space=search_space,
+            config=config,
+            objective_names=objective_names,
+        )
+        candidate = optimizer.suggest_candidates(n_candidates=1)[0]
+        optimizer.update_with_results(
+            trial_index=0,
+            parameters=candidate,
+            metrics={objective_names[0]: 1.0},
+        )
+
+        results_path = optimizer.save_optimization_results(
+            tmp_path / "optimization_results.json",
+            save_pareto_front=tmp_path / "pareto.json",
+            errors_by_trial={0: {f"{objective_names[0]}_sem": 0.1}},
+        )
+
+        results_payload = json.loads(results_path.read_text())
+        assert results_payload["trials"][0]["objective_errors"] == {
+            f"{objective_names[0]}_sem": 0.1
+        }
+        pareto_path = tmp_path / "pareto.json"
+        pareto_payload = json.loads(pareto_path.read_text())
+        assert pareto_payload[0]["objectives"][objective_names[0]] == 1.0
+        assert pareto_payload[0]["objective_errors"] == {
+            f"{objective_names[0]}_sem": 0.1
+        }
     
     def test_get_pareto_front_multi_objective(self) -> None:
         """Test Pareto front computation for multi-objective problems."""

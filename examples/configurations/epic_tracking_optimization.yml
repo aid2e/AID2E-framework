@@ -4,88 +4,48 @@
 problem:
   name: "ePIC Vertex Barrel Optimization"
   problem_type: "EPIC_TRACKING"
-  output_location: "./output/epic_tracking"
-  work_location: "./work/epic_tracking"
+  output_location: "/tmp"
+  work_location: "/tmp"
   
-  epic_configuration:
-    singularity_image: "/path/to/epic/singularity/image.sif"
+  epic_environment:
+    eic_shell: "$HOME/.local/bin/eic-shell"
     epic_install: "$HOME/epic/install"
     eic_recon_install: "$HOME/epic/install/local"
+    epic_config: "epic_full"
   
-  design_config:
-    epic_design_parameters:
-      vertex_barrel:
-        file_path: "$DETECTOR_PATH/compact/tracking/vertex_barrel.xml"
-        parameters:
-          layer1_radius:
-            value: 36.0
-            bounds: [30.0, 50.0]
-            xml_path: "//constant[@name='VertexBarrel_layer_1_radius']/@value"
-            unit: "mm"
-          
-          del_layer2_radius:
-            value: 15.0
-            bounds: [10.0, 25.0]
-            xml_path: "//constant[@name='VertexBarrel_delta_layer_2_radius']/@value"
-            unit: "mm"
-          
-          del_layer3_radius:
-            value: 15.0
-            bounds: [10.0, 25.0]
-            xml_path: "//constant[@name='VertexBarrel_delta_layer_3_radius']/@value"
-            unit: "mm"
-          
-          thickness:
-            value: 0.5
-            bounds: [0.1, 2.0]
-            xml_path: "//constant[@name='VertexBarrel_thickness']/@value"
-            unit: "mm"
-      
-      silicon_tracker:
-        file_path: "$DETECTOR_PATH/compact/tracking/silicon_tracker.xml"
-        parameters:
-          inner_radius:
-            value: 250.0
-            bounds: [200.0, 300.0]
-            xml_path: "//constant[@name='SiliconTracker_inner_radius']/@value"
-            unit: "mm"
-          
-          outer_radius:
-            value: 1200.0
-            bounds: [1000.0, 1500.0]
-            xml_path: "//constant[@name='SiliconTracker_outer_radius']/@value"
-            unit: "mm"
-    
-    parameter_constraints:
-      - name: "max_vertex_radii"
-        description: "Total vertex barrel radius must be less than silicon tracker inner radius"
-        rule: "vertex_barrel.layer1_radius + vertex_barrel.del_layer2_radius + vertex_barrel.del_layer3_radius < 150.0"
-      
-      - name: "layer_separation"
-        description: "Layer separations must be sufficient"
-        rule: "vertex_barrel.del_layer2_radius > 5.0 and vertex_barrel.del_layer3_radius > 5.0"
-      
-      - name: "tracker_ordering"
-        description: "Silicon tracker must be outside vertex barrel"
-        rule: "silicon_tracker.inner_radius > 150.0"
-    
-    optimization_groups:
-      vertex_only:
-        - "vertex_barrel.layer1_radius"
-        - "vertex_barrel.del_layer2_radius"
-        - "vertex_barrel.del_layer3_radius"
-      
-      tracker_only:
-        - "silicon_tracker.inner_radius"
-        - "silicon_tracker.outer_radius"
-      
-      all_parameters:
-        - "vertex_barrel.layer1_radius"
-        - "vertex_barrel.del_layer2_radius"
-        - "vertex_barrel.del_layer3_radius"
-        - "vertex_barrel.thickness"
-        - "silicon_tracker.inner_radius"
-        - "silicon_tracker.outer_radius"
+  inline_design:
+    epic_design_space:
+      epic_design_parameters:
+        vertex_barrel:
+          file_path: "$DETECTOR_PATH/compact/tracking/vertex_barrel.xml"
+          parameters:
+            layer1_radius:
+              value: 36.0
+              bounds: [30.0, 50.0]
+              xml_path: "//constant[@name='VertexBarrel_layer_1_radius']"
+              attribute: "value"
+              unit: "mm"
+            del_layer2_radius:
+              value: 15.0
+              bounds: [10.0, 25.0]
+              xml_path: "//constant[@name='VertexBarrel_delta_layer_2_radius']"
+              attribute: "value"
+              unit: "mm"
+            del_layer3_radius:
+              value: 15.0
+              bounds: [10.0, 25.0]
+              xml_path: "//constant[@name='VertexBarrel_delta_layer_3_radius']"
+              attribute: "value"
+              unit: "mm"
+      optimization_groups:
+        vertex_only:
+          - "vertex_barrel.layer1_radius"
+          - "vertex_barrel.del_layer2_radius"
+          - "vertex_barrel.del_layer3_radius"
+
+  objectives:
+    - name: "tracking_resolution"
+      direction: "minimize"
 
 optimizer:
   name: "ax"
@@ -97,3 +57,15 @@ optimizer:
     n_iterations: 50
     batch_size: 4
     seed: 42
+
+scheduler:
+  runner_type: "JobLibRunner"
+  parameters:
+    n_jobs: 1
+    backend: "threading"
+
+workflows:
+  workflows:
+    - name: "epic_tracking_eval"
+      stack_type: "epic"
+      branches: []

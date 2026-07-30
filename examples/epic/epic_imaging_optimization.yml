@@ -110,25 +110,16 @@ problem:
     - name: "phi_resolution"
       direction: "minimize"
 
-      # Objective-level scheduler (applies to this objective's execution)
-      scheduler:
-        runner_type: "JobLibRunner"
-        parameters:
-          n_jobs: -1        # Use all available cores
-          backend: "threading"
-      
       # Objective plan: HOW to compute eta_resolution
-      # TODO this is the function to extract the objectives
-      #   -- should retrieve value from an output file (e.g. maybe a json file)
-      #      generated during workflow below
-      # FIXME (DMA) the relationship between this and the workflows
-      # isn't clear to me. We might consider renaming this to be
-      # indicative of when to use plan vs. a workflow
       objective_plan:
-        script:
-          path: "scripts/test.py"
-          output_file: "photon_phi_resolution.json"
-          timeout_sec: 60  # should take no more than 1 min to extract
+        steps:
+          stages:
+            - name: "evaluate_phi_resolution"
+              script:
+                path: "scripts/test.py"
+                output_file: "photon_phi_resolution.json"
+                timeout_sec: 60  # should take no more than 1 min to extract
+              produces_objective: true
       
       # Metrics to extract from the objective plan output
       metrics_keys: ["phi_resolution"]

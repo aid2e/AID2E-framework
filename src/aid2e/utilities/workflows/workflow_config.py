@@ -42,7 +42,9 @@ class CombinedObjectivePlan(BaseModel):
         name: Identifier for the combined objective bundle.
         objective_plan: Plan executed once to emit multiple metrics.
         metrics: Metrics extracted from the plan output with their directions.
-        scheduler: Optional scheduler default for this combined plan.
+        scheduler: Reserved scheduler default for this combined plan. The v0
+            runtime executes objective plans inside the DAG executor after
+            workflow stages complete.
     """
 
     name: str = Field(..., description="Combined objective bundle name")
@@ -52,7 +54,7 @@ class CombinedObjectivePlan(BaseModel):
     )
     scheduler: Optional[SchedulerConfiguration] = Field(
         default=None,
-        description="Scheduler default for this combined plan",
+        description="Reserved scheduler default for this combined plan",
     )
 
 

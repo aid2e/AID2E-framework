@@ -550,13 +550,20 @@ class BaseOptimizer(ABC):
         self._trial_counter = max(self._trial_counter, trial_index + 1)
         return trial
 
-    def get_optimization_results(self) -> Dict[str, Any]:
+    def get_optimization_results(
+        self,
+        errors_by_trial: Optional[Dict[int, Dict[str, float]]] = None,
+    ) -> Dict[str, Any]:
         """Return a normalized optimization-results payload.
+
+        Args:
+            errors_by_trial: Optional uncertainty/error fields keyed by trial index.
 
         Returns:
             Dictionary containing objective names and trial records with
             parameters, metrics, and both raw and display status labels.
         """
+        errors_by_trial = errors_by_trial or {}
         trials_payload: List[Dict[str, Any]] = []
         for trial in self.get_trials():
             trials_payload.append(
@@ -569,6 +576,7 @@ class BaseOptimizer(ABC):
                     ),
                     "design_parameters": dict(trial.parameters or {}),
                     "objectives": dict(trial.metrics or {}),
+                    "objective_errors": dict(errors_by_trial.get(trial.index, {})),
                     "metadata": dict(trial.metadata or {}),
                 }
             )
@@ -580,20 +588,44 @@ class BaseOptimizer(ABC):
             "trials": trials_payload,
         }
 
-    def save_optimization_results(self, output_path: Union[str, Path]) -> Path:
+    def save_optimization_results(
+        self,
+        output_path: Union[str, Path],
+        *,
+        save_pareto_front: Optional[Union[str, Path]] = None,
+        errors_by_trial: Optional[Dict[int, Dict[str, float]]] = None,
+    ) -> Path:
         """Write optimization results to disk as pretty-printed JSON.
 
         Args:
             output_path: Target JSON path.
+            save_pareto_front: Optional target path for the current Pareto front.
+            errors_by_trial: Optional uncertainty/error fields keyed by trial index.
 
         Returns:
             Resolved path of the written file.
         """
         path = Path(output_path)
         path.parent.mkdir(parents=True, exist_ok=True)
-        payload = self.get_optimization_results()
+        payload = self.get_optimization_results(errors_by_trial=errors_by_trial)
         with path.open("w", encoding="utf-8") as handle:
             json.dump(payload, handle, indent=2, sort_keys=True)
+        if save_pareto_front is not None:
+            pareto_path = Path(save_pareto_front)
+            pareto_path.parent.mkdir(parents=True, exist_ok=True)
+            errors_by_trial = errors_by_trial or {}
+            pareto_payload = [
+                {
+                    "trial_index": trial.index,
+                    "design_parameters": dict(trial.parameters or {}),
+                    "objectives": dict(trial.metrics or {}),
+                    "objective_errors": dict(errors_by_trial.get(trial.index, {})),
+                    "metadata": dict(trial.metadata or {}),
+                }
+                for trial in self.get_pareto_front()
+            ]
+            with pareto_path.open("w", encoding="utf-8") as handle:
+                json.dump(pareto_payload, handle, indent=2)
         return path
 
     def seed_from_trials(

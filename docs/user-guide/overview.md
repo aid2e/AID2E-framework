@@ -1,5 +1,20 @@
 # User Guide Overview
 
-Welcome to the AID2E Framework documentation.
+AID2E describes detector optimization workflows with canonical full
+configuration files. A full config defines:
 
-This is a placeholder page for the User Guide overview. Expand this section with walkthroughs, concepts, and step-by-step guides.
+- the problem, design space, objectives, and output paths
+- the optimizer backend and iteration settings
+- the scheduler used to submit workflow trials
+- the workflow stages used to evaluate each optimizer candidate
+
+For the current CLI path, use:
+
+```bash
+aid2e optimize config.yml --validate-only
+aid2e optimize config.yml
+```
+
+`aid2e optimize` owns the full optimization loop: load config, build the
+optimizer and scheduler, execute one workflow per optimizer candidate, collect
+declared objectives, update the optimizer, and write result artifacts.

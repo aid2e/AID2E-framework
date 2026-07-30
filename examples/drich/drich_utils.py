@@ -6,7 +6,6 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
-import uncertainties
 
 from aid2e.utilities.configurations import load_config, load_raw_config
 
@@ -140,26 +139,34 @@ def compute_drich_objectives(
 
     results_dir = Path(results_dir)
     npart = eval_config["npart"]
-    nsigma, eff, momenta = [], [], []
+    nsigma, nsigma_err, eff, eff_err, momenta = [], [], [], [], []
     # dRICHAna_bootstrap writes one text file per scan point.
     for point in eval_config["scan_points"]:
         p, eta_min, eta_max = point["p"], point["eta_min"], point["eta_max"]
         result = np.loadtxt(results_dir / f"recon_scan_{npart}_{trial_tag}_p_{p}_eta_{eta_min}_{eta_max}.txt")
-        nsigma.append(uncertainties.ufloat(result[2], result[3]))
-        eff.append(uncertainties.ufloat(result[0], result[1]))
+        eff.append(float(result[0]))
+        eff_err.append(float(result[1]))
+        nsigma.append(float(result[2]))
+        nsigma_err.append(float(result[3]))
         momenta.append(p)
 
     nsigma = np.array(nsigma)
+    nsigma_err = np.array(nsigma_err)
     eff = np.array(eff)
+    eff_err = np.array(eff_err)
     momenta = np.array(momenta)
 
-    def metric(value):
-        return float(value.n), float(value.s)
+    def metric(values, errors):
+        values = np.array(values)
+        errors = np.array(errors)
+        return float(np.mean(values)), float(np.sqrt(np.sum(errors**2)) / len(errors))
 
     # These final objective definitions are dRICH-specific physics choices.
-    piKsep_etalow, piKsep_etalow_sem = metric(np.mean(nsigma[momenta == 15]))
-    piKsep_etahigh, piKsep_etahigh_sem = metric(np.mean(nsigma[momenta == 45]))
-    acceptance, acceptance_sem = metric(np.mean(eff[1:]))
+    low_mask = momenta == 15
+    high_mask = momenta == 45
+    piKsep_etalow, piKsep_etalow_sem = metric(nsigma[low_mask], nsigma_err[low_mask])
+    piKsep_etahigh, piKsep_etahigh_sem = metric(nsigma[high_mask], nsigma_err[high_mask])
+    acceptance, acceptance_sem = metric(eff[1:], eff_err[1:])
     metrics = {
         "piKsep_etalow": piKsep_etalow,
         "piKsep_etalow_sem": piKsep_etalow_sem,
@@ -175,6 +182,27 @@ def compute_drich_objectives(
         return {name: failed_metrics.get(name, value) for name, value in metrics.items()}
 
     return metrics
+
+
+def objective_payload(*, problem_config, trial_metadata, **_):
+    """Return dRICH objectives for a framework objective-plan step."""
+    if problem_config is None:
+        raise ValueError("dRICH objective payload requires problem_config")
+
+    eval_config = problem_config.evaluation_config or {}
+    output_dir = trial_metadata.get("output_dir")
+    trial_index = trial_metadata.get("trial_index")
+    if output_dir is None or trial_index is None:
+        raise ValueError("dRICH objective payload requires output_dir and trial_index")
+
+    paths = make_paths(output_dir)
+    penalty_file = paths.log_dir / f"penalty_{trial_index}.json"
+    return compute_drich_objectives(
+        paths.results_dir,
+        trial_tag=str(trial_index),
+        eval_config=eval_config,
+        penalty=penalty_file.exists(),
+    )
 
 
 def load_drich_config(config_path):

@@ -6,7 +6,6 @@ This stage runner is invoked by the workflow commands in workflow.yml.
 
 import argparse
 import contextlib
-import json
 from pathlib import Path
 
 from aid2e.utilities.epic_utils import EpicLayerConfig
@@ -16,7 +15,6 @@ from drich_utils import (
     build_analysis_arguments,
     build_reco_arguments,
     build_sim_arguments,
-    compute_drich_objectives,
     load_drich_config,
     make_paths,
     sim_reco_files,
@@ -141,21 +139,6 @@ def evaluate_design_point(trial_index, output_dir, config_path, stage, job_index
     penalty_file = paths.log_dir / f"penalty_{trial_tag}.json"
     workflow_id = cfg.workflows.workflows[0].name
 
-    if stage == "retrieve_results":
-        # retrieve_results is the objective-merge stage.
-        if penalty_file.exists():
-            return compute_drich_objectives(
-                paths.results_dir,
-                trial_tag=trial_tag,
-                eval_config=eval_config,
-                penalty=True,
-            )
-        return compute_drich_objectives(
-            paths.results_dir,
-            trial_tag,
-            eval_config,
-        )
-
     layer_names = stage.split("_")
     if not all(layer_name in {"geo", "sim", "rec", "ana"} for layer_name in layer_names):
         raise ValueError(f"Unsupported stage: {stage}")
@@ -209,8 +192,7 @@ def main(argv=None):
     parser.add_argument("--prepared-geometry-dir")
     args = parser.parse_args(argv)
 
-    paths = make_paths(args.output_dir)
-    metrics = evaluate_design_point(
+    evaluate_design_point(
         args.trial_index,
         args.output_dir,
         args.config_path,
@@ -218,11 +200,6 @@ def main(argv=None):
         args.job_index,
         args.prepared_geometry_dir,
     )
-
-    if args.stage == "retrieve_results":
-        out_path = paths.results_dir / f"out-{args.trial_index}.json"
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-        out_path.write_text(json.dumps(metrics, indent=2))
     return 0
 
 

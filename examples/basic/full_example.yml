@@ -1,60 +1,56 @@
 # AID2E Full Example Configuration (DTLZ2 Toy Problem)
-# This example demonstrates a multi-objective optimization setup for the DTLZ2 benchmark.
-# Design parameters are loaded from an external file (design.params).
+# Run with: aid2e optimize examples/basic/full_example.yml
 
 problem:
   name: "DTLZ2 Multi-Objective Optimization"
-  type: "toy"  # Toy benchmark problem
+  problem_type: "toy"
   output_location: "/tmp"
   work_location: "/tmp"
+  design_parameters_file: "design.params"
 
-  # Objectives for the optimization. Each objective has a name and direction.
-  # The objectives returned will be a dictionary with these names as keys.
-  # example: {"f1": value1, "f2": value2}
   objectives:
     - name: "f1"
       direction: "minimize"
-      computation:
-        script:
-          path: "./examples/basic/scripts/dtlz2_problem.py"
-          output_file: "objectives_{job_id}.json"
-          timeout_sec: 300
+      objective_plan:
+        steps:
+          stages:
+            - name: "evaluate"
+              inline:
+                entrypoint: "examples.evaluators.dtlz2:objective_payload"
+              produces_objective: true
       metrics_keys: ["f1"]
     - name: "f2"
       direction: "minimize"
-      computation:
-        multi-steps:
+      objective_plan:
+        steps:
           stages:
-            - name: "prepare"
-              jobs:
-                - name: "prepare_inputs"
-                  command: "python scripts/prepare_inputs.py"
             - name: "evaluate"
-              depends_on: ["prepare"]
-              jobs:
-                - name: "run_sim"
-                  command: "python ./examples/basic/scripts/dtlz2_problem.py"
+              inline:
+                entrypoint: "examples.evaluators.dtlz2:objective_payload"
               produces_objective: true
       metrics_keys: ["f2"]
 
-  # Design parameters can be loaded from file (path) or defined inline.
-  # The loader will:
-  #   - If 'path' is provided: load from that file (must exist)
-  #   - If 'path' is not provided: use inline parameters directly
-  #   - If both are provided: raise an error
-  design_space:
-    path: "./design.params"
-    
 optimizer:
   name: "ax"
   type: "bayesian"
   parameters:
     initialization_strategy: "sobol"
     generator: "BOTORCH_MODULAR"
-    n_initial_samples: 24
-    n_iterations: 100
-    batch_size: 4
+    n_initial_samples: 4
+    n_iterations: 8
+    batch_size: 2
     seed: 42
+
+scheduler:
+  runner_type: "JobLibRunner"
+  parameters:
+    n_jobs: 2
+    backend: "threading"
+
+workflows:
+  workflows:
+    - name: "dtlz2_eval"
+      branches: []
 
 metadata:
   project: "AID2E"

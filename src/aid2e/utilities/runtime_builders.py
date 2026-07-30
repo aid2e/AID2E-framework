@@ -1,10 +1,18 @@
-"""Runtime builder helpers for config-driven AID2E execution."""
+"""Runtime builders for config-driven AID2E execution.
+
+This module is the boundary between canonical configuration models and runtime
+objects. CLI commands should use these helpers instead of constructing
+optimizers, schedulers, or workflow executors directly.
+"""
 
 from __future__ import annotations
 
 import importlib
+import shlex
+from pathlib import Path
 from typing import Any, Dict, Optional, Union
 
+from aid2e.utilities.configurations.full_config import FullConfig
 from aid2e.utilities.configurations.optimizer_config import OptimizerConfiguration
 from aid2e.utilities.configurations.problem_config import ProblemConfiguration
 from aid2e.utilities.configurations.scheduler_config import SchedulerConfiguration
@@ -14,6 +22,9 @@ from aid2e.utilities.configurations.workflow_config import (
     WorkflowDefinition,
     WorkflowsConfiguration,
 )
+
+
+# Optimizer builders
 
 
 def infer_optimizer_backend(optimizer_cfg: OptimizerConfiguration) -> str:
@@ -75,6 +86,9 @@ def build_optimizer_from_config(
     raise ValueError(f"Unsupported optimizer backend: {backend_name}")
 
 
+# Scheduler builders
+
+
 def build_scheduler_runtime_config(
     scheduler_cfg: Optional[SchedulerConfiguration],
 ) -> Optional[Dict[str, Any]]:
@@ -132,6 +146,9 @@ def build_scheduler_from_config(scheduler_cfg: Optional[SchedulerConfiguration])
         return PanDAiDDSScheduler(config=cfg_obj)
 
     raise ValueError(f"Unsupported scheduler runner_type: {runner_type}")
+
+
+# Workflow builders
 
 
 def _resolve_callable(spec: str):
@@ -200,6 +217,8 @@ def build_workflow_executor_from_config(
     workflow_name: Optional[str] = None,
     base_output_dir: str = "/tmp/aid2e_runs",
     log_level: str = "INFO",
+    config_dir: Optional[str] = None,
+    trial_metadata: Optional[Dict[str, Any]] = None,
 ):
     """Build a DAGExecutor from workflow + scheduler configuration."""
     from aid2e.utilities.workflows import DAGExecutor
@@ -242,4 +261,223 @@ def build_workflow_executor_from_config(
         problem_config=problem_cfg,
         scheduler_config=runtime_scheduler_cfg,
         scheduler_config_resolver=resolve_stage_scheduler,
+        config_dir=config_dir,
+        trial_metadata=trial_metadata,
     )
+
+
+# Optimization execution
+
+
+def execute_trial_workflow_from_config(
+    config_path: str,
+    output_dir: str,
+    trial_index: int,
+    design_point: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Execute one optimizer candidate through the configured workflow.
+
+    The optimizer loop schedules this function as one trial job. It reloads the
+    full config, copies the selected workflow, injects the trial
+    payload fields used by command-based workflow jobs, and returns the
+    objective payload collected by the DAG executor.
+    """
+    from aid2e.utilities.configurations import load_config
+    from aid2e.utilities.workflows import create_executor_from_config
+
+    config_path_obj = Path(config_path).resolve()
+    config = load_config(str(config_path_obj))
+    output_root = Path(output_dir).resolve()
+
+    workflow = select_workflow(config.workflows).model_copy(deep=True)
+    trial_metadata = {
+        "trial_index": trial_index,
+        "output_dir": str(output_root),
+        "config_path": str(config_path_obj),
+        "result_json": str(
+            output_root / "log" / "results" / f"out-{trial_index}.json"
+        ),
+    }
+    trial_payload = {
+        "trial_index": trial_index,
+        "output_dir": shlex.quote(str(output_root)),
+        "config_path": shlex.quote(str(config_path_obj)),
+        "result_json": trial_metadata["result_json"],
+    }
+    workflow.name = f"{workflow.name}_trial_{trial_index}"
+    for branch in workflow.branches:
+        for stage in branch.stages:
+            for job in stage.jobs:
+                job.payload = {**job.payload, **trial_payload}
+
+    executor = create_executor_from_config(
+        str(config_path_obj),
+        output_dir=str(output_root),
+        workflow=workflow,
+        log_level="WARNING",
+        trial_metadata=trial_metadata,
+    )
+    return executor.execute(design_point)
+
+
+def run_optimization_from_config(
+    config: FullConfig,
+    config_path: str,
+) -> Dict[str, Path]:
+    """Run an optimization from a full configuration.
+
+    The loop builds the configured optimizer and scheduler, asks the optimizer
+    for candidates in configured batches, executes each candidate through the
+    configured workflow, updates the optimizer with collected objectives, and
+    writes result artifacts under ``config.problem.output_location``.
+    """
+    config_path_obj = Path(config_path).resolve()
+    output_dir = Path(config.problem.output_location).resolve()
+    output_dir.mkdir(parents=True, exist_ok=True)
+    max_failed_trials = int(
+        (config.problem.evaluation_config or {}).get("max_failed_trials", 0)
+    )
+    failed_trials: set[int] = set()
+    errors_by_trial: Dict[int, Dict[str, float]] = {}
+
+    optimizer = build_optimizer_from_config(config.problem, config.optimizer)
+    optimizer_config = optimizer.config
+    n_iterations = optimizer_config.n_iterations
+    batch_size = getattr(optimizer_config, "batch_size", None)
+    scheduler = build_scheduler_from_config(config.scheduler)
+    if scheduler is None:
+        raise ValueError("Optimization execution requires a scheduler configuration")
+
+    trial_index = 0
+    completed = 0
+    batch_id = 0
+    try:
+        while completed < n_iterations:
+            batch_id += 1
+            n_new = (
+                min(batch_size, n_iterations - completed)
+                if batch_size is not None
+                else 1
+            )
+            design_points = optimizer.suggest_candidates(n_candidates=n_new)
+            assignments = list(
+                zip(
+                    range(trial_index, trial_index + len(design_points)),
+                    design_points,
+                )
+            )
+            trial_index += len(assignments)
+            completed += len(assignments) if batch_size is not None else 1
+
+            batch_results = _run_optimizer_trial_batch(
+                scheduler,
+                batch_id,
+                assignments,
+                optimizer,
+                config_path_obj,
+                output_dir,
+                failed_trials,
+                max_failed_trials,
+            )
+            for trial_index, (design_point, raw_metrics) in batch_results.items():
+                metrics = {
+                    name: float(raw_metrics[name])
+                    for name in optimizer.objective_names
+                }
+                errors_by_trial[trial_index] = {
+                    f"{name}_sem": float(raw_metrics[f"{name}_sem"])
+                    for name in optimizer.objective_names
+                    if f"{name}_sem" in raw_metrics
+                }
+                optimizer.update_with_results(trial_index, design_point, metrics)
+            optimizer.save_optimization_results(
+                output_dir / "optimization_results.json",
+                save_pareto_front=output_dir / "pareto_front.json",
+                errors_by_trial=errors_by_trial,
+            )
+    finally:
+        scheduler.shutdown()
+
+    return {
+        "optimization_results": output_dir / "optimization_results.json",
+        "pareto_front": output_dir / "pareto_front.json",
+    }
+
+
+def _run_optimizer_trial_batch(
+    scheduler,
+    batch_id: int,
+    assignments: list[tuple[int, Dict[str, Any]]],
+    optimizer,
+    config_path: Path,
+    output_dir: Path,
+    failed_trials: set[int],
+    max_failed_trials: int,
+) -> Dict[int, tuple[Dict[str, Any], Dict[str, Any]]]:
+    """Submit one optimizer batch as scheduler jobs.
+
+    Each scheduler job runs one full workflow for one optimizer candidate.
+    Failed scheduler jobs are recorded as failed optimizer trials before the
+    completed trial objective payloads are returned to the optimization loop.
+    """
+    active_trials = {
+        trial_index: design_point for trial_index, design_point in assignments
+    }
+    job_definitions = [
+        {
+            "job_id": str(trial_index),
+            "name": f"trial_{trial_index}",
+            "function": execute_trial_workflow_from_config,
+            "params": {
+                "config_path": str(config_path),
+                "output_dir": str(output_dir),
+                "trial_index": trial_index,
+                "design_point": design_point,
+            },
+        }
+        for trial_index, design_point in assignments
+    ]
+
+    result = scheduler.run_stage(
+        f"optimizer_batch_{batch_id}_trials",
+        job_definitions,
+        parallelism_policy={"max_concurrent": len(assignments)},
+        working_dir=str(output_dir),
+    )
+    if not result.success:
+        failed_job_ids = {
+            int(status.job_id)
+            for status in result.job_statuses
+            if status.status != "completed" and str(status.job_id).isdigit()
+        }
+        if not failed_job_ids:
+            raise RuntimeError(result.error_message or "Optimizer trial batch failed")
+
+        for trial_index in sorted(failed_job_ids & set(active_trials)):
+            optimizer.set_trial_status(
+                trial_index=trial_index,
+                status="failed",
+                parameters=active_trials[trial_index],
+                metadata={"reason": result.error_message},
+            )
+            failed_trials.add(trial_index)
+            del active_trials[trial_index]
+
+        if len(failed_trials) > max_failed_trials:
+            raise RuntimeError(
+                f"Too many failed trials: {len(failed_trials)} failed, "
+                f"max_failed_trials={max_failed_trials}"
+            )
+
+    completed_statuses = {
+        int(status.job_id): status
+        for status in result.job_statuses
+        if status.status == "completed" and str(status.job_id).isdigit()
+    }
+    return {
+        trial_index: (
+            design_point,
+            (completed_statuses[trial_index].outputs or {})["result"],
+        )
+        for trial_index, design_point in active_trials.items()
+    }

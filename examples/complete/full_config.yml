@@ -1,0 +1,56 @@
+problem:
+  name: "DTLZ2 Complete Example"
+  problem_type: "toy"
+  output_location: "/tmp"
+  work_location: "/tmp"
+  inline_design:
+    design_space:
+      design_parameters:
+        DTLZ2_variables:
+          parameters:
+            x1: {value: 0.5, bounds: [0.0, 1.0]}
+            x2: {value: 0.5, bounds: [0.0, 1.0]}
+            x3: {value: 0.5, bounds: [0.0, 1.0]}
+  objectives:
+    - name: "f1"
+      direction: "minimize"
+      objective_plan:
+        steps:
+          stages:
+            - name: "evaluate"
+              inline:
+                entrypoint: "examples.evaluators.dtlz2:objective_payload"
+              produces_objective: true
+      metrics_keys: ["f1"]
+    - name: "f2"
+      direction: "minimize"
+      objective_plan:
+        steps:
+          stages:
+            - name: "evaluate"
+              inline:
+                entrypoint: "examples.evaluators.dtlz2:objective_payload"
+              produces_objective: true
+      metrics_keys: ["f2"]
+
+optimizer:
+  name: "ax"
+  type: "bayesian"
+  parameters:
+    initialization_strategy: "sobol"
+    generator: "BOTORCH_MODULAR"
+    n_initial_samples: 4
+    n_iterations: 8
+    batch_size: 2
+    seed: 42
+
+scheduler:
+  runner_type: "JobLibRunner"
+  parameters:
+    n_jobs: 2
+    backend: "threading"
+
+workflows:
+  workflows:
+    - name: "dtlz2_complete_eval"
+      branches: []

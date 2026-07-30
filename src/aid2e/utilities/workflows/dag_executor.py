@@ -30,8 +30,11 @@ Repository: https://github.com/aid2e/AID2E-framework.git
 
 from typing import Dict, Any, List, Optional, Tuple
 from pathlib import Path
+import importlib
 import json
 import logging
+import os
+import subprocess
 import sys
 from datetime import datetime
 
@@ -105,6 +108,8 @@ class DAGExecutor:
         problem_config: Optional[ProblemConfiguration] = None,
         scheduler_config: Optional[Dict[str, Any]] = None,
         scheduler_config_resolver=None,
+        config_dir: Optional[str] = None,
+        trial_metadata: Optional[Dict[str, Any]] = None,
     ):
         """Initialize DAG Executor.
         
@@ -122,6 +127,9 @@ class DAGExecutor:
         self.problem_config = problem_config
         self.scheduler_config = scheduler_config or {}
         self.scheduler_config_resolver = scheduler_config_resolver
+        self.config_dir = Path(config_dir).resolve() if config_dir else None
+        self.trial_metadata = dict(trial_metadata or {})
+        self.current_design_point: Dict[str, Any] = {}
         
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         if self.problem_config is not None:
@@ -222,6 +230,7 @@ class DAGExecutor:
             >>> print(objectives)  # {"f1": 0.234, "f2": 0.876}
         """
 
+        self.current_design_point = dict(design_point or {})
         self.logger.checkpoint(
             "workflow_start",
             "start",
@@ -283,9 +292,6 @@ class DAGExecutor:
         if self.workflow.branches:
             return self.workflow.branches
         else:
-            # Create implicit branch from workflow stages (if any)
-            # For now, return empty list if no branches defined
-            # This can be extended to support legacy workflows with direct stages
             return []
     
     def _execute_branch(self, branch: BranchDefinition, design_point: Dict[str, Any]) -> None:
@@ -525,11 +531,13 @@ class DAGExecutor:
         
         # Execute stage via scheduler
         try:
+            scheduler_working_dir = self.scheduler_submit_dir / stage.name
+            scheduler_working_dir.mkdir(parents=True, exist_ok=True)
             result = scheduler.run_stage(
                 stage_name=stage.name,
                 job_definitions=job_definitions,
                 parallelism_policy=parallelism_policy,
-                working_dir=str(self.scheduler_submit_dir / stage.name),
+                working_dir=str(scheduler_working_dir),
             )
             
             # Process results and update XCom
@@ -570,15 +578,16 @@ class DAGExecutor:
         evaluator_type = job.payload.get("evaluator_type", "bash")
         design_file = self._materialize_design_file(job_id, job_context)
         if runner_type == "SlurmRunner" and evaluator_type == "python":
-            # TODO(slurm-python): support workflow Python evaluator jobs by translating
-            # them into a Slurm-safe command/file-based execution path.
             raise ValueError(
                 f"Job {job_id} uses evaluator_type='python', which SlurmScheduler v1 does not support."
             )
 
         command = job.command
-        outputs = job.outputs or []
-        if runner_type == "SlurmRunner":
+        outputs = [
+            output.model_dump() if hasattr(output, "model_dump") else output
+            for output in job.outputs or []
+        ]
+        if evaluator_type != "python":
             command = self._resolve_scheduler_job_command(
                 job,
                 job_id,
@@ -998,14 +1007,14 @@ class DAGExecutor:
     
     def _compute_objectives(self) -> Dict[str, float]:
         """Compute objectives from workflow outputs.
-        
-        For now, returns a placeholder. This should be extended to:
-        1. Read output artifacts from jobs
-        2. Apply objective computation plans
-        3. Return final objective values
-        
+
+        This method:
+        1. Reads output artifacts from jobs through XCom.
+        2. Executes configured objective step plans when present.
+        3. Returns final objective values for declared workflow objectives.
+
         Returns:
-            objectives: {objective_name: value}.
+            objectives: {objective_name: value}, including optional *_sem fields.
         """
         self.logger.checkpoint(
             "objectives_compute",
@@ -1013,27 +1022,97 @@ class DAGExecutor:
             "Computing objectives from outputs",
             context={},
         )
-        
-        # Placeholder implementation
-        # TODO: Implement objective computation from:
-        # - self.workflow.objectives
-        # - self.workflow.combined_objectives
-        # - Job outputs stored in XCom or artifacts
-        
+
+        objective_names = {obj_def.name for obj_def in self.workflow.objectives}
+        combined_metric_names = {
+            metric.name
+            for plan in self.workflow.combined_objectives
+            for metric in plan.metrics
+        }
+        objective_names.update(combined_metric_names)
+        sem_names = {f"{name}_sem" for name in objective_names}
+        objective_fields = objective_names | sem_names
+        combined_metric_keys = {
+            metric.metric_key: metric.name
+            for plan in self.workflow.combined_objectives
+            for metric in plan.metrics
+        }
+        scalar_objective_keys = {name: name for name in objective_fields}
+        scalar_objective_keys.update(combined_metric_keys)
+        scalar_objective_keys.update(
+            {
+                f"{metric_key}_sem": f"{objective_name}_sem"
+                for metric_key, objective_name in combined_metric_keys.items()
+            }
+        )
         objectives = {}
-        
-        # Extract from XCom
-        # XCom keys are in format "job_id:key"
+
+        def collect_from_mapping(values: Dict[str, Any]) -> None:
+            if isinstance(values.get("objectives"), dict):
+                values = values["objectives"]
+            for name in objective_fields:
+                if name in values:
+                    objectives[name] = values[name]
+            for metric_key, objective_name in combined_metric_keys.items():
+                if metric_key in values:
+                    objectives[objective_name] = values[metric_key]
+                sem_key = f"{metric_key}_sem"
+                if sem_key in values:
+                    objectives[f"{objective_name}_sem"] = values[sem_key]
+
         for xcom_key, value in self.global_xcom.items():
-            # Check for objectives dict (from single branch case)
-            if xcom_key.endswith(":objectives") and isinstance(value, dict):
-                objectives.update(value)
-            
-            # Check for individual objective values (from separate branches case)
-            for obj_def in self.workflow.objectives:
-                if xcom_key.endswith(f":{obj_def.name}"):
-                    objectives[obj_def.name] = value
-        
+            # Check for objectives dicts from jobs that pushed all metrics together.
+            if isinstance(value, dict):
+                collect_from_mapping(value)
+                continue
+
+            # Check for JSON artifacts collected by schedulers as string payloads.
+            if isinstance(value, str):
+                try:
+                    parsed_value = json.loads(value)
+                except json.JSONDecodeError:
+                    parsed_value = None
+                if isinstance(parsed_value, dict):
+                    collect_from_mapping(parsed_value)
+                    continue
+
+            # Check for individual objective values from separate jobs/branches.
+            output_key = xcom_key.rpartition(":")[2]
+            objective_name = scalar_objective_keys.get(output_key)
+            if objective_name is not None:
+                objectives[objective_name] = value
+
+        for obj_def in self.workflow.objectives:
+            if obj_def.objective_plan is not None:
+                if obj_def.scheduler is not None:
+                    raise ValueError(
+                        f"Objective {obj_def.name} declares an objective-level "
+                        "scheduler. In v0, scheduled objective work must be "
+                        "represented as workflow stages."
+                    )
+                objectives.update(self._compute_single_objective_plan(obj_def))
+
+        for plan in self.workflow.combined_objectives:
+            if plan.scheduler is not None:
+                raise ValueError(
+                    f"Combined objective {plan.name} declares an objective-level "
+                    "scheduler. In v0, scheduled objective work must be "
+                    "represented as workflow stages."
+                )
+            objectives.update(self._compute_combined_objective_plan(plan))
+
+        missing = sorted(name for name in objective_names if name not in objectives)
+        if missing:
+            raise ValueError(
+                "Workflow did not produce declared objectives: " + ", ".join(missing)
+            )
+
+        objectives = {
+            name: float(value)
+            for name, value in objectives.items()
+            if name in objective_fields
+        }
+
         self.logger.checkpoint(
             "objectives_computed",
             "success",
@@ -1043,10 +1122,278 @@ class DAGExecutor:
         
         return objectives
 
+    def _compute_single_objective_plan(self, obj_def) -> Dict[str, float]:
+        """Execute one objective plan and extract its declared objective value."""
+        payload = self._execute_objective_plan(
+            plan=obj_def.objective_plan,
+            plan_name=obj_def.name,
+        )
+        metric_keys = obj_def.metrics_keys or [obj_def.name]
+        if len(metric_keys) != 1:
+            raise ValueError(
+                f"Objective {obj_def.name} must declare exactly one metrics_key"
+            )
+        return self._extract_objective_metrics(
+            payload,
+            {metric_keys[0]: obj_def.name},
+        )
+
+    def _compute_combined_objective_plan(self, combined_plan) -> Dict[str, float]:
+        """Execute one combined objective plan and extract all declared metrics."""
+        payload = self._execute_objective_plan(
+            plan=combined_plan.objective_plan,
+            plan_name=combined_plan.name,
+        )
+        return self._extract_objective_metrics(
+            payload,
+            {metric.metric_key: metric.name for metric in combined_plan.metrics},
+        )
+
+    def _execute_objective_plan(self, plan, plan_name: str) -> Dict[str, Any]:
+        """Execute an objective step plan and return its producer payload."""
+        step_results: Dict[str, Any] = {}
+        stages_by_name = {stage.name: stage for stage in plan.steps.stages}
+
+        for stage_name in self._objective_step_order(plan):
+            stage = stages_by_name[stage_name]
+            inputs = {
+                dep: step_results[dep]
+                for dep in stage.depends_on
+            }
+            inputs.update(stage.inputs)
+            step_results[stage.name] = self._execute_objective_step(
+                plan_name,
+                stage,
+                inputs,
+            )
+
+        producer = plan.steps.producing_stage()
+        payload = step_results.get(producer)
+        if payload is None:
+            raise ValueError(
+                f"Objective plan {plan_name} did not produce stage {producer}"
+            )
+        return payload
+
+    def _objective_step_order(self, plan) -> List[str]:
+        """Return dependency order for objective plan stages."""
+        nodes = [
+            DagNode(
+                node_id=stage.name,
+                node_type=DagNodeType.JOB,
+                depends_on=list(stage.depends_on),
+                description=f"Objective step {stage.name}",
+            )
+            for stage in plan.steps.stages
+        ]
+        topo_order = topological_sort(DagDefinition(name="objective_plan", nodes=nodes))
+        return [
+            node.node_id
+            for layer in topo_order.layers
+            for node in layer
+        ]
+
+    def _execute_objective_step(
+        self,
+        plan_name: str,
+        stage,
+        inputs: Dict[str, Any],
+    ) -> Any:
+        """Execute one objective step using its configured action."""
+        if stage.inline is not None:
+            return self._execute_inline_objective_step(plan_name, stage, inputs)
+        if stage.script is not None:
+            return self._execute_script_objective_step(plan_name, stage, inputs)
+        raise ValueError(
+            f"Objective step {plan_name}.{stage.name} must define inline or script"
+        )
+
+    def _execute_inline_objective_step(
+        self,
+        plan_name: str,
+        stage,
+        inputs: Dict[str, Any],
+    ) -> Any:
+        """Execute an inline objective step callable."""
+        entrypoint = stage.inline.entrypoint
+        if ":" in entrypoint:
+            module_name, symbol_name = entrypoint.split(":", 1)
+        else:
+            module_name, symbol_name = entrypoint.rsplit(".", 1)
+        config_dir = str(self.config_dir) if self.config_dir is not None else None
+        added_config_dir = config_dir is not None and config_dir not in sys.path
+        if added_config_dir:
+            sys.path.insert(0, config_dir)
+        try:
+            callable_obj = getattr(importlib.import_module(module_name), symbol_name)
+        finally:
+            if added_config_dir:
+                sys.path.remove(config_dir)
+        step_dir = self._objective_step_dir(plan_name, stage.name)
+        return callable_obj(
+            design_point=dict(self.current_design_point),
+            inputs=inputs,
+            outputs=dict(stage.outputs),
+            extra_args=dict(stage.extra_args),
+            xcom=self.global_xcom,
+            work_dir=str(step_dir),
+            output_dir=str(self.output_dir),
+            problem_config=self.problem_config,
+            trial_metadata=dict(self.trial_metadata),
+        )
+
+    def _execute_script_objective_step(
+        self,
+        plan_name: str,
+        stage,
+        inputs: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Execute a script objective step and parse its JSON output file."""
+        from aid2e.utilities.workflows.execution_utils import build_objective_call
+
+        step_dir = self._objective_step_dir(plan_name, stage.name)
+        params_file = step_dir / "design_point.json"
+        inputs_file = step_dir / "step_inputs.json"
+        params_file.write_text(json.dumps(self.current_design_point, indent=2))
+        inputs_file.write_text(
+            json.dumps(
+                {
+                    "inputs": inputs,
+                    "extra_args": dict(stage.extra_args),
+                },
+                indent=2,
+            )
+        )
+
+        script_path = self._resolve_objective_script_path(stage.script.path)
+        output_file = self._format_objective_output_file(
+            stage.script.output_file,
+            plan_name=plan_name,
+            stage_name=stage.name,
+            step_dir=step_dir,
+        )
+        output_file.parent.mkdir(parents=True, exist_ok=True)
+
+        command = (
+            [sys.executable, str(script_path)]
+            if script_path.suffix == ".py"
+            else [str(script_path)]
+        )
+        argv, env = build_objective_call(command, params_file, output_file)
+        env["AID2E_STEP_INPUTS_FILE"] = str(inputs_file)
+        result = subprocess.run(
+            argv,
+            cwd=str(step_dir),
+            env={**os.environ, **env},
+            text=True,
+            capture_output=True,
+            timeout=stage.script.timeout_sec,
+        )
+        if result.returncode != 0:
+            raise RuntimeError(
+                f"Objective script {script_path} failed with code "
+                f"{result.returncode}: {result.stderr}"
+            )
+        if not output_file.exists():
+            raise FileNotFoundError(
+                f"Objective script {script_path} did not write {output_file}"
+            )
+        try:
+            return json.loads(output_file.read_text())
+        except json.JSONDecodeError as error:
+            raise ValueError(
+                f"Objective script {script_path} wrote invalid JSON"
+            ) from error
+
+    def _objective_step_dir(self, plan_name: str, stage_name: str) -> Path:
+        """Create the working directory for one objective step."""
+        step_dir = self.work_dir / "_objectives" / plan_name / stage_name
+        step_dir.mkdir(parents=True, exist_ok=True)
+        return step_dir
+
+    def _resolve_objective_script_path(self, script_path: str) -> Path:
+        """Resolve an objective script path using the config directory when known."""
+        path = Path(script_path).expanduser()
+        if not path.is_absolute() and self.config_dir is not None:
+            path = self.config_dir / path
+        path = path.resolve()
+        if not path.exists():
+            raise FileNotFoundError(f"Objective script not found: {path}")
+        return path
+
+    def _format_objective_output_file(
+        self,
+        output_file: str,
+        *,
+        plan_name: str,
+        stage_name: str,
+        step_dir: Path,
+    ) -> Path:
+        """Format a declared objective output filename."""
+        try:
+            formatted = output_file.format(
+                objective_name=plan_name,
+                stage_name=stage_name,
+                job_id=stage_name,
+            )
+        except KeyError as error:
+            raise ValueError(
+                f"Unsupported objective output_file placeholder: {error}"
+            ) from error
+        path = Path(formatted).expanduser()
+        if not path.is_absolute():
+            path = step_dir / path
+        return path.resolve()
+
+    def _normalize_objective_payload(self, payload: Any) -> Dict[str, Any]:
+        """Normalize objective step output into a mapping."""
+        if isinstance(payload, str):
+            try:
+                payload = json.loads(payload)
+            except json.JSONDecodeError as error:
+                raise ValueError("Objective payload must be valid JSON") from error
+        if isinstance(payload, dict) and isinstance(payload.get("objectives"), dict):
+            payload = payload["objectives"]
+        if not isinstance(payload, dict):
+            raise ValueError("Objective payload must be a mapping")
+        return payload
+
+    def _extract_objective_metrics(
+        self,
+        payload: Dict[str, Any],
+        metric_map: Dict[str, str],
+    ) -> Dict[str, float]:
+        """Extract declared objective metrics and optional SEM values."""
+        if not isinstance(payload, dict):
+            if len(metric_map) != 1:
+                raise ValueError("Objective payload must be a mapping")
+            objective_name = next(iter(metric_map.values()))
+            return {objective_name: float(payload)}
+
+        payload = self._normalize_objective_payload(payload)
+        extracted: Dict[str, float] = {}
+        missing = []
+        for metric_key, objective_name in metric_map.items():
+            if metric_key not in payload:
+                missing.append(metric_key)
+                continue
+            extracted[objective_name] = float(payload[metric_key])
+            sem_key = f"{metric_key}_sem"
+            if sem_key in payload:
+                extracted[f"{objective_name}_sem"] = float(payload[sem_key])
+        if missing:
+            raise ValueError(
+                "Objective payload missing declared metrics: " + ", ".join(missing)
+            )
+        return extracted
+
 
 def create_executor_from_config(
     workflow_config_path: str,
     output_dir: str = "/tmp/aid2e_runs",
+    workflow: Optional[WorkflowDefinition] = None,
+    log_level: str = "INFO",
+    trial_metadata: Optional[Dict[str, Any]] = None,
 ) -> DAGExecutor:
     """Create DAGExecutor from workflow configuration file.
     
@@ -1055,6 +1402,9 @@ def create_executor_from_config(
     Args:
         workflow_config_path: Path to workflow configuration file.
         output_dir: Base directory for execution outputs.
+        workflow: Optional workflow override. When omitted, uses the workflow
+            from the loaded config file.
+        log_level: Logging level for the executor.
         
     Returns:
         DAGExecutor instance.
@@ -1068,8 +1418,11 @@ def create_executor_from_config(
 
     config = load_config(workflow_config_path)
     return build_workflow_executor_from_config(
-        config.workflows,
+        workflow if workflow is not None else config.workflows,
         problem_cfg=config.problem,
         scheduler_cfg=config.scheduler,
         base_output_dir=output_dir,
+        log_level=log_level,
+        config_dir=str(Path(workflow_config_path).resolve().parent),
+        trial_metadata=trial_metadata,
     )

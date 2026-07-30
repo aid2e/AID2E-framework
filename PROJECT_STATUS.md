@@ -6,12 +6,12 @@ COMPLETED MILESTONES
 
 ✓ Step 1: Unified Objectives Definition
   - ObjectiveDirection (MINIMIZE/MAXIMIZE)
-  - ObjectiveComputationSpec (script/inline/multi-steps)
+  - ObjectivePlanSpec (steps)
   - ObjectiveDefinition (unified across problem/optimization/workflow)
-  - Support for 3 computation modes:
+  - Support for step execution modes:
     * ScriptObjective: External script execution
     * InlineObjective: Python callable via entrypoint
-    * MultiStepComputationSpec: DAG of computation stages
+    * StepPlanSpec: DAG of computation stages
   - All tests passing (test_step1_models.py)
 
 ✓ Step 2: DAG Types & Validation
@@ -58,12 +58,13 @@ Layer 1: Configuration Models (utilities/configurations/)
   │   └── OptimizationConfiguration (with directives)
   ├── objectives.py ← NEW/UNIFIED
   │   ├── ObjectiveDirection
-  │   ├── ObjectiveComputationSpec (script/inline/multi-steps)
+  │   ├── ObjectivePlanSpec (steps)
   │   ├── ObjectiveDefinition (unified)
   │   └── ObjectivesRegistry
   ├── scheduler_config.py
   │   ├── JobLibRunnerConfig
-  │   ├── SlurmRunnerConfig (future)
+  │   ├── SlurmRunnerConfig
+  │   ├── PanDAiDDSRunnerConfig
   │   └── SchedulerConfiguration
   ├── workflow_config.py ← MOVED HERE
   │   ├── WorkflowDefinition
@@ -93,7 +94,7 @@ Layer 3: Schedulers (schedulers/) ← NEW
   └── [Future: slurm_scheduler.py, pandaidds_scheduler.py]
 
 Layer 4: Optimizers (optimizers/) ← Existing
-  └── [Placeholder for optimizer implementations]
+  └── Ax and PyMOO optimizer implementations
 
 Layer 5: CLI (cli/) ← Existing
   └── aid2e_cli.py

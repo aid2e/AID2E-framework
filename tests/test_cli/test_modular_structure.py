@@ -6,6 +6,7 @@ Tests command registration, imports, and modular organization.
 
 import pytest
 from click.testing import CliRunner
+from types import SimpleNamespace
 
 # Test both import patterns
 from aid2e.cli.aid2e_cli import cli as cli_direct
@@ -140,6 +141,52 @@ class TestWorkflowCommands:
         """Optimize should have -v/--verbosity option."""
         result = self.runner.invoke(cli_direct, ["optimize", "--help"])
         assert "--verbosity" in result.output or "-v" in result.output
+
+    def test_optimize_validate_only_does_not_run(self, tmp_path, monkeypatch):
+        """Optimize --validate-only should validate config without execution."""
+        config_path = tmp_path / "workflow.yml"
+        config_path.write_text("problem: {}\noptimizer: {}\n")
+        config = SimpleNamespace(
+            optimizer=SimpleNamespace(name="ax", type="bayesian", parameters={}),
+        )
+        called = {"run": False}
+
+        monkeypatch.setattr("aid2e.cli.workflow_commands.load_config", lambda path: config)
+        monkeypatch.setattr(
+            "aid2e.cli.workflow_commands.run_optimization_from_config",
+            lambda config, path: called.update(run=True),
+        )
+
+        result = self.runner.invoke(cli_direct, ["optimize", str(config_path), "--validate-only"])
+
+        assert result.exit_code == 0
+        assert "Configuration validated" in result.output
+        assert called["run"] is False
+
+    def test_optimize_runs_configured_optimization(self, tmp_path, monkeypatch):
+        """Optimize should delegate execution to the framework runner."""
+        config_path = tmp_path / "workflow.yml"
+        config_path.write_text("problem: {}\noptimizer: {}\n")
+        config = SimpleNamespace(
+            optimizer=SimpleNamespace(name="ax", type="bayesian", parameters={"n_iterations": 1}),
+        )
+        called = {}
+
+        def fake_run(config, path):
+            called["path"] = path
+            return {"optimization_results": tmp_path / "results.json"}
+
+        monkeypatch.setattr("aid2e.cli.workflow_commands.load_config", lambda path: config)
+        monkeypatch.setattr(
+            "aid2e.cli.workflow_commands.run_optimization_from_config",
+            fake_run,
+        )
+
+        result = self.runner.invoke(cli_direct, ["optimize", str(config_path)])
+
+        assert result.exit_code == 0
+        assert called["path"] == str(config_path)
+        assert "Optimization completed" in result.output
 
 
 class TestUtilityCommands:

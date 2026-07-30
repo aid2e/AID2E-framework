@@ -10,8 +10,8 @@ problem:
   objectives:
     - name: "f1"
       direction: "minimize"
-      computation:
-        multi_steps:
+      objective_plan:
+        steps:
           stages:
             - name: "evaluate_f1"
               script:
@@ -22,8 +22,8 @@ problem:
       metrics_keys: ["f1"]
     - name: "f2"
       direction: "minimize"
-      computation:
-        multi_steps:
+      objective_plan:
+        steps:
           stages:
             - name: "evaluate_f2"
               script:

@@ -59,7 +59,8 @@ scheduler:
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `name` | string | auto-generated | Job name, must start with `user.<username>` (auto-generates if omitted) |
-| `init_env` | string/callable | "source setup_aid2e.sh" | Environment initialization (auto-sets if omitted, prepended if string) |
+| `job_name_prefix` | string | "aid2e_job" | Prefix used when auto-generating the PanDA job name |
+| `init_env` | string/callable | "source setup_aid2e.sh; bash install_aid2e_dependencies.sh;" | Environment initialization (auto-sets if omitted, prepended if string) |
 | `source_dir` | string | project root | Directory to upload to PanDA (auto-sets to project root if omitted) |
 | `max_walltime` | int | None | Maximum walltime in seconds |
 | `core_count` | int | 1 | CPU cores per job |
@@ -114,6 +115,7 @@ The `name` field follows PanDA conventions: `user.<username>.<suffix>`
 ```yaml
 # Auto-generate from system username
 parameters:
+  job_name_prefix: "aid2e_job"
   cloud: "US"
   queue: "BNL_PanDA_1"
   # name omitted → "user.<system_username>.aid2e_job"
@@ -173,9 +175,9 @@ The `init_env` field specifies commands to run before job execution.
 
 **Auto-Setting Rules:**
 1. **If `init_env` is omitted or `null`**: 
-   - Defaults to `"source setup_aid2e.sh"` to set up the AID2E environment
+   - Defaults to `"source setup_aid2e.sh; bash install_aid2e_dependencies.sh;"` to set up the AID2E environment
 2. **If `init_env` is provided as a string**:
-   - Prepends `"source setup_aid2e.sh && "` to the provided command
+   - Prepends `"source setup_aid2e.sh && bash install_aid2e_dependencies.sh && "` to the provided command
    - This ensures the environment is always set up before custom commands
 3. **If `init_env` is a callable or other type**: 
    - Leaves it as-is (no modification)
@@ -187,7 +189,7 @@ The `init_env` field specifies commands to run before job execution.
 parameters:
   cloud: "US"
   queue: "BNL_PanDA_1"
-  # init_env omitted → "source setup_aid2e.sh"
+  # init_env omitted → "source setup_aid2e.sh; bash install_aid2e_dependencies.sh;"
 ```
 
 ```yaml
@@ -196,7 +198,7 @@ parameters:
   init_env: "export MY_VAR=value && module load gcc"
   cloud: "US"
   queue: "BNL_PanDA_1"
-  # Result: "source setup_aid2e.sh && export MY_VAR=value && module load gcc"
+  # Result: "source setup_aid2e.sh && bash install_aid2e_dependencies.sh && export MY_VAR=value && module load gcc"
 ```
 
 ## Loading Configurations

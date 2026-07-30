@@ -8,7 +8,6 @@ AI assisted Detector Design for EIC (AID2E) is a Python toolkit for authoring an
 - tests/ mirrored test suite, including fixtures for DTLZ2 and ePIC configs
 - docs/ MkDocs site sources (published to GitHub Pages)
 - scripts/ helper scripts for docs build/deploy
-- packages/ legacy package splits (kept for reference; primary code now lives under src/)
 
 ## Quickstart
 

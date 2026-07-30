@@ -17,7 +17,8 @@ This guide documents the improvements made to AID2E's workflow and objective spe
 
 ### What Changed?
 
-The term **"computation"** has been renamed to **"objective_plan"** throughout the codebase for clarity. An objective plan represents the executable specification of how to compute an objective value.
+Problem YAML uses the `objective_plan` block to define how an objective value
+is computed or collected.
 
 ### Key Classes
 
@@ -29,39 +30,40 @@ The term **"computation"** has been renamed to **"objective_plan"** throughout t
   - `metrics_keys` (List[str]): Keys to extract from objective output
 
 - **`ObjectivePlanSpec`**: Canonical specification for computing an objective
-  - Can be a **single execution** (auto-wrapped):
+  - Uses `steps`: `StepPlanSpec` with one or more stages
+  - Each stage defines either:
     - `script`: Path to executable script
     - `inline`: Entrypoint to Python function
-  - Or an **explicit multi-step plan**:
-    - `multi_steps`: `MultiStepPlanSpec` with multiple stages
 
-### Single vs. Multi-Step
+### Single-Step and Multi-Step Plans
 
-By design, **all objective plans are internally canonical multi-step plans**. This provides:
+By design, all objective plans use the same `steps` structure. A simple
+objective can define one stage, while more complex objectives can define
+multiple dependent stages. This provides:
 - Unified handling of simple and complex computations
-- Support for preprocessing, evaluation, postprocessing in stages
+- Support for preprocessing, evaluation, and postprocessing stages
 - Clear separation of concerns
 
-**For convenience:**
-- A single `script` or `inline` is automatically wrapped into a one-step multi-step plan
-- Users don't need to think about the multi-step wrapper for simple cases
-
-Example (single script auto-wrapped):
+Example (single script stage):
 
 ```python
 ObjectiveDefinition(
     name="f1",
     direction=ObjectiveDirection.MINIMIZE,
     objective_plan=ObjectivePlanSpec(
-        script=ScriptObjective(
-            path="scripts/dtlz2.py",
-            output_file="f1.json"
+        steps=StepPlanSpec(
+            stages=[
+                StepStage(
+                    name="f1_stage_0",
+                    script=ScriptObjective(
+                        path="scripts/dtlz2.py",
+                        output_file="f1.json",
+                    ),
+                    produces_objective=True,
+                )
+            ]
         )
     )
-    # Internally becomes:
-    # multi_steps=MultiStepPlanSpec(stages=[
-    #     MultiStepStage(name="f1_stage_0", script=..., produces_objective=True)
-    # ])
 )
 ```
 
@@ -78,8 +80,7 @@ Cascade Precedence (highest to lowest):
   1. Stage-level scheduler (override)
   2. Branch-level scheduler (branch default)
   3. Workflow-level scheduler (workflow default)
-  4. Objective-level scheduler (objective default)
-  5. Global scheduler (global default)
+  4. Global scheduler (global default)
 ```
 
 This allows fine-grained control while maintaining sensible defaults.
@@ -95,7 +96,6 @@ effective_scheduler = resolve_scheduler_cascade(
     stage_scheduler=stage_config.scheduler,
     branch_scheduler=branch_config.scheduler,
     workflow_scheduler=workflow_config.scheduler,
-    objective_scheduler=objective_config.scheduler,
     global_scheduler=global_config.scheduler,
 )
 ```
@@ -107,9 +107,8 @@ YAML configuration with scheduler cascade:
 ```yaml
 problem:
   name: "DTLZ2"
-  type: "toy"
-  design_space:
-    path: "design.params"
+  problem_type: "toy"
+  design_parameters_file: "design.params"
 
 # Global/workflow-level scheduler
 scheduler:
@@ -119,60 +118,42 @@ scheduler:
     backend: "loky"
 
 workflows:
-  - name: "dtlz2_eval"
+  workflows:
+    - name: "dtlz2_eval"
     
-    # Workflow-level scheduler (overrides global)
-    scheduler:
-      runner_type: "JobLibRunner"
-      parameters:
-        n_jobs: 4
-        backend: "threading"
+      # Workflow-level scheduler (overrides global)
+      scheduler:
+        runner_type: "JobLibRunner"
+        parameters:
+          n_jobs: 4
+          backend: "threading"
     
-    branches:
-      - name: "main"
+      branches:
+        - name: "main"
         
-        # Branch-level scheduler (overrides workflow)
-        scheduler:
-          runner_type: "JobLibRunner"
-          parameters:
-            n_jobs: 2
-            backend: "loky"
+          # Branch-level scheduler (overrides workflow)
+          scheduler:
+            runner_type: "JobLibRunner"
+            parameters:
+              n_jobs: 2
+              backend: "loky"
         
-        stages:
-          - name: "evaluate"
+          stages:
+            - name: "evaluate"
             
-            # Stage-level scheduler (overrides branch)
-            scheduler:
-              runner_type: "SlurmRunner"
-              parameters:
-                partition: "gpu"
-                nodes: 1
+              # Stage-level scheduler (overrides branch)
+              scheduler:
+                runner_type: "SlurmRunner"
+                parameters:
+                  partition: "gpu"
+                  nodes: 1
             
-            jobs:
-              - name: "compute_objective"
-                command: "python eval.py"
-
-    objectives:
-      - name: "f1"
-        direction: "minimize"
-        
-        # Objective-level scheduler (applies to this objective)
-        scheduler:
-          runner_type: "JobLibRunner"
-          parameters:
-            n_jobs: 1
-        
-        objective_plan:
-          script:
-            path: "scripts/dtlz2.py"
-            output_file: "f1.json"
+              jobs:
+                - name: "compute_objective"
+                  command: "python eval.py"
 ```
 
 ### Precedence Resolution
-
-For the objective "f1" in the above example:
-1. Check objective-level scheduler → Found: `JobLibRunner` with `n_jobs=1`
-2. This is the effective scheduler for objective execution
 
 For a stage without explicit scheduler:
 1. Check stage-level scheduler → Not found
@@ -229,9 +210,13 @@ workflows:
       - name: "dtlz2_pareto"
         
         objective_plan:
-          script:
-            path: "scripts/dtlz2.py"
-            output_file: "objectives.json"
+          steps:
+            stages:
+              - name: "evaluate_objectives"
+                script:
+                  path: "scripts/dtlz2.py"
+                  output_file: "objectives.json"
+                produces_objective: true
         
         metrics:
           - name: "f1"
@@ -263,27 +248,27 @@ Each key in this object becomes extractable via `metric_key` in `CombinedObjecti
 
 ---
 
-## Multi-Step Plans
+## Step Plans
 
 ### Structure
 
-A multi-step plan contains multiple stages, each with a distinct computation:
+A step plan contains one or more stages, each with a distinct computation:
 
 ```python
 ObjectiveDefinition(
     name="complex_eval",
     direction=ObjectiveDirection.MINIMIZE,
     objective_plan=ObjectivePlanSpec(
-        multi_steps=MultiStepPlanSpec(
+        steps=StepPlanSpec(
             stages=[
-                MultiStepStage(
+                StepStage(
                     name="preprocess",
                     script=ScriptObjective(path="preprocess.py", output_file="prep.json"),
                     inputs=["design_params.json"],
                     outputs=["preprocessed.json"],
                     produces_objective=False,
                 ),
-                MultiStepStage(
+                StepStage(
                     name="evaluate",
                     script=ScriptObjective(path="evaluate.py", output_file="eval.json"),
                     inputs=["preprocessed.json"],
@@ -297,7 +282,7 @@ ObjectiveDefinition(
 )
 ```
 
-### MultiStepStage Fields
+### StepStage Fields
 
 - `name` (str): Stage name (must be unique within a plan)
 - `script` or `inline` (exactly one): The execution mode
@@ -326,9 +311,8 @@ The model automatically validates:
 
 | Old Term | New Term | Notes |
 |----------|----------|-------|
-| "Computation" | "Objective Plan" | More descriptive; plan indicates it's an executable specification |
-| `ObjectiveComputationSpec` | `ObjectivePlanSpec` | Direct mapping; old name kept as alias for backward compatibility |
-| `MultiStepComputationSpec` | `MultiStepPlanSpec` | Direct mapping; old name kept as alias for backward compatibility |
+| single `script`/`inline` block | `objective_plan.steps` | Objective computation is now represented as one or more explicit steps |
+| `multi_steps` | `steps` | Objective plans now use a neutral name for one or more stages |
 
 ### Updating Your Configurations
 
@@ -338,7 +322,7 @@ The model automatically validates:
 objectives:
   - name: "f1"
     direction: "minimize"
-    computation:  # Old field name
+    objective_plan:
       script:
         path: "scripts/dtlz2.py"
         output_file: "f1.json"
@@ -350,29 +334,29 @@ objectives:
 objectives:
   - name: "f1"
     direction: "minimize"
-    objective_plan:  # New field name
-      script:
-        path: "scripts/dtlz2.py"
-        output_file: "f1.json"
+    objective_plan:
+      steps:
+        stages:
+          - name: "evaluate_f1"
+            script:
+              path: "scripts/dtlz2.py"
+              output_file: "f1.json"
+            produces_objective: true
 ```
 
 ### Python Code Updates
 
-#### Before:
-
 ```python
-from aid2e.utilities.configurations import ObjectiveComputationSpec
-spec = ObjectiveComputationSpec(...)
+from aid2e.utilities.configurations import ObjectivePlanSpec, StepPlanSpec, StepStage
+
+spec = ObjectivePlanSpec(
+    steps=StepPlanSpec(
+        stages=[
+            StepStage(...),
+        ],
+    ),
+)
 ```
-
-#### After:
-
-```python
-from aid2e.utilities.configurations import ObjectivePlanSpec
-spec = ObjectivePlanSpec(...)
-```
-
-Backward compatibility aliases remain available, but new code should use the new names.
 
 ---
 
@@ -403,23 +387,23 @@ Shows:
 ```python
 # Three-stage pipeline: preprocess → evaluate → aggregate
 ObjectivePlanSpec(
-    multi_steps=MultiStepPlanSpec(
+    steps=StepPlanSpec(
         stages=[
-            MultiStepStage(
+            StepStage(
                 name="preprocess",
                 script=ScriptObjective(path="preprocess.py"),
                 inputs=["raw_design.json"],
                 outputs=["design_preprocessed.json"],
                 produces_objective=False,
             ),
-            MultiStepStage(
+            StepStage(
                 name="evaluate",
                 script=ScriptObjective(path="evaluate.py"),
                 inputs=["design_preprocessed.json"],
                 outputs=["raw_objectives.json"],
                 produces_objective=False,
             ),
-            MultiStepStage(
+            StepStage(
                 name="aggregate",
                 inline=InlineObjective(entrypoint="my_module:aggregate_objectives"),
                 inputs=["raw_objectives.json"],

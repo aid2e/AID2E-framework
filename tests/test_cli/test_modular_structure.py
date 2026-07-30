@@ -172,14 +172,14 @@ class TestWorkflowCommands:
         )
         called = {}
 
-        def fake_run(config, path):
+        def record_run(config, path):
             called["path"] = path
             return {"optimization_results": tmp_path / "results.json"}
 
         monkeypatch.setattr("aid2e.cli.workflow_commands.load_config", lambda path: config)
         monkeypatch.setattr(
             "aid2e.cli.workflow_commands.run_optimization_from_config",
-            fake_run,
+            record_run,
         )
 
         result = self.runner.invoke(cli_direct, ["optimize", str(config_path)])

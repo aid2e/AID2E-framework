@@ -312,6 +312,7 @@ The model automatically validates:
 | Old Term | New Term | Notes |
 |----------|----------|-------|
 | single `script`/`inline` block | `objective_plan.steps` | Objective computation is now represented as one or more explicit steps |
+| "Computation" | "Objective Plan" | More descriptive; plan indicates it's an executable specification |
 | `multi_steps` | `steps` | Objective plans now use a neutral name for one or more stages |
 
 ### Updating Your Configurations

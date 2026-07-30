@@ -57,6 +57,7 @@ class PanDAiDDSScheduler(BaseScheduler):
 		self.lock = threading.Lock()
 		# Cache workflows per stage_name to ensure one workflow per stage
 		self.stage_workflows: Dict[str, Any] = {}
+		self.completed_jobs: Dict[str, Dict[str, Any]] = {}
 
 
 	# --- Run stage (synchronous convenience wrapper) -----------------------
@@ -94,7 +95,7 @@ class PanDAiDDSScheduler(BaseScheduler):
 
 		for index, job_def in enumerate(job_definitions):
 			job_name = job_def.get("name", f"job_{index}")
-			job_id = f"{stage_name}_{job_name}_{index}"
+			job_id = job_def.get("job_id") or f"{stage_name}_{job_name}_{index}"
 			job_id_to_job_def[job_id] = job_def
 
 			# If the job provides a function object, try to submit to iDDS.
@@ -148,19 +149,21 @@ class PanDAiDDSScheduler(BaseScheduler):
 				if job_id not in stage_funcs:
 					self.logger.info("Job %s finished", job_id)
 					submitted_job_ids.remove(job_id)
-					# store a placeholder result; detailed results are in self.jobs mapping
-					local_job_results[job_id] = {
-						"status": "completed",
-						"return_code": 0,
-						"stdout": "",
-						"stderr": "",
-						"outputs": {},
-					}
+					local_job_results[job_id] = self.completed_jobs.get(
+						job_id,
+						{
+							"status": "completed",
+							"return_code": 0,
+							"stdout": "",
+							"stderr": "",
+							"outputs": {},
+						},
+					)
 
 		# Phase 3: Consolidate results
 		for index, job_def in enumerate(job_definitions):
 			job_name = job_def.get("name", f"job_{index}")
-			job_id = f"{stage_name}_{job_name}_{index}"
+			job_id = job_def.get("job_id") or f"{stage_name}_{job_name}_{index}"
 			result = local_job_results.get(job_id, {})
 
 			return_code = result.get("return_code", -1)
@@ -174,7 +177,8 @@ class PanDAiDDSScheduler(BaseScheduler):
 					return_code=return_code,
 					stdout=result.get("stdout", ""),
 					stderr=result.get("stderr", ""),
-				outputs=result.get("outputs"),
+					outputs=result.get("outputs"),
+					metrics=result.get("metrics"),
 				)
 			)
 
@@ -192,6 +196,7 @@ class PanDAiDDSScheduler(BaseScheduler):
 			success=all_success,
 			error_message=None if all_success else f"Some jobs failed in stage '{stage_name}'",
 		)
+		self.running_stages[stage_id]["result"] = result
 
 		return result
 
@@ -210,6 +215,20 @@ class PanDAiDDSScheduler(BaseScheduler):
 			raise RuntimeError(f"Stage {stage_id} completed but no result is available")
 		return result
 
+	def _normalize_function_outputs(self, results: Any) -> Dict[str, Any]:
+		"""Convert an iDDS function return value into scheduler outputs."""
+		if isinstance(results, dict):
+			return {"objectives": results}
+		if results is None:
+			return {}
+		return {"result": results}
+
+	def _find_running_stage_for_job(self, job_id: str) -> Optional[str]:
+		for stage_name, stage_jobs in self.running_funcs.items():
+			if job_id in stage_jobs:
+				return stage_name
+		return None
+
 	def check_status(self, job_id: str) -> JobStatus:
 		"""Check the status of a previously submitted job.
 
@@ -219,30 +238,28 @@ class PanDAiDDSScheduler(BaseScheduler):
 		Returns:
 			JobStatus with current state and metrics.
 		"""
-		# Extract stage_name from job_id (format: stage_name_job_name_index)
-		parts = job_id.split("_")
-		stage_name = parts[0] if parts else None
-
-		if not stage_name or stage_name not in self.running_funcs:
-			# Job not found in running funcs, check if it's completed
+		if job_id in self.completed_jobs:
+			cached = self.completed_jobs[job_id]
 			return JobStatus(
 				job_id=job_id,
-				status="unknown",
+				status=cached.get("status", "completed"),
+				return_code=cached.get("return_code"),
+				stdout=cached.get("stdout", ""),
+				stderr=cached.get("stderr", ""),
+				outputs=cached.get("outputs"),
+				metrics=cached.get("metrics"),
+			)
+
+		if self._find_running_stage_for_job(job_id):
+			return JobStatus(
+				job_id=job_id,
+				status="running",
 				return_code=None,
 			)
 
-		stage_jobs = self.running_funcs.get(stage_name, {})
-		if job_id not in stage_jobs:
-			return JobStatus(
-				job_id=job_id,
-				status="completed",
-				return_code=0,
-			)
-
-		# Job is still running, return running status
 		return JobStatus(
 			job_id=job_id,
-			status="running",
+			status="unknown",
 			return_code=None,
 		)
 
@@ -255,11 +272,9 @@ class PanDAiDDSScheduler(BaseScheduler):
 		Returns:
 			True if the job was cancelled, False otherwise.
 		"""
-		# Extract stage_name from job_id
-		parts = job_id.split("_")
-		stage_name = parts[0] if parts else None
+		stage_name = self._find_running_stage_for_job(job_id)
 
-		if not stage_name or stage_name not in self.running_funcs:
+		if not stage_name:
 			self.logger.warning("Cannot cancel job %s: stage not found", job_id)
 			return False
 
@@ -498,20 +513,7 @@ class PanDAiDDSScheduler(BaseScheduler):
 		if not job_id:
 			raise ValueError("job must contain 'job_id'")
 
-		# Extract stage_name from job_id if not provided (format: stage_name_job_name_index)
-		stage_name = job.get("stage_name")
-		if not stage_name:
-			# Try to extract from job_id
-			parts = job_id.split("_")
-			if len(parts) >= 1:
-				# Assume first part is stage_name
-				stage_name = parts[0]
-			else:
-				# Fallback: search all stages
-				for sname, stage_jobs in self.running_funcs.items():
-					if job_id in stage_jobs:
-						stage_name = sname
-						break
+		stage_name = job.get("stage_name") or self._find_running_stage_for_job(job_id)
 		
 		if not stage_name or stage_name not in self.running_funcs:
 			raise RuntimeError(f"No running entry for job {job_id} (stage not found)")
@@ -542,30 +544,62 @@ class PanDAiDDSScheduler(BaseScheduler):
 		status = work.get_status()
 		if work.is_finished(status):
 			self.logger.info("Job %s finished (transform %s)", job_id, tf_id)
+			results = None
+			details = None
 			try:
 				ret = work.get_results()
-				# try to extract mapped results
-				results = None
 				try:
-					results, _details = ret.get_result(name=work.name, key=info.get("job_key", work.name), verbose=True, with_details=True)
-					self.logger.debug(f"Extracted results for job {job_id}: {results}, details: {_details}")
-					
-					if job:
-						self.logger.debug("Job %s has context: %s", job_id, job_context)
-						# Optionally, you could store or use this context information as needed for your application
-						job_context.xcom_push("objectives", results)
-						job_context.xcom_push({"results_details": _details})
+					results, details = ret.get_result(
+						name=work.name,
+						key=info.get("job_key", work.name),
+						verbose=True,
+						with_details=True,
+					)
+					self.logger.debug("Extracted results for job %s: %s, details: %s", job_id, results, details)
 				except Exception:
 					results = ret
 				info["results"] = results
-			except Exception:
+			except Exception as exc:
 				self.logger.exception("Failed to fetch results for job %s", job_id)
+				self.completed_jobs[job_id] = {
+					"status": "failed",
+					"return_code": -1,
+					"stdout": "",
+					"stderr": str(exc),
+					"outputs": {},
+					"metrics": {"transform_id": tf_id},
+				}
+			else:
+				outputs = self._normalize_function_outputs(results)
+				if job_context is not None and hasattr(job_context, "xcom_push"):
+					try:
+						if isinstance(results, dict):
+							job_context.xcom_push("objectives", results)
+						if details is not None:
+							job_context.xcom_push("results_details", details)
+					except Exception:
+						self.logger.debug("Failed to push iDDS results to job context", exc_info=True)
+				self.completed_jobs[job_id] = {
+					"status": "completed",
+					"return_code": 0,
+					"stdout": "",
+					"stderr": "",
+					"outputs": outputs,
+					"metrics": {"transform_id": tf_id},
+				}
 			info["status"] = "finished"
-			# cleanup bookkeeping from stage
 			self.running_funcs[stage_name].pop(job_id, None)
 		elif work.is_failed(status):
 			self.logger.info("Job %s failed (transform %s)", job_id, tf_id)
 			info["status"] = "failed"
+			self.completed_jobs[job_id] = {
+				"status": "failed",
+				"return_code": -1,
+				"stdout": "",
+				"stderr": f"PanDA/iDDS work failed with status {status}",
+				"outputs": {},
+				"metrics": {"transform_id": tf_id},
+			}
 			self.running_funcs[stage_name].pop(job_id, None)
 
 	def check_job_status(self, job: Dict[str, Any]) -> None:

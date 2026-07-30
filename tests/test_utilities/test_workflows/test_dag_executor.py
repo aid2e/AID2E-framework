@@ -18,6 +18,8 @@ import shutil
 from pathlib import Path
 from typing import Dict, Any
 
+from aid2e.schedulers.PanDAiDDS import runner as panda_runner
+from aid2e.schedulers.PanDAiDDS.config import PanDAiDDSRunnerConfig
 from aid2e.utilities.workflows import (
     DAGExecutor,
     WorkflowDefinition,
@@ -29,6 +31,11 @@ from aid2e.utilities.workflows import (
     BashEvaluator,
     JobContext,
 )
+from tests.test_schedulers.test_pandaidds_runner import install_fake_idds
+
+
+def panda_dag_test_evaluator(context=None, **kwargs):
+    return {"unused": True}
 
 
 class TestDAGExecutorBasics:
@@ -404,6 +411,54 @@ class TestEndToEndExecution:
         # Confirm that 2 job directories were created
         job_dirs = list((executor.output_dir / "evaluate").glob("eval_job_*"))
         assert len(job_dirs) == 2
+
+
+    def test_pandaidds_scheduler_workflow_returns_objectives(self, monkeypatch, tmp_path):
+        """Test DAGExecutor extracts objectives from mocked PanDA/iDDS outputs."""
+        state = install_fake_idds(monkeypatch, result={"f1": 1.2, "f2": 0.4})
+        monkeypatch.setattr(panda_runner._time, "sleep", lambda _: None)
+
+        job = JobDefinition(
+            name="dtlz2_eval",
+            command="",
+            payload={
+                "evaluator_type": "python",
+                "python_callable": panda_dag_test_evaluator,
+                "op_kwargs": {"label": "mocked-panda"},
+            },
+        )
+        stage = StageDefinition(
+            name="evaluate",
+            jobs=[job],
+            parallelism=ParallelismPolicy(max_concurrent=1, retry_max=0, timeout_sec=30),
+        )
+        workflow = WorkflowDefinition(
+            name="pandaidds_workflow",
+            branches=[BranchDefinition(name="main", stages=[stage])],
+            objectives=[
+                {"name": "f1", "direction": "minimize"},
+                {"name": "f2", "direction": "minimize"},
+            ],
+        )
+        executor = DAGExecutor(
+            workflow=workflow,
+            base_output_dir=str(tmp_path),
+            scheduler_config={
+                "runner_type": "PanDAiDDSRunner",
+                "config": PanDAiDDSRunnerConfig(
+                    name="user.test.panda",
+                    source_dir=str(tmp_path),
+                ),
+            },
+        )
+
+        objectives = executor.execute({"DTLZ2_variables.x1": 0.5})
+
+        assert objectives == {"f1": 1.2, "f2": 0.4}
+        assert executor.global_xcom["dtlz2_eval:objectives"] == {"f1": 1.2, "f2": 0.4}
+        assert executor.global_xcom["evaluate:dtlz2_eval:results_details"] == {"attempt": 1}
+        assert state["work_params"]["label"] == "mocked-panda"
+        assert state["work_params"]["context"].job_id == "dtlz2_eval"
 
 
 # Pytest fixtures

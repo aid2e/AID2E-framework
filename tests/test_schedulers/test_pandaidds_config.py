@@ -70,6 +70,21 @@ class TestPanDAiDDSRunnerConfig:
         assert config.total_memory == 4000
         assert config.enable_separate_log is True
         assert config.job_dir is None
+
+    def test_init_env_list_is_joined(self):
+        """Test that init_env command lists are normalized for iDDS."""
+        config = PanDAiDDSRunnerConfig(
+            init_env=[
+                "source setup_aid2e.sh;",
+                "source setup_panda.sh;",
+                "curl -fsS https://example.test/setup.sh -o /tmp/setup.sh;",
+            ]
+        )
+        assert (
+            config.init_env
+            == "source setup_aid2e.sh; source setup_panda.sh; "
+            "curl -fsS https://example.test/setup.sh -o /tmp/setup.sh;"
+        )
     
     def test_source_dir_auto_set_to_current_dir(self):
         """Test that source_dir is auto-set to src/ directory or current working directory."""

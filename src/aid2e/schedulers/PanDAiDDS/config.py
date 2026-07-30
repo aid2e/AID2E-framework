@@ -106,6 +106,11 @@ class PanDAiDDSRunnerConfig(BaseModel):
                 cwd = os.getcwd()
                 src_dir = os.path.join(cwd, "src")
                 self.source_dir = src_dir if os.path.isdir(src_dir) else cwd
+
+        if isinstance(self.init_env, list):
+            if not all(isinstance(command, str) for command in self.init_env):
+                raise ValueError("PanDA init_env list entries must all be strings")
+            self.init_env = " ".join(self.init_env)
         
         return self
 

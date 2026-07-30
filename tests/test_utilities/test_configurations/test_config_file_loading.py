@@ -12,6 +12,7 @@ from aid2e.utilities.configurations import (
     StackRegistry,
 )
 from aid2e.utilities.epic_utils import EpicEnvConfig
+from aid2e.utilities.runtime_builders import build_workflow_executor_from_config
 
 
 def _fixture_dir() -> Path:
@@ -231,6 +232,34 @@ def test_problem_loader_rejects_legacy_problem_type_and_minimize_keys(tmp_path):
         ProblemConfigLoader.load(str(problem_path))
 
 
+
+def _minimal_full_payload(tmp_path: Path) -> dict:
+    return {
+        "problem": {
+            "name": "Strict Problem",
+            "problem_type": "toy",
+            "output_location": str(tmp_path / "output"),
+            "work_location": str(tmp_path / "work"),
+            "inline_design": {
+                "design_space": {
+                    "design_parameters": {
+                        "group": {
+                            "parameters": {
+                                "x": {"value": 0.5, "bounds": [0.0, 1.0]}
+                            }
+                        }
+                    }
+                }
+            },
+            "objectives": [{"name": "f1", "direction": "minimize"}],
+        },
+        "optimizer": {
+            "name": "MOBO",
+            "type": "Bayesian",
+            "parameters": {"n_iterations": 2},
+        },
+    }
+
 def test_full_config_rejects_legacy_scheduler_shape(tmp_path):
     """Nested scheduler runner blocks should be rejected."""
     config_path = tmp_path / "full.yml"
@@ -315,3 +344,113 @@ def test_full_config_rejects_legacy_workflow_shape(tmp_path):
 
     with pytest.raises(ValueError, match="workflow"):
         load_config(str(config_path))
+
+def test_full_config_resolves_scheduler_init_env_file(tmp_path):
+    """PanDA init_env_file should resolve relative to the full config file."""
+    setup_dir = tmp_path / "machine"
+    setup_dir.mkdir()
+    (setup_dir / "panda-init-env.yml").write_text(
+        yaml.safe_dump(
+            [
+                "source setup_aid2e.sh;",
+                "source setup_panda.sh;",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    payload = _minimal_full_payload(tmp_path)
+    payload["scheduler"] = {
+        "runner_type": "PanDAiDDSRunner",
+        "parameters": {"init_env_file": "machine/panda-init-env.yml"},
+    }
+    config_path = tmp_path / "full.yml"
+    config_path.write_text(yaml.safe_dump(payload), encoding="utf-8")
+    (tmp_path / "output").mkdir()
+    (tmp_path / "work").mkdir()
+
+    config = load_config(str(config_path))
+
+    assert config.scheduler.parameters["init_env"] == (
+        "source setup_aid2e.sh; source setup_panda.sh;"
+    )
+    assert "init_env_file" not in config.scheduler.parameters
+
+
+def test_full_config_rejects_init_env_and_init_env_file_together(tmp_path):
+    """PanDA init_env should have one source of truth."""
+    (tmp_path / "panda-init-env.yml").write_text(
+        yaml.safe_dump(["source setup_panda.sh;"]),
+        encoding="utf-8",
+    )
+    payload = _minimal_full_payload(tmp_path)
+    payload["scheduler"] = {
+        "runner_type": "PanDAiDDSRunner",
+        "parameters": {
+            "init_env": "source setup_aid2e.sh;",
+            "init_env_file": "panda-init-env.yml",
+        },
+    }
+    config_path = tmp_path / "full.yml"
+    config_path.write_text(yaml.safe_dump(payload), encoding="utf-8")
+    (tmp_path / "output").mkdir()
+    (tmp_path / "work").mkdir()
+
+    with pytest.raises(ValueError, match="init_env.*init_env_file"):
+        load_config(str(config_path))
+
+def test_full_config_adds_config_dir_for_workflow_callable_imports(tmp_path, monkeypatch):
+    """Workflow callables beside the config should import without PYTHONPATH."""
+    package_dir = tmp_path / "local_examples"
+    package_dir.mkdir()
+    (package_dir / "__init__.py").write_text("", encoding="utf-8")
+    (package_dir / "evaluator.py").write_text(
+        "def evaluate(context):\n    return {\"f1\": 1.0}\n",
+        encoding="utf-8",
+    )
+    payload = _minimal_full_payload(tmp_path)
+    payload["scheduler"] = {"runner_type": "JobLibRunner", "parameters": {"n_jobs": 1}}
+    payload["workflows"] = {
+        "workflows": [
+            {
+                "name": "local_eval",
+                "branches": [
+                    {
+                        "name": "main",
+                        "stages": [
+                            {
+                                "name": "evaluate",
+                                "jobs": [
+                                    {
+                                        "name": "score",
+                                        "command": "",
+                                        "payload": {
+                                            "evaluator_type": "python",
+                                            "python_callable": "local_examples.evaluator:evaluate",
+                                        },
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                ],
+            }
+        ]
+    }
+    config_path = tmp_path / "full.yml"
+    config_path.write_text(yaml.safe_dump(payload), encoding="utf-8")
+    (tmp_path / "output").mkdir()
+    (tmp_path / "work").mkdir()
+    monkeypatch.syspath_prepend(str(tmp_path / "not-the-config-dir"))
+
+    config = load_config(str(config_path))
+    executor = build_workflow_executor_from_config(
+        config.workflows,
+        problem_cfg=config.problem,
+        scheduler_cfg=config.scheduler,
+        workflow_name="local_eval",
+        base_output_dir=str(tmp_path / "runs"),
+    )
+
+    fn = executor.workflow.branches[0].stages[0].jobs[0].payload["python_callable"]
+    assert fn.__module__ == "local_examples.evaluator"
+

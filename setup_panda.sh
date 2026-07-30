@@ -6,3 +6,4 @@ export PANDA_AUTH=oidc
 export PANDA_AUTH_VO=EIC
 export PANDA_USE_NATIVE_HTTPLIB=1
 export PANDA_BEHIND_REAL_LB=1
+export PANDA_USERNAME=abashyal2

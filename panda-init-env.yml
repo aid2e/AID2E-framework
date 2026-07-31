@@ -1,0 +1,20 @@
+# Machine-specific PanDA setup commands for input-panda.yml.
+# Keep one shell command per list item; the loader joins them with spaces.
+# This DTLZ2 smoke installs AID2E core dependencies via install_aid2e_dependencies.sh.
+- "command -v singularity &> /dev/null || export SINGULARITY=/cvmfs/oasis.opensciencegrid.org/mis/singularity/current/bin/singularity;"
+- "export AID2E_WORKDIR=$(pwd);"
+- "echo AID2E_WORKDIR: ${AID2E_WORKDIR};"
+- "export MAMBA_ROOT_PREFIX=${AID2E_WORKDIR}/micromamba;"
+- "export MAMBA_EXE=${MAMBA_ROOT_PREFIX}/bin/micromamba;"
+- "mkdir -p ${MAMBA_ROOT_PREFIX}/bin;"
+- "curl -Ls https://micromamba.snakepit.net/api/micromamba/linux-64/latest | tar -xj -C ${MAMBA_ROOT_PREFIX} bin/micromamba;"
+- "chmod -R a+rx ${MAMBA_ROOT_PREFIX};"
+- "${MAMBA_EXE} install -y -r ${MAMBA_ROOT_PREFIX} -n base -c conda-forge python=3.13 pip;"
+- "${MAMBA_EXE} clean -a -y;"
+- "eval \"$(${MAMBA_EXE} shell hook -s posix)\";"
+- "micromamba activate base;"
+- "export PATH=${MAMBA_ROOT_PREFIX}/bin:$PATH;"
+- "echo \"python version being used\" $(python --version; which python);"
+- "bash ${AID2E_WORKDIR}/install_aid2e_dependencies.sh;"
+- "source setup_aid2e.sh;"
+- "echo END OF AID2E PANDA ENVIRONMENT SETUP;"

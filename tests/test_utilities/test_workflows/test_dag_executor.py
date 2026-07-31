@@ -457,8 +457,8 @@ class TestEndToEndExecution:
         assert objectives == {"f1": 1.2, "f2": 0.4}
         assert executor.global_xcom["dtlz2_eval:objectives"] == {"f1": 1.2, "f2": 0.4}
         assert executor.global_xcom["evaluate:dtlz2_eval:results_details"] == {"attempt": 1}
-        assert state["work_params"]["label"] == "mocked-panda"
-        assert state["work_params"]["context"].job_id == "dtlz2_eval"
+        assert state["work_params"]["op_kwargs"] == {"label": "mocked-panda"}
+        assert state["work_params"]["context_payload"]["job_id"] == "dtlz2_eval"
 
 
 # Pytest fixtures

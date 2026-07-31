@@ -19,6 +19,7 @@ import logging
 import os
 import subprocess
 import datetime
+import importlib
 from typing import Dict, Any, List, Optional, Tuple
 
 import threading
@@ -28,6 +29,48 @@ import time as _time
 
 from aid2e.schedulers.base import BaseScheduler, JobStatus, StageExecutionResult
 from aid2e.schedulers.PanDAiDDS.config import PanDAiDDSRunnerConfig
+from aid2e.utilities.workflows.execution_engine import JobContext
+
+
+def _callable_reference(func: Any) -> str:
+	"""Return an importable ``module:qualname`` reference for a Python callable."""
+	module = getattr(func, "__module__", None)
+	qualname = getattr(func, "__qualname__", None)
+	if not module or not qualname:
+		raise RuntimeError(f"Cannot submit non-importable callable to PanDA/iDDS: {func!r}")
+	if module == "__main__" or "<locals>" in qualname:
+		raise RuntimeError(
+			f"Function '{getattr(func, '__name__', func)}' must be defined in an "
+			"importable module for remote PanDA/iDDS execution."
+		)
+	return f"{module}:{qualname}"
+
+
+def _resolve_callable_reference(callable_ref: str) -> Any:
+	"""Resolve a ``module:qualname`` reference without invoking scheduler code."""
+	module_name, qualname = callable_ref.split(":", 1)
+	target = importlib.import_module(module_name)
+	for attr in qualname.split("."):
+		target = getattr(target, attr)
+	return target
+
+
+def _remote_python_callable_entrypoint(
+	callable_ref: str,
+	context_payload: Dict[str, Any],
+	op_kwargs: Optional[Dict[str, Any]] = None,
+) -> Any:
+	"""Worker-side PanDA entrypoint that only runs the requested Python callable.
+
+	The client submits this adapter to iDDS/PanDA instead of submitting the
+	user callable and local JobContext directly. The remote worker reconstructs
+	a minimal JobContext, imports the configured evaluator, executes it, and
+	returns the evaluator result. It does not construct PanDA/iDDS scheduler
+	objects or submit additional PanDA work.
+	"""
+	func = _resolve_callable_reference(callable_ref)
+	context = JobContext(**context_payload)
+	return func(context, **(op_kwargs or {}))
 
 
 class PanDAiDDSScheduler(BaseScheduler):
@@ -449,17 +492,7 @@ class PanDAiDDSScheduler(BaseScheduler):
 		if func is None:
 			raise ValueError("Job dict must contain 'function' to submit to PanDA/iDDS")
 
-		# Check that the function is not from __main__
-		func_mod = getattr(func, "__module__", None)
-		if func_mod == "__main__":
-			raise RuntimeError(
-				f"Function '{getattr(func, '__name__', func)}' comes from module __main__. "
-				"Remote execution requires the function to be defined in a real importable module, not in __main__. "
-				"Otherwise, the remote environment will import the module __main__ which will execute the top-level code "
-				"and not find the function definition. "
-				"Please move the function to a proper module and reference it by its full module path."
-			)
-
+		callable_ref = _callable_reference(func)
 		func_name = getattr(func, "__name__", str(func))
 		work_name = f"{self.config.name or 'aid2e'}.{stage_name}.{job_id}.{func_name}"
 		self.logger.info("Defining work %s", work_name)
@@ -473,10 +506,42 @@ class PanDAiDDSScheduler(BaseScheduler):
 		# simple bookkeeping entry for this job
 		self.running_funcs[stage_name][job_id] = {"funcs": {}}
 
-		# create a work object depending on job content
-		params = job.get("params", {})
+		# Submit a scheduler-owned worker adapter. The remote side imports and
+		# executes only the configured evaluator callable; it does not construct
+		# another PanDA scheduler or submit nested work.
+		params = dict(job.get("params", {}))
+		context = params.pop("context", None) or job.get("job_context")
+		if context is None:
+			context_payload = {
+				"task_id": job_id,
+				"job_id": job_id,
+				"stage_id": stage_name,
+				"workflow_id": job.get("workflow_id", "pandaidds"),
+				"design_point": job.get("payload", {}).get("design_point", {}),
+				"xcom": {},
+				"execution_dir": working_dir,
+				"output_dir": working_dir,
+			}
+		else:
+			context_payload = {
+				"task_id": getattr(context, "task_id", job_id),
+				"job_id": getattr(context, "job_id", job_id),
+				"stage_id": getattr(context, "stage_id", stage_name),
+				"workflow_id": getattr(context, "workflow_id", "pandaidds"),
+				"design_point": dict(getattr(context, "design_point", {}) or {}),
+				"xcom": dict(getattr(context, "xcom", {}) or {}),
+				"artifacts": dict(getattr(context, "artifacts", {}) or {}),
+				"logs": list(getattr(context, "logs", []) or []),
+				"execution_dir": getattr(context, "execution_dir", None),
+				"output_dir": getattr(context, "output_dir", None),
+			}
+		work_params = {
+			"callable_ref": callable_ref,
+			"context_payload": context_payload,
+			"op_kwargs": params,
+		}
 		work_builder = work_def(
-			func=func,
+			func=_remote_python_callable_entrypoint,
 			workflow=workflow,
 			return_work=True,
 			map_results=True,
@@ -484,7 +549,7 @@ class PanDAiDDSScheduler(BaseScheduler):
 			job_key=work_name,
 			log_dataset_name=f"{work_name}.$WORKFLOWID.log/",
 		)
-		work = work_builder(**params)
+		work = work_builder(**work_params)
 
 		# apply resource hints
 		try:

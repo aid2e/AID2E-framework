@@ -4,11 +4,25 @@ import sys
 import types
 
 from aid2e.schedulers.PanDAiDDS.config import PanDAiDDSRunnerConfig
-from aid2e.schedulers.PanDAiDDS.runner import PanDAiDDSScheduler
+from aid2e.schedulers.PanDAiDDS.runner import (
+    PanDAiDDSScheduler,
+    _remote_python_callable_entrypoint,
+)
 
 
 def panda_test_evaluator(context=None, **kwargs):
     return {"unused": True}
+
+
+def panda_adapter_test_evaluator(context=None, **kwargs):
+    context.add_log("remote adapter ran")
+    context.xcom_push("seen", kwargs.get("label"))
+    return {
+        "job_id": context.job_id,
+        "design": context.design_point,
+        "label": kwargs.get("label"),
+        "xcom": context.xcom,
+    }
 
 
 class DummyContext:
@@ -146,7 +160,12 @@ def test_run_stage_preserves_job_id_and_returns_idds_outputs(monkeypatch, tmp_pa
 
     assert context.pushed["objectives"] == {"f1": 1.2, "f2": 0.4}
     assert context.pushed["results_details"] == {"attempt": 1}
-    assert state["work_params"] == {"context": context, "x": [0.5, 0.5, 0.5]}
+    assert state["work_kwargs"]["func"] is _remote_python_callable_entrypoint
+    assert state["work_params"]["callable_ref"] == (
+        "tests.test_schedulers.test_pandaidds_runner:panda_test_evaluator"
+    )
+    assert state["work_params"]["op_kwargs"] == {"x": [0.5, 0.5, 0.5]}
+    assert state["work_params"]["context_payload"]["job_id"] == "evaluate:dtlz2:0001"
 
     cached = scheduler.check_status("evaluate:dtlz2:0001")
     assert cached.status == "completed"
@@ -211,3 +230,25 @@ def test_cancel_job_finds_preserved_job_id(tmp_path):
 
     assert scheduler.cancel_job("evaluate:dtlz2:0001") is True
     assert work.cancelled is True
+
+
+def test_remote_python_callable_entrypoint_runs_only_configured_callable():
+    result = _remote_python_callable_entrypoint(
+        "tests.test_schedulers.test_pandaidds_runner:panda_adapter_test_evaluator",
+        {
+            "task_id": "evaluate:dtlz2",
+            "job_id": "dtlz2",
+            "stage_id": "evaluate",
+            "workflow_id": "wf",
+            "design_point": {"x": 0.5},
+            "xcom": {},
+            "execution_dir": "/tmp/work",
+            "output_dir": "/tmp/out",
+        },
+        {"label": "callable-only"},
+    )
+
+    assert result["job_id"] == "dtlz2"
+    assert result["design"] == {"x": 0.5}
+    assert result["label"] == "callable-only"
+    assert result["xcom"] == {"evaluate:dtlz2:seen": "callable-only"}

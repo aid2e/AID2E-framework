@@ -23,8 +23,8 @@ optimizer:
     initialization_strategy: "sobol"
     generator: "BOTORCH_MODULAR"
     n_initial_samples: 1
-    n_iterations: 5
-    batch_size: 1
+    n_iterations: 6
+    batch_size: 2
     seed: 7
 
 scheduler:

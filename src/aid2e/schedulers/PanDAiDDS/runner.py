@@ -101,6 +101,7 @@ class PanDAiDDSScheduler(BaseScheduler):
 		# Cache workflows per stage_name to ensure one workflow per stage
 		self.stage_workflows: Dict[str, Any] = {}
 		self.completed_jobs: Dict[str, Dict[str, Any]] = {}
+		self.submission_id = datetime.datetime.utcnow().strftime("%Y%m%d%H%M%S%f") + uuid.uuid4().hex[:8]
 		self.work_counter: int = 0
 
 
@@ -475,13 +476,17 @@ class PanDAiDDSScheduler(BaseScheduler):
 
 		This follows scheduler_epic's convention that the work name is also the
 		job_key and log dataset base. AID2E DAG job ids are logical names and can
-		repeat across optimizer trials, so append a scheduler-local submission
-		counter before handing the name to iDDS.
+		repeat across optimizer trials and CLI runs, so include a compact
+		scheduler-run id plus a local submission counter before handing the name
+		to iDDS.
 		"""
 		with self.lock:
 			self.work_counter += 1
 			counter = self.work_counter
-		return f"{self.config.name or 'aid2e'}.{stage_name}.{job_id}.{func_name}.{counter:06d}"
+		return (
+			f"{self.config.name or 'aid2e'}.{self.submission_id}."
+			f"{stage_name}.{job_id}.{func_name}.{counter:06d}"
+		)
 
 	def submit_job(self, stage_name: str, job_definition: Dict[str, Any], working_dir: Optional[str] = None) -> None:
 		"""Submit a single function-based job to iDDS/PanDA.

@@ -169,10 +169,10 @@ def test_run_stage_preserves_job_id_and_returns_idds_outputs(monkeypatch, tmp_pa
     assert state["work_params"]["op_kwargs"] == {"x": [0.5, 0.5, 0.5]}
     assert state["work_params"]["context_payload"]["job_id"] == "evaluate:dtlz2:0001"
     assert state["work_kwargs"]["name"] == state["work_kwargs"]["job_key"]
-    assert state["work_kwargs"]["name"].startswith(
-        "user.test.panda.evaluate.evaluate:dtlz2:0001.panda_test_evaluator."
+    assert state["work_kwargs"]["name"].startswith("user.test.panda.")
+    assert state["work_kwargs"]["name"].endswith(
+        ".evaluate.evaluate:dtlz2:0001.panda_test_evaluator.000001"
     )
-    assert state["work_kwargs"]["name"].endswith(".000001")
     assert state["work_kwargs"]["log_dataset_name"] == f'{state["work_kwargs"]["name"]}.log/'
 
     cached = scheduler.check_status("evaluate:dtlz2:0001")
@@ -231,17 +231,37 @@ def test_repeated_logical_job_submissions_get_distinct_panda_work_names(monkeypa
 
     scheduler.submit_job("evaluate", job, str(tmp_path))
     scheduler.submit_job("evaluate", job, str(tmp_path))
+    scheduler.submit_job("evaluate", job, str(tmp_path))
 
     names = [kwargs["name"] for kwargs in state["work_kwargs_history"]]
-    assert names == [
-        "user.test.panda.evaluate.dtlz2.panda_test_evaluator.000001",
-        "user.test.panda.evaluate.dtlz2.panda_test_evaluator.000002",
-    ]
+    assert len(names) == 3
+    assert len(set(names)) == 3
+    assert all(name.startswith(f"user.test.panda.{scheduler.submission_id}.") for name in names)
+    assert names[0].endswith(".evaluate.dtlz2.panda_test_evaluator.000001")
+    assert names[1].endswith(".evaluate.dtlz2.panda_test_evaluator.000002")
+    assert names[2].endswith(".evaluate.dtlz2.panda_test_evaluator.000003")
     assert [kwargs["job_key"] for kwargs in state["work_kwargs_history"]] == names
     assert [kwargs["log_dataset_name"] for kwargs in state["work_kwargs_history"]] == [
         f"{names[0]}.log/",
         f"{names[1]}.log/",
+        f"{names[2]}.log/",
     ]
+
+
+def test_distinct_scheduler_instances_do_not_reuse_panda_work_names(tmp_path):
+    first = PanDAiDDSScheduler(
+        PanDAiDDSRunnerConfig(name="user.test.panda", source_dir=str(tmp_path))
+    )
+    second = PanDAiDDSScheduler(
+        PanDAiDDSRunnerConfig(name="user.test.panda", source_dir=str(tmp_path))
+    )
+
+    first_name = first._next_work_name("evaluate", "dtlz2", "panda_test_evaluator")
+    second_name = second._next_work_name("evaluate", "dtlz2", "panda_test_evaluator")
+
+    assert first_name != second_name
+    assert first_name.endswith(".evaluate.dtlz2.panda_test_evaluator.000001")
+    assert second_name.endswith(".evaluate.dtlz2.panda_test_evaluator.000001")
 
 
 def test_cancel_job_finds_preserved_job_id(tmp_path):

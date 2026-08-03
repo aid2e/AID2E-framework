@@ -101,6 +101,7 @@ class PanDAiDDSScheduler(BaseScheduler):
 		# Cache workflows per stage_name to ensure one workflow per stage
 		self.stage_workflows: Dict[str, Any] = {}
 		self.completed_jobs: Dict[str, Dict[str, Any]] = {}
+		self.work_counter: int = 0
 
 
 	# --- Run stage (synchronous convenience wrapper) -----------------------
@@ -469,6 +470,19 @@ class PanDAiDDSScheduler(BaseScheduler):
 		self.stage_workflows[stage_name] = workflow
 		return workflow
 
+	def _next_work_name(self, stage_name: str, job_id: str, func_name: str) -> str:
+		"""Build the iDDS work/job key used for PanDA and Rucio artifacts.
+
+		This follows scheduler_epic's convention that the work name is also the
+		job_key and log dataset base. AID2E DAG job ids are logical names and can
+		repeat across optimizer trials, so append a scheduler-local submission
+		counter before handing the name to iDDS.
+		"""
+		with self.lock:
+			self.work_counter += 1
+			counter = self.work_counter
+		return f"{self.config.name or 'aid2e'}.{stage_name}.{job_id}.{func_name}.{counter:06d}"
+
 	def submit_job(self, stage_name: str, job_definition: Dict[str, Any], working_dir: Optional[str] = None) -> None:
 		"""Submit a single function-based job to iDDS/PanDA.
 
@@ -494,7 +508,7 @@ class PanDAiDDSScheduler(BaseScheduler):
 
 		callable_ref = _callable_reference(func)
 		func_name = getattr(func, "__name__", str(func))
-		work_name = f"{self.config.name or 'aid2e'}.{stage_name}.{job_id}.{func_name}"
+		work_name = self._next_work_name(stage_name, job_id, func_name)
 		self.logger.info("Defining work %s", work_name)
 
 		# Initialize stage-level tracking if needed
@@ -547,7 +561,7 @@ class PanDAiDDSScheduler(BaseScheduler):
 			map_results=True,
 			name=work_name,
 			job_key=work_name,
-			log_dataset_name=f"{work_name}.$WORKFLOWID.log/",
+			log_dataset_name=f"{work_name}.log/",
 		)
 		work = work_builder(**work_params)
 
@@ -563,7 +577,13 @@ class PanDAiDDSScheduler(BaseScheduler):
 			raise RuntimeError(f"Failed to submit {work_name} to PanDA")
 
 		# store mapping under stage_name -> job_id -> funcs -> func_name
-		self.running_funcs[stage_name][job_id]["funcs"][func_name] = {"work": work, "tf_id": tf_id, "status": "New", "results": None}
+		self.running_funcs[stage_name][job_id]["funcs"][func_name] = {
+			"work": work,
+			"tf_id": tf_id,
+			"status": "New",
+			"results": None,
+			"job_key": work_name,
+		}
 		self.jobs[stage_name][job_id] = tf_id
 
 	def check_single_job_status(self, job: Dict[str, Any], job_context: Any = None) -> None:

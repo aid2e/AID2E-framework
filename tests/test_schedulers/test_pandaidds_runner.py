@@ -34,7 +34,7 @@ class DummyContext:
 
 
 def install_fake_idds(monkeypatch, *, status="finished", result=None, details=None):
-    state = {}
+    state = {"work_kwargs_history": [], "work_params_history": []}
     result = {"f1": 1.2, "f2": 0.4} if result is None else result
     details = {"attempt": 1} if details is None else details
 
@@ -99,9 +99,11 @@ def install_fake_idds(monkeypatch, *, status="finished", result=None, details=No
 
     def work_def(**kwargs):
         state["work_kwargs"] = kwargs
+        state["work_kwargs_history"].append(kwargs)
 
         def builder(**params):
             state["work_params"] = params
+            state["work_params_history"].append(params)
             work = FakeWork(kwargs["name"])
             state["work"] = work
             return work
@@ -166,6 +168,12 @@ def test_run_stage_preserves_job_id_and_returns_idds_outputs(monkeypatch, tmp_pa
     )
     assert state["work_params"]["op_kwargs"] == {"x": [0.5, 0.5, 0.5]}
     assert state["work_params"]["context_payload"]["job_id"] == "evaluate:dtlz2:0001"
+    assert state["work_kwargs"]["name"] == state["work_kwargs"]["job_key"]
+    assert state["work_kwargs"]["name"].startswith(
+        "user.test.panda.evaluate.evaluate:dtlz2:0001.panda_test_evaluator."
+    )
+    assert state["work_kwargs"]["name"].endswith(".000001")
+    assert state["work_kwargs"]["log_dataset_name"] == f'{state["work_kwargs"]["name"]}.log/'
 
     cached = scheduler.check_status("evaluate:dtlz2:0001")
     assert cached.status == "completed"
@@ -207,6 +215,33 @@ def test_run_stage_marks_failed_idds_work_failed(monkeypatch, tmp_path):
     assert cached.status == "failed"
     assert cached.return_code == -1
 
+
+
+def test_repeated_logical_job_submissions_get_distinct_panda_work_names(monkeypatch, tmp_path):
+    state = install_fake_idds(monkeypatch, status="running")
+    scheduler = PanDAiDDSScheduler(
+        PanDAiDDSRunnerConfig(name="user.test.panda", source_dir=str(tmp_path))
+    )
+    job = {
+        "job_id": "dtlz2",
+        "name": "dtlz2",
+        "function": panda_test_evaluator,
+        "params": {},
+    }
+
+    scheduler.submit_job("evaluate", job, str(tmp_path))
+    scheduler.submit_job("evaluate", job, str(tmp_path))
+
+    names = [kwargs["name"] for kwargs in state["work_kwargs_history"]]
+    assert names == [
+        "user.test.panda.evaluate.dtlz2.panda_test_evaluator.000001",
+        "user.test.panda.evaluate.dtlz2.panda_test_evaluator.000002",
+    ]
+    assert [kwargs["job_key"] for kwargs in state["work_kwargs_history"]] == names
+    assert [kwargs["log_dataset_name"] for kwargs in state["work_kwargs_history"]] == [
+        f"{names[0]}.log/",
+        f"{names[1]}.log/",
+    ]
 
 
 def test_cancel_job_finds_preserved_job_id(tmp_path):

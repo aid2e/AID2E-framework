@@ -23,7 +23,7 @@ optimizer:
     initialization_strategy: "sobol"
     generator: "BOTORCH_MODULAR"
     n_initial_samples: 1
-    n_iterations: 1
+    n_iterations: 5
     batch_size: 1
     seed: 7
 
@@ -46,7 +46,7 @@ scheduler:
     core_count: 1
     total_memory: 4000
   max_retries: 1
-  output_location: "/tmp/aid2e_panda_scheduler_output"
+  output_location: "./aid2e_panda_scheduler_output"
   monitor_interval: 5
 
 workflows:

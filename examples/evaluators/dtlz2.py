@@ -103,12 +103,7 @@ def _qualified_design_vector(design_point: Dict[str, float]) -> List[float]:
 
 
 def panda_multistep_simreco(context: JobContext, particle: str, eta_point: float, **kwargs) -> Dict[str, float]:
-    """Result-based stand-in for scheduler_epic's sim/reco PanDA step.
-
-    The scheduler_epic example writes per-global-parameter outputs into datasets.
-    Phase II in AID2E is result-based, so this callable returns one chunk result
-    directly and the final step combines all child results with dep_map=all2one.
-    """
+    """Sim/reco PanDA step used by result and dataset multi-step smokes."""
     x = _qualified_design_vector(context.design_point)
     if particle == "pi+":
         xyz = ((x[0] - 0.5) ** 3 + (x[1] - 0.5) ** 3) * float(eta_point)
@@ -116,7 +111,23 @@ def panda_multistep_simreco(context: JobContext, particle: str, eta_point: float
         xyz = ((x[0] - 0.5) ** 2 + (x[1] - 0.5) ** 2) * float(eta_point)
     else:
         xyz = 0.1 * float(eta_point)
-    return {"xyz": float(xyz), "particle": particle, "eta_point": float(eta_point)}
+
+    result = {"xyz": float(xyz), "particle": particle, "eta_point": float(eta_point)}
+    _write_panda_multistep_outputs(result, kwargs)
+    return result
+
+
+def _write_panda_multistep_outputs(result: Dict[str, float], kwargs: Dict[str, object]) -> None:
+    output_file_name = kwargs.get("output_file_name") or kwargs.get("output_file")
+    if not output_file_name:
+        return
+
+    import json
+    import os
+
+    with open(os.path.basename(str(output_file_name)), "w", encoding="utf-8") as handle:
+        json.dump({"xyz": result["xyz"]}, handle)
+        handle.write("\n")
 
 
 def panda_multistep_ana(

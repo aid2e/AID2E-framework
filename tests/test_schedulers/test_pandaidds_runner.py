@@ -21,6 +21,7 @@ def panda_adapter_test_evaluator(context=None, **kwargs):
         "job_id": context.job_id,
         "design": context.design_point,
         "label": kwargs.get("label"),
+        "input_file_names": kwargs.get("input_file_names"),
         "xcom": context.xcom,
     }
 
@@ -375,7 +376,27 @@ def test_remote_python_callable_entrypoint_runs_only_configured_callable():
     assert result["job_id"] == "dtlz2"
     assert result["design"] == {"x": 0.5}
     assert result["label"] == "callable-only"
+    assert result["input_file_names"] is None
     assert result["xcom"] == {"evaluate:dtlz2:seen": "callable-only"}
+
+
+def test_remote_python_callable_entrypoint_accepts_idds_injected_kwargs():
+    result = _remote_python_callable_entrypoint(
+        "tests.test_schedulers.test_pandaidds_runner:panda_adapter_test_evaluator",
+        {
+            "task_id": "dtlz2",
+            "job_id": "dtlz2",
+            "stage_id": "evaluate",
+            "workflow_id": "wf",
+            "design_point": {},
+            "xcom": {},
+        },
+        {"label": "dataset-ana"},
+        input_file_names=["a.json", "b.json"],
+    )
+
+    assert result["label"] == "dataset-ana"
+    assert result["input_file_names"] == ["a.json", "b.json"]
 
 
 
@@ -556,6 +577,7 @@ def test_panda_multistep_dataset_one2one_passes_parent_internal_id(monkeypatch, 
                         {
                             "name": "simreco",
                             "python_callable": panda_prepare_evaluator,
+                            "return_func_results": False,
                             "with_output_dataset": True,
                             "output_file": "my_test.txt",
                             "output_dataset": "#panda_scope.simreco.#job_id",
@@ -586,12 +608,20 @@ def test_panda_multistep_dataset_one2one_passes_parent_internal_id(monkeypatch, 
     ana_kwargs = state["work_kwargs_history"][1]
     assert "with_output_dataset" not in simreco_kwargs
     assert simreco_kwargs["output_file_name"] == "my_test.txt"
-    assert simreco_kwargs["output_dataset_name"] == "user.test.simreco.eta_0.1_pi"
+    assert simreco_kwargs["output_dataset_name"] == "user.test.simreco.eta_0.1_pi/"
     assert simreco_kwargs["num_events"] == 200
     assert simreco_kwargs["num_events_per_job"] == 100
     assert "with_input_datasets" not in ana_kwargs
     assert ana_kwargs["input_datasets"] == {"input_file_names": "user.test.simreco.eta_0.1_pi"}
     assert ana_kwargs["parent_internal_id"] == "internal-1"
+    assert state["result_lookup_history"] == [
+        {
+            "name": state["work_kwargs_history"][1]["name"],
+            "key": state["work_kwargs_history"][1]["job_key"],
+            "verbose": True,
+            "with_details": True,
+        }
+    ]
 
 
 def test_panda_multistep_rejects_dataset_all2one_until_later(monkeypatch, tmp_path):
@@ -696,3 +726,33 @@ def test_panda_multistep_n_simreco_one_ana_then_local_final(monkeypatch, tmp_pat
     child_metrics = result.job_statuses[0].metrics["panda_multistep_children"]
     assert [child["step"] for child in child_metrics] == ["simreco", "simreco", "ana", "final"]
     assert [child["execution"] for child in child_metrics] == ["panda", "panda", "panda", "local"]
+
+def test_dtlz2_dataset_simreco_writes_expected_panda_output_files(tmp_path, monkeypatch):
+    from examples.evaluators.dtlz2 import panda_multistep_simreco
+
+    context = types.SimpleNamespace(
+        design_point={
+            "DTLZ2_variables.x1": 0.2,
+            "DTLZ2_variables.x2": 0.3,
+            "DTLZ2_variables.x3": 0.4,
+            "DTLZ2_variables.x4": 0.5,
+            "DTLZ2_variables.x5": 0.6,
+        }
+    )
+    monkeypatch.chdir(tmp_path)
+
+    result = panda_multistep_simreco(
+        context,
+        particle="pi+",
+        eta_point=0.1,
+        output_file_name="my_test.txt",
+        output_dataset_name="user.test.aid2e.dtlz2.simreco.eta_0p1_pi",
+        num_events=200,
+        num_events_per_job=100,
+    )
+
+    assert result["particle"] == "pi+"
+    assert (tmp_path / "my_test.txt").is_file()
+    assert not (tmp_path / "user.test.aid2e.dtlz2.simreco.eta_0p1_pi_000001.my_test.txt").exists()
+    assert not (tmp_path / "user.test.aid2e.dtlz2.simreco.eta_0p1_pi_000002.my_test.txt").exists()
+

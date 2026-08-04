@@ -71,7 +71,7 @@ workflows:
                     steps:
                       - name: "simreco"
                         python_callable: "examples.evaluators.dtlz2:panda_multistep_simreco"
-                        return_func_results: true
+                        return_func_results: false
                         with_output_dataset: true
                         output_file: "my_test.txt"
                         output_dataset: "#panda_scope.aid2e.dtlz2.simreco.#job_id"

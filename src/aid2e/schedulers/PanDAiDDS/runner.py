@@ -61,18 +61,20 @@ def _remote_python_callable_entrypoint(
 	callable_ref: str,
 	context_payload: Dict[str, Any],
 	op_kwargs: Optional[Dict[str, Any]] = None,
+	**runtime_kwargs: Any,
 ) -> Any:
 	"""Worker-side PanDA entrypoint that only runs the requested Python callable.
 
 	The client submits this adapter to iDDS/PanDA instead of submitting the
-	user callable and local JobContext directly. The remote worker reconstructs
-	a minimal JobContext, imports the configured evaluator, executes it, and
-	returns the evaluator result. It does not construct PanDA/iDDS scheduler
-	objects or submit additional PanDA work.
+	user callable and local JobContext directly. iDDS may inject runtime
+	arguments such as input dataset file lists, so merge those into the user
+	callable kwargs before dispatch.
 	"""
 	func = _resolve_callable_reference(callable_ref)
 	context = JobContext(**context_payload)
-	return func(context, **(op_kwargs or {}))
+	merged_kwargs = dict(op_kwargs or {})
+	merged_kwargs.update(runtime_kwargs)
+	return func(context, **merged_kwargs)
 
 
 class PanDAiDDSScheduler(BaseScheduler):
@@ -582,6 +584,8 @@ class PanDAiDDSScheduler(BaseScheduler):
 		for key, value in payload.items():
 			normalized = aliases.get(key, key)
 			if normalized in allowed and value is not None:
+				if normalized == "output_dataset_name" and isinstance(value, str) and not value.endswith("/"):
+					value = f"{value}/"
 				kwargs[normalized] = value
 		return kwargs
 

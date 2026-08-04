@@ -29,6 +29,7 @@ class PanDAMultiStepChildJob:
     status: str = "running"
     result: Any = None
     details: Any = None
+    monitor_results: bool = True
 
 
 @dataclass
@@ -182,12 +183,15 @@ class PanDAMultiStepJob:
 
     def _submit_step(self, step: Dict[str, Any]) -> None:
         step_name = step["name"]
+        monitor_results = bool(step.get("return_func_results", True))
         for child in self._children_for_step(step):
             child_key = str(child.get("key") or child.get("name") or "default")
             child_job_id = self._child_job_id(step_name, child_key)
             parent_results = self._parent_results_for_child(step, child_key)
             parent_internal_id = self._parent_internal_id_for_child(step, child_key)
             params = self._step_params(step, child, parent_results, child_key)
+            dataset_payload = self._idds_dataset_payload(step, child, parent_internal_id, child_key)
+            self._add_dataset_params(params, dataset_payload)
             if self._is_local_step(step):
                 self._run_local_child(step, child_key, child_job_id, params)
                 continue
@@ -199,7 +203,7 @@ class PanDAMultiStepJob:
                 "params": params,
                 "payload": {
                     **self.payload,
-                    **self._idds_dataset_payload(step, child, parent_internal_id, child_key),
+                    **dataset_payload,
                     "design_point": self.payload.get("design_point", {}),
                     "step_name": step_name,
                     "child_key": child_key,
@@ -222,8 +226,12 @@ class PanDAMultiStepJob:
                     tf_id=submitted["tf_id"],
                     job_key=submitted["work_name"],
                     internal_id=submitted.get("internal_id"),
+                    status="running" if monitor_results else "submitted",
+                    monitor_results=monitor_results,
                 )
             )
+        if not monitor_results:
+            self.completed_steps.add(step_name)
 
     def _run_local_child(
         self,
@@ -307,6 +315,20 @@ class PanDAMultiStepJob:
         if parent_internal_id is not None:
             payload["parent_internal_id"] = parent_internal_id
         return payload
+
+    def _add_dataset_params(self, params: Dict[str, Any], dataset_payload: Dict[str, Any]) -> None:
+        for key in (
+            "output_file",
+            "output_file_name",
+            "output_dataset",
+            "output_dataset_name",
+            "num_events",
+            "num_events_per_job",
+            "input_datasets",
+            "parent_internal_id",
+        ):
+            if key in dataset_payload and key not in params:
+                params[key] = dataset_payload[key]
 
     def _resolve_dataset_template(self, value: Any, child_key: str) -> Any:
         if isinstance(value, str):
@@ -424,6 +446,8 @@ class PanDAMultiStepJob:
     def _mark_completed_steps(self) -> None:
         for step in self.spec.steps:
             step_name = step["name"]
+            if step_name in self.completed_steps:
+                continue
             children = self.children_by_step[step_name]
             if children and all(child.status == "completed" for child in children):
                 self.completed_steps.add(step_name)
@@ -528,7 +552,11 @@ class PanDAMultiStepJob:
         return any(True for _ in self._running_children())
 
     def _running_children(self) -> List[PanDAMultiStepChildJob]:
-        return [child for child in self._all_children() if child.status == "running"]
+        return [
+            child
+            for child in self._all_children()
+            if child.status == "running" and child.monitor_results
+        ]
 
     def _all_children(self) -> List[PanDAMultiStepChildJob]:
         children: List[PanDAMultiStepChildJob] = []

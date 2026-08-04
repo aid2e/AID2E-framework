@@ -488,50 +488,18 @@ class PanDAiDDSScheduler(BaseScheduler):
 			f"{stage_name}.{job_id}.{func_name}.{counter:06d}"
 		)
 
-	def submit_job(self, stage_name: str, job_definition: Dict[str, Any], working_dir: Optional[str] = None) -> None:
-		"""Submit a single function-based job to iDDS/PanDA.
-
-		The method expects job_definition to contain at least a 'function' key.
-		This mirrors the upstream runner but intentionally keeps the interface
-		loose: any missing integration points raise a RuntimeError describing
-		the problem.
-		"""
-		try:
-			from idds.iworkflow.work import work as work_def  # type: ignore
-		except Exception as exc:  # pragma: no cover - optional dependency
-			raise RuntimeError("idds.iworkflow.work is not available; install idds to use PanDA runner") from exc
-
-		# ensure workflow exists
-		workflow = self.submit_idds_workflow(stage_name)
-
-		job = job_definition
-		job_id = job.get("job_id") or uuid.uuid4().hex
-
-		func = job.get("function")
-		if func is None:
-			raise ValueError("Job dict must contain 'function' to submit to PanDA/iDDS")
-
-		callable_ref = _callable_reference(func)
-		func_name = getattr(func, "__name__", str(func))
-		work_name = self._next_work_name(stage_name, job_id, func_name)
-		self.logger.info("Defining work %s", work_name)
-
-		# Initialize stage-level tracking if needed
-		if stage_name not in self.running_funcs:
-			self.running_funcs[stage_name] = {}
-		if stage_name not in self.jobs:
-			self.jobs[stage_name] = {}
-
-		# simple bookkeeping entry for this job
-		self.running_funcs[stage_name][job_id] = {"funcs": {}}
-
-		# Submit a scheduler-owned worker adapter. The remote side imports and
-		# executes only the configured evaluator callable; it does not construct
-		# another PanDA scheduler or submit nested work.
-		params = dict(job.get("params", {}))
+	def _context_payload_for_callable_work(
+		self,
+		stage_name: str,
+		job_id: str,
+		job: Dict[str, Any],
+		params: Dict[str, Any],
+		working_dir: Optional[str],
+	) -> Dict[str, Any]:
+		"""Build the serializable context payload sent to the remote adapter."""
 		context = params.pop("context", None) or job.get("job_context")
 		if context is None:
-			context_payload = {
+			return {
 				"task_id": job_id,
 				"job_id": job_id,
 				"stage_id": stage_name,
@@ -541,19 +509,59 @@ class PanDAiDDSScheduler(BaseScheduler):
 				"execution_dir": working_dir,
 				"output_dir": working_dir,
 			}
-		else:
-			context_payload = {
-				"task_id": getattr(context, "task_id", job_id),
-				"job_id": getattr(context, "job_id", job_id),
-				"stage_id": getattr(context, "stage_id", stage_name),
-				"workflow_id": getattr(context, "workflow_id", "pandaidds"),
-				"design_point": dict(getattr(context, "design_point", {}) or {}),
-				"xcom": dict(getattr(context, "xcom", {}) or {}),
-				"artifacts": dict(getattr(context, "artifacts", {}) or {}),
-				"logs": list(getattr(context, "logs", []) or []),
-				"execution_dir": getattr(context, "execution_dir", None),
-				"output_dir": getattr(context, "output_dir", None),
-			}
+
+		return {
+			"task_id": getattr(context, "task_id", job_id),
+			"job_id": getattr(context, "job_id", job_id),
+			"stage_id": getattr(context, "stage_id", stage_name),
+			"workflow_id": getattr(context, "workflow_id", "pandaidds"),
+			"design_point": dict(getattr(context, "design_point", {}) or {}),
+			"xcom": dict(getattr(context, "xcom", {}) or {}),
+			"artifacts": dict(getattr(context, "artifacts", {}) or {}),
+			"logs": list(getattr(context, "logs", []) or []),
+			"execution_dir": getattr(context, "execution_dir", None),
+			"output_dir": getattr(context, "output_dir", None),
+		}
+
+	def _submit_callable_work(
+		self,
+		stage_name: str,
+		job_definition: Dict[str, Any],
+		working_dir: Optional[str] = None,
+	) -> Dict[str, Any]:
+		"""Submit one Python callable as one iDDS work.
+
+		This is the shared low-level submission contract for callable work. It
+		keeps the scheduler_epic-compatible PanDA/iDDS naming rule centralized:
+		the iDDS work name is also the job key, and the log dataset is derived
+		from that same value.
+		"""
+		try:
+			from idds.iworkflow.work import work as work_def  # type: ignore
+		except Exception as exc:  # pragma: no cover - optional dependency
+			raise RuntimeError("idds.iworkflow.work is not available; install idds to use PanDA runner") from exc
+
+		workflow = self.submit_idds_workflow(stage_name)
+
+		job = job_definition
+		job_id = job.get("job_id") or uuid.uuid4().hex
+		func = job.get("function")
+		if func is None:
+			raise ValueError("Job dict must contain 'function' to submit to PanDA/iDDS")
+
+		callable_ref = _callable_reference(func)
+		func_name = getattr(func, "__name__", str(func))
+		work_name = self._next_work_name(stage_name, job_id, func_name)
+		self.logger.info("Defining work %s", work_name)
+
+		params = dict(job.get("params", {}))
+		context_payload = self._context_payload_for_callable_work(
+			stage_name,
+			job_id,
+			job,
+			params,
+			working_dir,
+		)
 		work_params = {
 			"callable_ref": callable_ref,
 			"context_payload": context_payload,
@@ -570,7 +578,6 @@ class PanDAiDDSScheduler(BaseScheduler):
 		)
 		work = work_builder(**work_params)
 
-		# apply resource hints
 		try:
 			work.core_count = int(getattr(self.config, "core_count", 1))
 		except Exception:
@@ -580,6 +587,40 @@ class PanDAiDDSScheduler(BaseScheduler):
 		self.logger.info("Submitted work %s to PanDA/iDDS, transform id %s", work_name, tf_id)
 		if not tf_id:
 			raise RuntimeError(f"Failed to submit {work_name} to PanDA")
+
+		return {
+			"func_name": func_name,
+			"work_name": work_name,
+			"work": work,
+			"tf_id": tf_id,
+		}
+
+	def submit_job(self, stage_name: str, job_definition: Dict[str, Any], working_dir: Optional[str] = None) -> None:
+		"""Submit a single function-based job to iDDS/PanDA.
+
+		The method expects job_definition to contain at least a 'function' key.
+		This mirrors the upstream runner but intentionally keeps the interface
+		loose: any missing integration points raise a RuntimeError describing
+		the problem.
+		"""
+		job = job_definition
+		job_id = job.get("job_id") or uuid.uuid4().hex
+		job.setdefault("job_id", job_id)
+
+		# Initialize stage-level tracking if needed
+		if stage_name not in self.running_funcs:
+			self.running_funcs[stage_name] = {}
+		if stage_name not in self.jobs:
+			self.jobs[stage_name] = {}
+
+		# simple bookkeeping entry for this job
+		self.running_funcs[stage_name][job_id] = {"funcs": {}}
+
+		submitted = self._submit_callable_work(stage_name, job, working_dir)
+		func_name = submitted["func_name"]
+		work_name = submitted["work_name"]
+		work = submitted["work"]
+		tf_id = submitted["tf_id"]
 
 		# store mapping under stage_name -> job_id -> funcs -> func_name
 		self.running_funcs[stage_name][job_id]["funcs"][func_name] = {

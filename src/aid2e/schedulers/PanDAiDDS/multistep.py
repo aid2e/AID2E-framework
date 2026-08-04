@@ -10,6 +10,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Set
 import copy
+import hashlib
+import json
 import re
 import time as _time
 
@@ -335,9 +337,12 @@ class PanDAMultiStepJob:
             safe_child_key = self._rucio_safe_token(child_key)
             panda_scope = self._panda_user_scope()
             panda_username = panda_scope.split(".", 1)[1] if panda_scope.startswith("user.") else panda_scope
+            evaluation_id = self._evaluation_id()
             return (
                 value.replace("#job_id", safe_child_key)
                 .replace("{child_key}", safe_child_key)
+                .replace("#evaluation_id", evaluation_id)
+                .replace("{evaluation_id}", evaluation_id)
                 .replace("#panda_scope", panda_scope)
                 .replace("{panda_scope}", panda_scope)
                 .replace("#panda_username", panda_username)
@@ -351,6 +356,19 @@ class PanDAMultiStepJob:
         if isinstance(value, list):
             return [self._resolve_dataset_template(item, child_key) for item in value]
         return value
+
+    def _evaluation_id(self) -> str:
+        context = self.job_definition.get("job_context")
+        context_payload = {
+            "submission_id": getattr(self.scheduler, "submission_id", None),
+            "workflow_id": getattr(context, "workflow_id", None),
+            "task_id": getattr(context, "task_id", None),
+            "job_id": getattr(context, "job_id", self.logical_job_id),
+            "execution_dir": getattr(context, "execution_dir", None),
+            "design_point": self.payload.get("design_point", {}),
+        }
+        encoded = json.dumps(context_payload, default=str, sort_keys=True)
+        return hashlib.sha1(encoded.encode("utf-8")).hexdigest()[:12]
 
     def _panda_user_scope(self) -> str:
         name = str(getattr(self.scheduler.config, "name", "") or "")

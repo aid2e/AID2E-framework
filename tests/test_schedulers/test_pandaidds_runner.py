@@ -580,7 +580,7 @@ def test_panda_multistep_dataset_one2one_passes_parent_internal_id(monkeypatch, 
                             "return_func_results": False,
                             "with_output_dataset": True,
                             "output_file": "my_test.txt",
-                            "output_dataset": "#panda_scope.simreco.#job_id",
+                            "output_dataset": "#panda_scope.simreco.#evaluation_id.#job_id",
                             "children": [{"key": "eta:0.1/pi+"}],
                             "num_events": 200,
                             "num_events_per_job": 100,
@@ -592,7 +592,7 @@ def test_panda_multistep_dataset_one2one_passes_parent_internal_id(monkeypatch, 
                             "dep_type": "datasets",
                             "dep_map": "one2one",
                             "with_input_datasets": True,
-                            "input_datasets": {"input_file_names": "#panda_scope.simreco.#job_id"},
+                            "input_datasets": {"input_file_names": "#panda_scope.simreco.#evaluation_id.#job_id"},
                             "produces_objective": True,
                         },
                     ],
@@ -608,11 +608,15 @@ def test_panda_multistep_dataset_one2one_passes_parent_internal_id(monkeypatch, 
     ana_kwargs = state["work_kwargs_history"][1]
     assert "with_output_dataset" not in simreco_kwargs
     assert simreco_kwargs["output_file_name"] == "my_test.txt"
-    assert simreco_kwargs["output_dataset_name"] == "user.test.simreco.eta_0.1_pi/"
+    assert simreco_kwargs["output_dataset_name"].startswith("user.test.simreco.")
+    assert simreco_kwargs["output_dataset_name"].endswith(".eta_0.1_pi/")
+    assert "#evaluation_id" not in simreco_kwargs["output_dataset_name"]
     assert simreco_kwargs["num_events"] == 200
     assert simreco_kwargs["num_events_per_job"] == 100
     assert "with_input_datasets" not in ana_kwargs
-    assert ana_kwargs["input_datasets"] == {"input_file_names": "user.test.simreco.eta_0.1_pi"}
+    assert ana_kwargs["input_datasets"]["input_file_names"].startswith("user.test.simreco.")
+    assert ana_kwargs["input_datasets"]["input_file_names"].endswith(".eta_0.1_pi")
+    assert "#evaluation_id" not in ana_kwargs["input_datasets"]["input_file_names"]
     assert ana_kwargs["parent_internal_id"] == "internal-1"
     assert state["result_lookup_history"] == [
         {

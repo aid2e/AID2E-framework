@@ -74,7 +74,7 @@ workflows:
                         return_func_results: false
                         with_output_dataset: true
                         output_file: "my_test.txt"
-                        output_dataset: "#panda_scope.aid2e.dtlz2.simreco.#job_id"
+                        output_dataset: "#panda_scope.aid2e.dtlz2.#evaluation_id.simreco.#job_id"
                         num_events: 200
                         num_events_per_job: 100
                         children:
@@ -94,7 +94,7 @@ workflows:
                         dep_map: "one2one"
                         with_input_datasets: true
                         input_datasets:
-                          input_file_names: "#panda_scope.aid2e.dtlz2.simreco.#job_id"
+                          input_file_names: "#panda_scope.aid2e.dtlz2.#evaluation_id.simreco.#job_id"
 
                       - name: "final"
                         python_callable: "examples.evaluators.dtlz2:panda_multistep_final"

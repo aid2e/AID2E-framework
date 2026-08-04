@@ -1,9 +1,8 @@
 """AID2E-owned PanDA/iDDS multi-step callable coordinator.
 
-This module adapts the scheduler_epic multi-step job pattern to AID2E's
-scheduler interface without importing or depending on scheduler_epic. The first
-milestone is intentionally narrow: Python callable child works, result-based
-step dependencies, explicit child fan-out, and final result aggregation.
+The public payload surface intentionally matches AID2E's single-step PanDA
+callable style: workflow jobs use ``payload.evaluator_type`` and steps use
+importable ``python_callable`` entries.
 """
 
 from __future__ import annotations
@@ -11,7 +10,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Set
 import copy
+import re
 import time as _time
+
 
 
 @dataclass
@@ -24,6 +25,7 @@ class PanDAMultiStepChildJob:
     work: Any
     tf_id: Any
     job_key: str
+    internal_id: Optional[str] = None
     status: str = "running"
     result: Any = None
     details: Any = None
@@ -41,17 +43,13 @@ class PanDAMultiStepFunctionSpec:
     def from_payload(cls, payload: Dict[str, Any]) -> "PanDAMultiStepFunctionSpec":
         steps = _payload_steps(payload)
         if not isinstance(steps, list) or not steps:
-            raise ValueError(
-                "panda_multistep payload must define a non-empty 'steps' list "
-                "or scheduler_epic-style 'objective_funcs' mapping"
-            )
+            raise ValueError("panda_multistep payload must define a non-empty 'steps' list")
 
-        deps = payload.get("deps") or {}
         by_name: Dict[str, Dict[str, Any]] = {}
         for index, raw_step in enumerate(steps):
             if not isinstance(raw_step, dict):
                 raise ValueError(f"panda_multistep step at index {index} must be a mapping")
-            step = _normalize_step(dict(raw_step), deps)
+            step = _normalize_step(dict(raw_step))
             name = step.get("name")
             if not name:
                 raise ValueError(f"panda_multistep step at index {index} is missing 'name'")
@@ -60,14 +58,18 @@ class PanDAMultiStepFunctionSpec:
             if step.get("python_callable") is None:
                 raise ValueError(f"panda_multistep step '{name}' is missing 'python_callable'")
             dep_type = step.get("dep_type", "results")
-            if dep_type != "results":
+            if dep_type not in {"results", "datasets"}:
                 raise ValueError(
-                    f"panda_multistep step '{name}' uses dep_type={dep_type!r}; only 'results' is supported"
+                    f"panda_multistep step '{name}' uses dep_type={dep_type!r}; expected 'results' or 'datasets'"
                 )
             dep_map = step.get("dep_map", "one2one")
             if dep_map not in {"one2one", "all2one"}:
                 raise ValueError(
                     f"panda_multistep step '{name}' uses dep_map={dep_map!r}; expected 'one2one' or 'all2one'"
+                )
+            if dep_type == "datasets" and dep_map != "one2one":
+                raise ValueError(
+                    f"panda_multistep step '{name}' uses dep_type='datasets'; only dep_map='one2one' is supported"
                 )
             by_name[name] = step
 
@@ -180,11 +182,16 @@ class PanDAMultiStepJob:
 
     def _submit_step(self, step: Dict[str, Any]) -> None:
         step_name = step["name"]
-        parent_results = self._parent_results_for_step(step)
-        for child in _step_children(step):
+        for child in self._children_for_step(step):
             child_key = str(child.get("key") or child.get("name") or "default")
             child_job_id = self._child_job_id(step_name, child_key)
+            parent_results = self._parent_results_for_child(step, child_key)
+            parent_internal_id = self._parent_internal_id_for_child(step, child_key)
             params = self._step_params(step, child, parent_results, child_key)
+            if self._is_local_step(step):
+                self._run_local_child(step, child_key, child_job_id, params)
+                continue
+
             child_job = {
                 "job_id": child_job_id,
                 "name": f"{self.job_definition.get('name', self.logical_job_id)}.{step_name}.{child_key}",
@@ -192,6 +199,7 @@ class PanDAMultiStepJob:
                 "params": params,
                 "payload": {
                     **self.payload,
+                    **self._idds_dataset_payload(step, child, parent_internal_id, child_key),
                     "design_point": self.payload.get("design_point", {}),
                     "step_name": step_name,
                     "child_key": child_key,
@@ -213,8 +221,126 @@ class PanDAMultiStepJob:
                     work=submitted["work"],
                     tf_id=submitted["tf_id"],
                     job_key=submitted["work_name"],
+                    internal_id=submitted.get("internal_id"),
                 )
             )
+
+    def _run_local_child(
+        self,
+        step: Dict[str, Any],
+        child_key: str,
+        child_job_id: str,
+        params: Dict[str, Any],
+    ) -> None:
+        child = PanDAMultiStepChildJob(
+            step_name=step["name"],
+            child_key=child_key,
+            job_id=child_job_id,
+            work=None,
+            tf_id=None,
+            job_key=child_job_id,
+        )
+        try:
+            child.result = step["python_callable"](self.job_definition.get("job_context"), **params)
+            child.status = "completed"
+        except Exception as exc:
+            child.status = "failed"
+            child.details = {"error": str(exc)}
+            self.failed_child = child
+        self.children_by_step[step["name"]].append(child)
+
+    def _children_for_step(self, step: Dict[str, Any]) -> List[Dict[str, Any]]:
+        explicit_children = step.get("children") or step.get("chunks")
+        if explicit_children is not None:
+            return _step_children(step)
+
+        deps = _depends_on(step)
+        if step.get("dep_map", "one2one") == "one2one" and len(deps) == 1:
+            parent_children = self.children_by_step[deps[0]]
+            if parent_children:
+                return [{"key": child.child_key} for child in parent_children]
+
+        return [{"key": "default"}]
+
+    def _is_local_step(self, step: Dict[str, Any]) -> bool:
+        runner = step.get("runner") or step.get("execution")
+        job_type = step.get("job_type")
+        return runner in {"local", "joblib", "JobLibRunner"} or job_type in {"local", "joblib"}
+
+    def _parent_internal_id_for_child(self, step: Dict[str, Any], child_key: str) -> Optional[str]:
+        if step.get("dep_type", "results") != "datasets":
+            return None
+        deps = _depends_on(step)
+        if len(deps) != 1:
+            raise ValueError(f"panda_multistep dataset step '{step['name']}' must have exactly one parent")
+        parent_children = self.children_by_step[deps[0]]
+        for child in parent_children:
+            if child.child_key == child_key:
+                return child.internal_id
+        raise ValueError(
+            f"panda_multistep dataset step '{step['name']}' expected parent internal id "
+            f"for child key '{child_key}'"
+        )
+
+    def _idds_dataset_payload(
+        self,
+        step: Dict[str, Any],
+        child: Dict[str, Any],
+        parent_internal_id: Optional[str],
+        child_key: str,
+    ) -> Dict[str, Any]:
+        payload: Dict[str, Any] = {}
+        for source in (step, child):
+            for key in (
+                "with_output_dataset",
+                "output_file",
+                "output_file_name",
+                "output_dataset",
+                "output_dataset_name",
+                "num_events",
+                "num_events_per_job",
+                "with_input_datasets",
+                "input_datasets",
+            ):
+                if key in source:
+                    payload[key] = self._resolve_dataset_template(source[key], child_key)
+        if parent_internal_id is not None:
+            payload["parent_internal_id"] = parent_internal_id
+        return payload
+
+    def _resolve_dataset_template(self, value: Any, child_key: str) -> Any:
+        if isinstance(value, str):
+            safe_child_key = self._rucio_safe_token(child_key)
+            panda_scope = self._panda_user_scope()
+            panda_username = panda_scope.split(".", 1)[1] if panda_scope.startswith("user.") else panda_scope
+            return (
+                value.replace("#job_id", safe_child_key)
+                .replace("{child_key}", safe_child_key)
+                .replace("#panda_scope", panda_scope)
+                .replace("{panda_scope}", panda_scope)
+                .replace("#panda_username", panda_username)
+                .replace("{panda_username}", panda_username)
+            )
+        if isinstance(value, dict):
+            return {
+                key: self._resolve_dataset_template(item, child_key)
+                for key, item in value.items()
+            }
+        if isinstance(value, list):
+            return [self._resolve_dataset_template(item, child_key) for item in value]
+        return value
+
+    def _panda_user_scope(self) -> str:
+        name = str(getattr(self.scheduler.config, "name", "") or "")
+        parts = name.split(".")
+        if len(parts) >= 2 and parts[0] == "user" and parts[1]:
+            return f"user.{self._rucio_safe_token(parts[1])}"
+        return "user.aid2e"
+
+    def _rucio_safe_token(self, value: str) -> str:
+        token = re.sub(r"[^A-Za-z0-9._-]", "_", str(value))
+        token = token.strip("._-")
+        return token or "child"
 
     def _step_params(
         self,
@@ -292,6 +418,7 @@ class PanDAMultiStepJob:
             return
         child.result = results
         child.details = details
+        child.internal_id = _work_internal_id(child.work)
         child.status = "completed"
 
     def _mark_completed_steps(self) -> None:
@@ -301,7 +428,7 @@ class PanDAMultiStepJob:
             if children and all(child.status == "completed" for child in children):
                 self.completed_steps.add(step_name)
 
-    def _parent_results_for_step(self, step: Dict[str, Any]) -> Any:
+    def _parent_results_for_child(self, step: Dict[str, Any], child_key: str) -> Any:
         deps = _depends_on(step)
         if not deps:
             return None
@@ -324,7 +451,13 @@ class PanDAMultiStepJob:
             children = self.children_by_step[deps[0]]
             if len(children) == 1:
                 return children[0].result
-            return {child.child_key: child.result for child in children}
+            for child in children:
+                if child.child_key == child_key:
+                    return child.result
+            raise ValueError(
+                f"panda_multistep step '{step['name']}' expected one2one parent result "
+                f"for child key '{child_key}'"
+            )
         return {
             dep_name: self._single_or_keyed_results(dep_name)
             for dep_name in deps
@@ -354,7 +487,9 @@ class PanDAMultiStepJob:
                 "child_key": child.child_key,
                 "job_id": child.job_id,
                 "transform_id": child.tf_id,
+                "internal_id": child.internal_id,
                 "status": child.status,
+                "execution": "local" if child.work is None else "panda",
             }
             if child.details is not None:
                 metric["details"] = child.details
@@ -408,45 +543,36 @@ class PanDAMultiStepJob:
 
 
 
+
+def _work_internal_id(work: Any) -> Optional[str]:
+    if work is None:
+        return None
+    value = getattr(work, "internal_id", None)
+    if value is not None:
+        return str(value)
+    getter = getattr(work, "get_internal_id", None)
+    if callable(getter):
+        try:
+            value = getter()
+        except Exception:
+            return None
+        if value is not None:
+            return str(value)
+    return None
+
 def _payload_steps(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
     steps = payload.get("steps")
-    if steps is not None:
-        return list(steps)
-
-    objective_funcs = payload.get("objective_funcs")
-    if not isinstance(objective_funcs, dict):
+    if steps is None:
         return []
-
-    converted = []
-    for step_name, raw_step in objective_funcs.items():
-        if not isinstance(raw_step, dict):
-            raise ValueError(f"panda_multistep objective_funcs step '{step_name}' must be a mapping")
-        step = dict(raw_step)
-        step.setdefault("name", step_name)
-        if "func" in step and "python_callable" not in step:
-            step["python_callable"] = step["func"]
-        converted.append(step)
-    return converted
+    return list(steps)
 
 
-def _normalize_step(step: Dict[str, Any], deps: Dict[str, Any]) -> Dict[str, Any]:
-    if "func" in step and "python_callable" not in step:
-        step["python_callable"] = step["func"]
-
-    name = step.get("name")
-    dep_spec = deps.get(name) if isinstance(deps, dict) else None
-    if isinstance(dep_spec, dict):
-        parent = dep_spec.get("parent")
-        if parent is not None and not step.get("depends_on"):
-            step["depends_on"] = parent if isinstance(parent, list) else [parent]
-        for key in ("dep_type", "dep_map", "parent_result_parameter_name"):
-            if key in dep_spec and key not in step:
-                step[key] = dep_spec[key]
-
+def _normalize_step(step: Dict[str, Any]) -> Dict[str, Any]:
     return step
 
+
 def _depends_on(step: Dict[str, Any]) -> List[str]:
-    depends = step.get("depends_on") or step.get("deps") or []
+    depends = step.get("depends_on") or []
     if isinstance(depends, str):
         return [depends]
     return list(depends)

@@ -20,6 +20,8 @@ import os
 import subprocess
 import datetime
 import importlib
+import hashlib
+import re
 from typing import Dict, Any, List, Optional, Tuple
 
 import threading
@@ -141,7 +143,31 @@ class PanDAiDDSScheduler(BaseScheduler):
 		for index, job_def in enumerate(job_definitions):
 			job_name = job_def.get("name", f"job_{index}")
 			job_id = job_def.get("job_id") or f"{stage_name}_{job_name}_{index}"
+			job_def.setdefault("job_id", job_id)
 			job_id_to_job_def[job_id] = job_def
+
+			if self._is_panda_multistep_job(job_def):
+				try:
+					self.logger.info("Running multi-step function job %s via iDDS/PanDA", job_id)
+					multistep_result = self._run_multistep_job(
+						stage_name,
+						job_def,
+						working_dir,
+						poll_interval,
+					)
+					local_job_results[job_id] = multistep_result
+					self.completed_jobs[job_id] = multistep_result
+				except Exception as exc:
+					self.logger.exception("Failed to run multi-step function job %s: %s", job_id, exc)
+					local_job_results[job_id] = {
+						"status": "failed",
+						"return_code": -1,
+						"stdout": "",
+						"stderr": str(exc),
+						"outputs": {},
+					}
+					all_success = False
+				continue
 
 			# If the job provides a function object, try to submit to iDDS.
 			if job_def.get("function") is not None:
@@ -472,21 +498,33 @@ class PanDAiDDSScheduler(BaseScheduler):
 		return workflow
 
 	def _next_work_name(self, stage_name: str, job_id: str, func_name: str) -> str:
-		"""Build the iDDS work/job key used for PanDA and Rucio artifacts.
+		"""Build a compact iDDS work/job key used for PanDA and Rucio artifacts.
 
-		This follows scheduler_epic's convention that the work name is also the
-		job_key and log dataset base. AID2E DAG job ids are logical names and can
-		repeat across optimizer trials and CLI runs, so include a compact
-		scheduler-run id plus a local submission counter before handing the name
-		to iDDS.
+		Rucio validates generated DIDs with strict length limits. Logical AID2E
+		job ids can be descriptive and multi-step child ids include step and child
+		labels, so keep the public work name short and carry the full identity in a
+		stable hash.
 		"""
 		with self.lock:
 			self.work_counter += 1
 			counter = self.work_counter
-		return (
-			f"{self.config.name or 'aid2e'}.{self.submission_id}."
-			f"{stage_name}.{job_id}.{func_name}.{counter:06d}"
-		)
+		scope = self._panda_user_scope()
+		run_id = self._rucio_safe_token(self.submission_id)[-12:]
+		digest_source = f"{self.submission_id}:{stage_name}:{job_id}:{func_name}:{counter}"
+		digest = hashlib.sha1(digest_source.encode("utf-8")).hexdigest()[:8]
+		return f"{scope}.a2e.{run_id}.{counter:06d}.{digest}"
+
+	def _panda_user_scope(self) -> str:
+		name = str(self.config.name or "")
+		parts = name.split(".")
+		if len(parts) >= 2 and parts[0] == "user" and parts[1]:
+			return f"user.{self._rucio_safe_token(parts[1])}"
+		return "user.aid2e"
+
+	def _rucio_safe_token(self, value: str) -> str:
+		token = re.sub(r"[^A-Za-z0-9._-]", "_", str(value))
+		token = token.strip("._-")
+		return token or "aid2e"
 
 	def _context_payload_for_callable_work(
 		self,
@@ -497,6 +535,9 @@ class PanDAiDDSScheduler(BaseScheduler):
 		working_dir: Optional[str],
 	) -> Dict[str, Any]:
 		"""Build the serializable context payload sent to the remote adapter."""
+		if job.get("context_payload") is not None:
+			return dict(job["context_payload"])
+
 		context = params.pop("context", None) or job.get("job_context")
 		if context is None:
 			return {
@@ -523,6 +564,27 @@ class PanDAiDDSScheduler(BaseScheduler):
 			"output_dir": getattr(context, "output_dir", None),
 		}
 
+	def _idds_work_dataset_kwargs(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+		"""Extract iDDS dataset/dependency kwargs from a scheduler payload."""
+		aliases = {
+			"output_file": "output_file_name",
+			"output_dataset": "output_dataset_name",
+		}
+		allowed = {
+			"output_file_name",
+			"output_dataset_name",
+			"num_events",
+			"num_events_per_job",
+			"input_datasets",
+			"parent_internal_id",
+		}
+		kwargs: Dict[str, Any] = {}
+		for key, value in payload.items():
+			normalized = aliases.get(key, key)
+			if normalized in allowed and value is not None:
+				kwargs[normalized] = value
+		return kwargs
+
 	def _submit_callable_work(
 		self,
 		stage_name: str,
@@ -532,7 +594,7 @@ class PanDAiDDSScheduler(BaseScheduler):
 		"""Submit one Python callable as one iDDS work.
 
 		This is the shared low-level submission contract for callable work. It
-		keeps the scheduler_epic-compatible PanDA/iDDS naming rule centralized:
+		keeps the PanDA/iDDS work naming rule centralized:
 		the iDDS work name is also the job key, and the log dataset is derived
 		from that same value.
 		"""
@@ -567,15 +629,17 @@ class PanDAiDDSScheduler(BaseScheduler):
 			"context_payload": context_payload,
 			"op_kwargs": params,
 		}
-		work_builder = work_def(
-			func=_remote_python_callable_entrypoint,
-			workflow=workflow,
-			return_work=True,
-			map_results=True,
-			name=work_name,
-			job_key=work_name,
-			log_dataset_name=f"{work_name}.log/",
-		)
+		work_kwargs = {
+			"func": _remote_python_callable_entrypoint,
+			"workflow": workflow,
+			"return_work": True,
+			"map_results": True,
+			"name": work_name,
+			"job_key": work_name,
+			"log_dataset_name": f"{work_name}.log/",
+		}
+		work_kwargs.update(self._idds_work_dataset_kwargs(job.get("payload") or {}))
+		work_builder = work_def(**work_kwargs)
 		work = work_builder(**work_params)
 
 		try:
@@ -593,7 +657,30 @@ class PanDAiDDSScheduler(BaseScheduler):
 			"work_name": work_name,
 			"work": work,
 			"tf_id": tf_id,
+			"internal_id": getattr(work, "internal_id", None),
 		}
+
+	def _is_panda_multistep_job(self, job_definition: Dict[str, Any]) -> bool:
+		payload = job_definition.get("payload") or {}
+		return payload.get("evaluator_type") == "panda_multistep"
+
+	def _run_multistep_job(
+		self,
+		stage_name: str,
+		job_definition: Dict[str, Any],
+		working_dir: Optional[str],
+		poll_interval: float,
+	) -> Dict[str, Any]:
+		from aid2e.schedulers.PanDAiDDS.multistep import PanDAMultiStepJob
+
+		job = PanDAMultiStepJob(
+			scheduler=self,
+			stage_name=stage_name,
+			job_definition=job_definition,
+			working_dir=working_dir,
+			poll_interval=poll_interval,
+		)
+		return job.run()
 
 	def submit_job(self, stage_name: str, job_definition: Dict[str, Any], working_dir: Optional[str] = None) -> None:
 		"""Submit a single function-based job to iDDS/PanDA.

@@ -454,3 +454,124 @@ def test_full_config_adds_config_dir_for_workflow_callable_imports(tmp_path, mon
     fn = executor.workflow.branches[0].stages[0].jobs[0].payload["python_callable"]
     assert fn.__module__ == "local_examples.evaluator"
 
+
+
+def test_full_config_adds_config_dir_for_panda_multistep_callable_imports(tmp_path, monkeypatch):
+    """PanDA multi-step callables beside the config should import without PYTHONPATH."""
+    package_dir = tmp_path / "local_examples"
+    package_dir.mkdir()
+    (package_dir / "__init__.py").write_text("", encoding="utf-8")
+    (package_dir / "evaluator.py").write_text(
+        "def prepare(context):\n    return {\"prepared\": 1.0}\n"
+        "def evaluate(context, parent_results=None):\n    return {\"f1\": parent_results[\"prepared\"]}\n",
+        encoding="utf-8",
+    )
+    payload = _minimal_full_payload(tmp_path)
+    payload["scheduler"] = {"runner_type": "PanDAiDDSRunner", "parameters": {"name": "user.test.panda"}}
+    payload["workflows"] = {
+        "workflows": [
+            {
+                "name": "local_multistep",
+                "branches": [
+                    {
+                        "name": "main",
+                        "stages": [
+                            {
+                                "name": "evaluate",
+                                "jobs": [
+                                    {
+                                        "name": "score",
+                                        "command": "",
+                                        "payload": {
+                                            "evaluator_type": "panda_multistep",
+                                            "steps": [
+                                                {
+                                                    "name": "prepare",
+                                                    "python_callable": "local_examples.evaluator:prepare",
+                                                },
+                                                {
+                                                    "name": "evaluate",
+                                                    "python_callable": "local_examples.evaluator:evaluate",
+                                                    "depends_on": ["prepare"],
+                                                    "produces_objective": True,
+                                                },
+                                            ],
+                                        },
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                ],
+            }
+        ]
+    }
+    config_path = tmp_path / "full.yml"
+    config_path.write_text(yaml.safe_dump(payload), encoding="utf-8")
+    (tmp_path / "output").mkdir()
+    (tmp_path / "work").mkdir()
+    monkeypatch.syspath_prepend(str(tmp_path / "not-the-config-dir"))
+
+    config = load_config(str(config_path))
+    executor = build_workflow_executor_from_config(
+        config.workflows,
+        problem_cfg=config.problem,
+        scheduler_cfg=config.scheduler,
+        workflow_name="local_multistep",
+        base_output_dir=str(tmp_path / "runs"),
+    )
+
+    payload = executor.workflow.branches[0].stages[0].jobs[0].payload
+    steps = payload["steps"]
+    assert steps[0]["python_callable"].__module__ == "local_examples.evaluator"
+    assert steps[1]["python_callable"].__name__ == "evaluate"
+    assert steps[1]["depends_on"] == ["prepare"]
+
+
+def test_input_panda_multistep_config_loads_and_resolves_callables():
+    """Root PanDA multi-step smoke config should load without submitting work."""
+    config = load_config("input-panda-multistep.yml")
+    executor = build_workflow_executor_from_config(
+        config.workflows,
+        problem_cfg=config.problem,
+        scheduler_cfg=config.scheduler,
+        workflow_name="dtlz2_panda_multistep_eval",
+        base_output_dir="/tmp/aid2e_test_panda_multistep_config",
+    )
+
+    job = executor.workflow.branches[0].stages[0].jobs[0]
+    assert job.payload["evaluator_type"] == "panda_multistep"
+    steps = job.payload["steps"]
+    assert steps[0]["name"] == "simreco"
+    assert steps[0]["python_callable"].__name__ == "panda_multistep_simreco"
+    assert steps[1]["name"] == "ana"
+    assert steps[1]["python_callable"].__name__ == "panda_multistep_ana"
+    assert steps[1]["depends_on"] == "simreco"
+    assert steps[1]["dep_type"] == "results"
+    assert steps[1]["dep_map"] == "all2one"
+    assert steps[2]["name"] == "final"
+    assert steps[2]["python_callable"].__name__ == "panda_multistep_final"
+    assert steps[2]["runner"] == "local"
+    assert steps[2]["depends_on"] == "ana"
+
+
+def test_input_panda_multistep_datasets_config_loads_and_resolves_callables():
+    """Dataset-dependency PanDA multi-step template should load without submitting work."""
+    config = load_config("input-panda-multistep-datasets.yml")
+    executor = build_workflow_executor_from_config(
+        config.workflows,
+        problem_cfg=config.problem,
+        scheduler_cfg=config.scheduler,
+        workflow_name="dtlz2_panda_multistep_dataset_eval",
+        base_output_dir="/tmp/aid2e_test_panda_multistep_datasets_config",
+    )
+
+    job = executor.workflow.branches[0].stages[0].jobs[0]
+    steps = job.payload["steps"]
+    assert steps[0]["python_callable"].__name__ == "panda_multistep_simreco"
+    assert steps[0]["with_output_dataset"] is True
+    assert steps[1]["python_callable"].__name__ == "panda_multistep_ana"
+    assert steps[1]["with_input_datasets"] is True
+    assert steps[1]["depends_on"] == "simreco"
+    assert steps[1]["dep_type"] == "datasets"
+    assert steps[1]["dep_map"] == "one2one"

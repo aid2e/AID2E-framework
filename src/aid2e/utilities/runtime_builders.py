@@ -158,6 +158,15 @@ def _resolve_workflow_python_callables(
                 callable_spec = payload.get("python_callable")
                 if isinstance(callable_spec, str):
                     payload["python_callable"] = _resolve_callable(callable_spec)
+                if payload.get("evaluator_type") == "panda_multistep":
+                    resolved_steps = []
+                    for step in payload.get("steps", []) or []:
+                        step_payload = dict(step)
+                        step_callable = step_payload.get("python_callable")
+                        if isinstance(step_callable, str):
+                            step_payload["python_callable"] = _resolve_callable(step_callable)
+                        resolved_steps.append(step_payload)
+                    payload["steps"] = resolved_steps
                 resolved_jobs.append(
                     JobDefinition(
                         name=job.name,

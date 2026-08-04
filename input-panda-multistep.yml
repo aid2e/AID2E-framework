@@ -1,0 +1,104 @@
+# DTLZ2 + Ax + PanDA/iDDS multi-step input for:
+#
+#   aid2e optimize input-panda-multistep.yml
+
+problem:
+  name: "DTLZ2 CLI PanDA Multi-Step Smoke Test"
+  problem_type: "DTLZ2"
+  output_location: "/tmp"
+  work_location: "/tmp"
+  design_parameters_file: "examples/optimizers/dtlz2_design.params"
+  objectives:
+    - name: "f1"
+      direction: "minimize"
+    - name: "f2"
+      direction: "minimize"
+
+optimizer:
+  name: "ax"
+  type: "bayesian"
+  parameters:
+    initialization_strategy: "sobol"
+    generator: "BOTORCH_MODULAR"
+    n_initial_samples: 1
+    n_iterations: 2
+    batch_size: 1
+    seed: 7
+
+scheduler:
+  runner_type: "PanDAiDDSRunner"
+  parameters:
+    cloud: "US"
+    queue: "BNL_PanDA_1"
+    source_dir: "."
+    source_dir_parent_level: 1
+    exclude_source_files:
+      - '(^|/)\\..*'  # Hidden files
+      - '.*\\.log'
+      - '.*\\.json'
+      - "__pycache__"
+      - "work"
+      - "OUTDIR"
+    init_env_file: "panda-init-env.yml"
+    max_walltime: 1800
+    core_count: 1
+    total_memory: 4000
+  max_retries: 1
+  output_location: "./aid2e_panda_scheduler_output"
+  monitor_interval: 5
+
+workflows:
+  workflows:
+    - name: "dtlz2_panda_multistep_eval"
+      description: "Evaluate DTLZ2 objectives through a result-based PanDA/iDDS multi-step workflow."
+      branches:
+        - name: "main"
+          stages:
+            - name: "evaluate"
+              parallelism:
+                max_concurrent: 1
+                retry_max: 0
+                timeout_sec: 600
+              jobs:
+                - name: "dtlz2_multistep"
+                  command: ""
+                  payload:
+                    evaluator_type: "panda_multistep"
+
+                    steps:
+                      - name: "simreco"
+                        python_callable: "examples.evaluators.dtlz2:panda_multistep_simreco"
+                        return_func_results: true
+                        children:
+                          - key: "eta_0p1_pi"
+                            op_kwargs:
+                              particle: "pi+"
+                              eta_point: 0.1
+                          - key: "eta_0p1_kaon"
+                            op_kwargs:
+                              particle: "kaon+"
+                              eta_point: 0.1
+                          - key: "eta_0p2_pi"
+                            op_kwargs:
+                              particle: "pi+"
+                              eta_point: 0.2
+                          - key: "eta_0p2_kaon"
+                            op_kwargs:
+                              particle: "kaon+"
+                              eta_point: 0.2
+
+                      - name: "ana"
+                        python_callable: "examples.evaluators.dtlz2:panda_multistep_ana"
+                        depends_on: "simreco"
+                        dep_type: "results"
+                        dep_map: "all2one"
+                        parent_result_parameter_name: "simreco_results"
+
+                      - name: "final"
+                        python_callable: "examples.evaluators.dtlz2:panda_multistep_final"
+                        depends_on: "ana"
+                        dep_type: "results"
+                        dep_map: "one2one"
+                        runner: "local"
+                        parent_result_parameter_name: "ana_result"
+                        final: true

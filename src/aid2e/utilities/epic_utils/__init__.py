@@ -9,13 +9,24 @@ from .epic_design_config import (
 	EpicDesignParameters,
 	EpicDesignConfigLoader,
 )
-from .epic_env_config import EpicConfiguration
+from .epic_env_config import (
+	EpicEnvConfig,
+	EpicEnvConfigLoader,
+)
 from .epic_stack import (
 	EpicGeoLayer,
 	EpicSimLayer,
 	EpicRecLayer,
 	EpicAnaLayer,
 	EpicStack,
+)
+from .epic_stack_config import (
+	EpicLayerConfig,
+	EpicJobDefinition,
+	EpicStageDefinition,
+	EpicBranchDefinition,
+	EpicWorkflowDefinition,
+	EpicWorkflowsConfiguration,
 )
 
 __version__ = __MAIN_VERSION__
@@ -25,10 +36,17 @@ __all__ = [
 	"EpicParameterGroup",
 	"EpicDesignParameters",
 	"EpicDesignConfigLoader",
-	"EpicConfiguration",
+	"EpicEnvConfig",
+        "EpicEnvConfigLoader",
 	"EpicGeoLayer",
 	"EpicSimLayer",
 	"EpicRecLayer",
 	"EpicAnaLayer",
 	"EpicStack",
+	"EpicLayerConfig",
+	"EpicJobDefinition",
+	"EpicStageDefinition",
+	"EpicBranchDefinition",
+	"EpicWorkflowDefinition",
+	"EpicWorkflowsConfiguration",
 ]

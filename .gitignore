@@ -140,3 +140,10 @@ Thumbs.db
 *output*
 *logs*
 *work
+migrating_src
+
+*CODEX*
+*.codex*
+*__experimental__*
+*experimental_tests*
+*__pycache__*

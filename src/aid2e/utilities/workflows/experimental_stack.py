@@ -9,11 +9,20 @@ represents the stack.
 Key Classes:
     - StackLayer: Abstract base class representing a component of a stack
     - ExperimentStack: Base container to hold layers representing the stack
+
+Project: AID2E v0.0.0 - AI assisted Detector Design for EIC
+Homepage: https://aid2e.github.io/aid2e-framework
+Repository: https://github.com/aid2e/AID2E-framework.git
 """
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, fields, field
-from typing import Dict, List
+from dataclasses import dataclass, fields, field, replace
+from typing import Any, Dict, List, Optional
+import pathlib
+
+from aid2e.utilities.configurations.experimental_stack_config import (
+    StackLayerConfig
+)
 
 
 @dataclass
@@ -28,13 +37,13 @@ class StackLayer(ABC):
         name: Unique name for the layer.
         command: Command to be run (e.g. npsim)
         rule: Recipe for combining the command and provided arguments
-              using keywords, e.g. '{command} {arguments} {inputs} {outputs}'
+              using keywords, e.g. '{{command}} {{arguments}} {{inputs}} {{outputs}}'
 
     Example:
         >>> def ExperimentLayer(StackLayer):
         ...     name="sim"
         ...     command="npsim"
-        ...     rule='{command} {arguments} {inputs} {outputs}"
+        ...     rule='{{command}} {{arguments}} {{inputs}} {{outputs}}"
         >>> layer = ExperimentLayer()
         >>> run_layer = layer.make_command(
         ...     inputs,
@@ -118,21 +127,20 @@ class StackLayer(ABC):
         # format and sub in inputs/outputs
         in_arg = self._make_input_arg(inputs)
         out_arg = self._make_output_arg(outputs)
-        command = self.rule.replace('{command}', self.command)
-        command = command.replace('{inputs}', in_arg)
-        command = command.replace('{outputs}', out_arg)
+        command = self.rule.replace('{{command}}', self.command)
+        command = command.replace('{{inputs}}', in_arg)
+        command = command.replace('{{outputs}}', out_arg)
 
         # if needed, sub in any other arguments
         if arguments != None:
             other_arg = self._make_other_arg(arguments)
-            command = command.replace('{arguments}', other_arg)
+            command = command.replace('{{arguments}}', other_arg)
         else:
-            command = command.replace('{arguments}', '')
+            command = command.replace('{{arguments}}', '')
 
         # return formatted command without any
         # stray double spaces
         return command.replace('  ', ' ')
-
 
 class AnaLayer(StackLayer):
     """Represents a generic analysis layer of a software stack
@@ -144,7 +152,7 @@ class AnaLayer(StackLayer):
     Example:
         >>> layer = AnaLayer()
         >>> layer.command="do_my_analysis.py"
-        >>> layer.rule='{command} {arguments} -i {inputs} -o {outputs}'
+        >>> layer.rule='{{command}} {{arguments}} -i {{inputs}} -o {{outputs}}'
         >>> run_layer = layer.make_command(
         ...     inputs,
         ...     outputs,
@@ -161,7 +169,7 @@ class AnaLayer(StackLayer):
         """Formats inputs for generic analysis layer"""
         return ' '.join(inputs)
 
-    # FIXME sould allow for users to specify how to
+    # FIXME should allow for users to specify how to
     # handle multiple outputs
     def _make_output_arg(self, outputs: List[str]) -> str:
         """Formats outputs for generic analysis layer"""
@@ -182,7 +190,7 @@ class ExperimentStack(ABC):
         >>> def MySimLayer(StackLayer):
         ...     name="sim"
         ...     command="dosim"
-        ...     rule='{command} {arguments} -I {inputs} -O {outputs}'
+        ...     rule='{{command}} {{arguments}} -I {{inputs}} -O {{outputs}}'
         ... @dataclass
         >>> def MyExperimentStack(ExperimentStack):
         ...     sim: MySimLayer = field(default_factory = MySimLayer)
@@ -209,3 +217,111 @@ class ExperimentStack(ABC):
     def __getitem__(self, key) -> StackLayer:
         """Retrieve the layer identified by key"""
         return self.layers[key]
+
+    def _determine_shebang(self, script):
+        """
+        Determine appropriate shebang based on extension
+        of provided script name.
+
+        Args:
+            script: script name
+        Returns:
+            appropriate shebang (e.g. '#!/bin/bash')
+        """
+        extension = pathlib.Path(script).suffix
+        shebang   = ''
+        match extension:
+            case ".csh":
+                shebang = '#!/bin/csh'
+            case ".py":
+                shebang = '#!/usr/bin/env python'
+            case ".sh":
+                shebang = '#!/bin/bash'
+            case _:
+                shebang = '#!/bin/sh'
+        return shebang
+
+    def _make_commands(self, configs: List[StackLayerConfig]) -> List[str]:
+        """
+        Makes list of commands to be run based on provided list
+        of stack layer configurations.
+        """
+        commands = []
+        for config in configs:
+             layer = replace(self[config.layer]) # clone layer to avoid rule/command overrides sticking
+             if config.command is not None:
+                 layer.command = config.command
+             if config.rule is not None:
+                 layer.rule = config.rule
+             commands.append(
+                 layer.make_command(
+                     config.inputs, config.outputs, config.arguments
+                  )
+             )
+        return commands
+
+    def prepare_for_execution(**kwargs) -> Optional[str]:
+        """Prepare for executing driver script
+
+        Subclasses can override this function to carry out any
+        necessary operations ahead of running the driver script.
+
+        Returns:
+            Optionally can return string of additional commands
+            to run at start of driver script
+        """
+        pass
+
+    def prepare_workflow_geometry(
+        self,
+        workflow_dir: str,
+        design_point: Dict[str, Any],
+        problem_config: Any,
+        workflow_id: str,
+    ) -> str:
+        """
+        Prepare geometry for workflow/design point.
+        Returns the prepared geometry directory.
+        """
+        return workflow_dir
+
+
+    def make_driver_script(
+        self,
+        script: str,
+        configs: List[StackLayerConfig],
+        preparations: str = None,
+        **kwargs
+    ) -> None:
+        """Make driver script
+
+        Writes driver script at specified path to run a sequence of
+        commands based on provided list of layer configurations. Can
+        be overwritten for behavior unique to specific stacks.
+
+        Args:
+            script: full path of driver script
+            configs: list of layer configurations
+            preparations: optional list of commands to run at start
+                          of script
+        """
+        commands = self._make_commands(configs)
+        commands.insert(0, self._determine_shebang(script))
+
+        text = "\n\n".join(commands)
+        with open(script, 'w') as driver:
+            driver.write(text)
+
+    @abstractmethod
+    def make_driver_command(self, script: str, **kwargs) -> str:
+        """Make driver command
+
+        Builds command to run specified driver script. Must
+        be implemented by subclasses.
+
+        Args:
+            script: the driver script to run
+        Returns:
+            Command to run the drivers script
+        """
+        pass

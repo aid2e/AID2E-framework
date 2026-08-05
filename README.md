@@ -5,54 +5,132 @@
 
 AI assisted Detector Design for EIC (AID2E) is a Python toolkit for authoring and validating detector design optimization workflows. It provides typed configuration models, a Click-based CLI, scheduler/optimizer hooks, and ePIC-specific utilities. Docs: https://aid2e.github.io/AID2E-framework
 
-## Repository Layout
+------------------------------------------------------------------------
 
-- `src/aid2e/` main package (CLI at `aid2e.cli`, optimizers, schedulers, utilities)
-- `tests/` mirrored test suite, including fixtures for DTLZ2 and ePIC configs
-- `docs/` MkDocs site sources (published to GitHub Pages)
-- `scripts/` helper scripts for docs build/deploy
-- `packages/` legacy package splits (kept for reference; primary code now lives under `src/`)
+## Requirements
 
-## Quickstart
+-   Python **3.11+**
+-   pip
 
-```bash
+------------------------------------------------------------------------
+
+## Installation
+
+### Clone the repo
+
+``` bash
+git clone https://github.com/aid2e/AID2E-framework.git
+cd AID2E-framework
+```
+
+### Create environment (recommended)
+
+``` bash
 python -m venv .venv
 source .venv/bin/activate
+```
+
+### Install
+
+**Core install:**
+
+``` bash
 pip install -e .
+```
 
-# Run tests
-pytest -v
+**Full install (recommended):**
 
-# Try the CLI
+``` bash
+pip install -e ".[all]"
+```
+
+------------------------------------------------------------------------
+
+## Quick Checks
+
+### Import check
+
+``` bash
+python -c "import aid2e; print('OK')"
+```
+
+### CLI check
+
+``` bash
 aid2e --help
-aid2e version
 ```
 
-## Using Configuration Loaders
+------------------------------------------------------------------------
 
-- Load a problem + design config:
+## Optional Features Check
 
-```python
-from aid2e.utilities.configurations import load_config
-
-cfg = load_config("path/to/problem.config")
-print(cfg.problem.design_config.get_parameter_names())
+``` bash
+python - <<'PY'
+modules = ["ax", "pymoo", "joblib", "pandaclient", "idds.common"]
+for m in modules:
+    try:
+        __import__(m)
+        print(f"{m}: OK")
+    except:
+        print(f"{m}: MISSING")
+PY
 ```
 
-- Example fixtures live in `tests/test_utilities/fixtures/dtlz2/` (`design.params`, `problem.config`).
+------------------------------------------------------------------------
 
-## Developing
+## Run Tests
 
-- Lint/format/type: `black .`, `flake8`, `mypy` (install extras with `pip install -e ".[dev]"`)
-- Docs: `pip install -e ".[docs]" && ./scripts/docs-serve.sh`
-- Tests: `pytest -v`
+``` bash
+pytest
+```
 
-## Documentation
+------------------------------------------------------------------------
 
-MkDocs site sources are under `docs/` (Material theme). The navigation is defined in `mkdocs.yml`; API reference is generated via `mkdocstrings`.
+## Dev Setup
 
-## Contributing
+``` bash
+pip install -e ".[dev]"
+```
 
-- Prefer adding tests alongside changes.
-- Keep imports under the `aid2e` namespace (`aid2e.cli`, `aid2e.utilities.configurations`, etc.).
-- Update docs and fixtures when changing configuration schemas.
+Formatting / linting:
+
+``` bash
+black src tests
+isort src tests
+flake8 src tests
+mypy src
+```
+
+------------------------------------------------------------------------
+
+## Docs
+
+``` bash
+pip install -e ".[docs]"
+mkdocs serve
+```
+
+------------------------------------------------------------------------
+
+## Project Structure
+
+    src/aid2e/
+      cli/
+      optimizers/
+        ax/
+        pymoo/
+      schedulers/
+      utilities/
+
+------------------------------------------------------------------------
+
+## Links
+
+-   Repo: https://github.com/aid2e/AID2E-framework
+-   Docs: https://aid2e.github.io/AID2E-framework
+
+------------------------------------------------------------------------
+
+## License
+
+MIT

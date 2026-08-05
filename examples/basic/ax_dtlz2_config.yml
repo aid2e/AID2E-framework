@@ -1,0 +1,50 @@
+# AID2E Ax Optimizer Configuration for DTLZ2
+# Multi-objective optimization example with Sobol + Modular BoTorch
+
+# Optimization configuration
+name: "DTLZ2 Multi-Objective Bayesian Optimization"
+description: "DTLZ2 benchmark problem with 10 variables and 2 objectives using Ax optimizer"
+
+# Optimizer configuration
+optimizer:
+  name: "ax"
+  type: "Bayesian"
+  parameters:
+    initialization_strategy: "sobol"
+    generator: "BOTORCH_MODULAR"
+    n_initial_samples: 10
+    batch_size: 3
+    seed: 42
+
+# Objectives to optimize
+objectives:
+  - "f1"  # First objective (minimize)
+  - "f2"  # Second objective (minimize)
+
+# Optimization settings
+n_iterations: 30
+n_initial_samples: 10
+parallel_evaluations: 3
+
+# DTLZ2 problem parameters (search space)
+parameters:
+  x1:
+    bounds: [0.0, 1.0]
+  x2:
+    bounds: [0.0, 1.0]
+  x3:
+    bounds: [0.0, 1.0]
+  x4:
+    bounds: [0.0, 1.0]
+  x5:
+    bounds: [0.0, 1.0]
+  x6:
+    bounds: [0.0, 1.0]
+  x7:
+    bounds: [0.0, 1.0]
+  x8:
+    bounds: [0.0, 1.0]
+  x9:
+    bounds: [0.0, 1.0]
+  x10:
+    bounds: [0.0, 1.0]

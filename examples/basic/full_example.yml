@@ -5,15 +5,41 @@
 problem:
   name: "DTLZ2 Multi-Objective Optimization"
   type: "toy"  # Toy benchmark problem
+  output_location: "/tmp"
+  work_location: "/tmp"
 
   # Objectives for the optimization. Each objective has a name and direction.
   # The objectives returned will be a dictionary with these names as keys.
   # example: {"f1": value1, "f2": value2}
   objectives:
     - name: "f1"
-      minimize: true
+      direction: "minimize"
+      computation:
+        steps:
+          stages:
+            - name: "evaluate_f1"
+              script:
+                path: "./examples/basic/scripts/dtlz2_problem.py"
+                output_file: "objectives_{job_id}.json"
+                timeout_sec: 300
+              produces_objective: true
+      metrics_keys: ["f1"]
     - name: "f2"
-      minimize: true
+      direction: "minimize"
+      computation:
+        steps:
+          stages:
+            - name: "prepare"
+              jobs:
+                - name: "prepare_inputs"
+                  command: "python scripts/prepare_inputs.py"
+            - name: "evaluate"
+              depends_on: ["prepare"]
+              jobs:
+                - name: "run_sim"
+                  command: "python ./examples/basic/scripts/dtlz2_problem.py"
+              produces_objective: true
+      metrics_keys: ["f2"]
 
   # Design parameters can be loaded from file (path) or defined inline.
   # The loader will:
@@ -21,44 +47,18 @@ problem:
   #   - If 'path' is not provided: use inline parameters directly
   #   - If both are provided: raise an error
   design_space:
-    path: "./examples/basic/design.params"
+    path: "./design.params"
     
 optimizer:
-  # Choose optimization algorithm family: "BO" (Bayesian Optimization) or "EA" (Evolutionary Algorithm)
-  kind: "BO"
-  max_iterations: 100
-
-  # Configuration specific to Bayesian Optimization (used when kind == "BO")
-  bo:
-    surrogate_model:
-      name: "GaussianProcess"
-      kernel: "matern52"
-      noise_level: 1.0e-6
-      normalize_y: true
-
-    acquisition_function:
-      name: "qEHVI"  # Expected Hypervolume Improvement (batch)
-      parameters:
-        num_mc_samples: 128
-        objective_thresholds: [0.0, 0.0]
-
-    parameters:
-      initial_design: "lhs"  # Latin Hypercube Sampling
-      n_initial_samples: 24
-      batch_size: 4
-      parallel_evaluations: 4
-
-  # Alternative configuration for Evolutionary Algorithms (used when kind == "EA")
-  # Uncomment and set kind: "EA" to use this section instead of BO.
-  # ea:
-  #   population_size: 100
-  #   crossover_rate: 0.9
-  #   mutation_rate: 0.1
-  #   selection: "tournament"
-  #   elitism: 2
-  #   parameters:
-  #     max_generations: 80
-  #     parallel_evaluations: 8
+  name: "ax"
+  type: "bayesian"
+  parameters:
+    initialization_strategy: "sobol"
+    generator: "BOTORCH_MODULAR"
+    n_initial_samples: 24
+    n_iterations: 100
+    batch_size: 4
+    seed: 42
 
 metadata:
   project: "AID2E"

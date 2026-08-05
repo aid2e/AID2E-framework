@@ -49,25 +49,18 @@ problem:
       - name: "sum_constraint"
         description: "Sum of x1 and x2 must be less than 1.5"
         rule: "DTLZ2_variables.x1 + DTLZ2_variables.x2 < 1.5"
-
-optimization:
-  name: "DTLZ2 MOBO Optimization"
-  description: "Multi-objective Bayesian optimization of DTLZ2 benchmark problem"
-  
-  optimizer:
-    name: "MOBO"
-    type: "Bayesian"
-    parameters:
-      acquisition_function: "EHVI"  # Expected Hypervolume Improvement
-      kernel: "matern52"
-      n_restarts_optimizer: 10
-  
+      
   objectives:
-    - "minimize:f1"
-    - "minimize:f2"
-  
-  constraints: []
-  
-  n_iterations: 100
-  n_initial_samples: 20
-  parallel_evaluations: 4
+  - "minimize:f1"
+  - "minimize:f2"
+
+optimizer:
+  name: "ax"
+  type: "bayesian"
+  parameters:
+    initialization_strategy: "sobol"
+    generator: "BOTORCH_MODULAR"
+    n_initial_samples: 20
+    n_iterations: 100
+    batch_size: 4
+    seed: 42

@@ -1,0 +1,112 @@
+problem:
+  name: "DTLZ2 Single Objective Optimization"
+  type: "toy"
+  description: "Single-objective DTLZ2 test problem with scheduler cascade"
+
+  # Design space parameters
+  design_space:
+    path: "examples/complete/design.params"
+
+  # ========================================================================
+  # OBJECTIVES: Define what we're optimizing for
+  # ========================================================================
+  # This is a SINGLE objective: f1 only (minimize)
+  objectives:
+    - name: "f1"
+      direction: "minimize"
+      
+      # Objective-level scheduler (applies to this objective's execution)
+      scheduler:
+        runner_type: "JobLibRunner"
+        parameters:
+          n_jobs: -1        # Use all available cores
+          backend: "threading"
+      
+      # Objective plan: HOW to compute f1
+      objective_plan:
+        steps:
+          stages:
+            - name: "evaluate_f1"
+              script:
+                path: "examples/complete/scripts/dtlz2_f1.py"
+                output_file: "f1.json"
+                timeout_sec: 600
+              produces_objective: true
+      
+      # Metrics to extract from the objective plan output
+      metrics_keys: ["f1"]
+
+# SECTION 2: SCHEDULER CONFIGURATION
+# Global scheduler defaults (can be overridden at workflow/branch/stage level)
+# ============================================================================
+scheduler:
+  runner_type: "JobLibRunner"
+  parameters:
+    n_jobs: 4          # Use 4 parallel jobs by default
+    backend: "loky"    # Use process-based parallelism (default)
+
+# SECTION 3: WORKFLOW EXECUTION
+# How to execute the optimization (stages, parallelism, etc.)
+# NOTE: When objectives are simple (single script call), workflows are optional
+# ============================================================================
+workflows:
+  - name: "dtlz2_single_eval"
+    description: "Single objective evaluation workflow"
+    
+    # Workflow-level scheduler (OVERRIDES global scheduler)
+    # PRECEDENCE: workflow scheduler > global scheduler
+    scheduler:
+      runner_type: "JobLibRunner"
+      parameters:
+        n_jobs: 8          # 8 jobs at workflow level
+        backend: "threading"
+    
+    branches:
+      - name: "main"
+        description: "Main evaluation branch"
+        
+        # Branch-level scheduler (OVERRIDES workflow scheduler)
+        # PRECEDENCE: branch scheduler > workflow scheduler > global scheduler
+        scheduler:
+          runner_type: "JobLibRunner"
+          parameters:
+            n_jobs: 2      # 2 jobs at branch level
+            backend: "loky"
+        
+        stages:
+          - name: "evaluate"
+            description: "Evaluate objective f1 for design points"
+            
+            # Jobs: individual computational tasks
+            jobs:
+              - name: "compute_f1"
+                command: "python examples/complete/scripts/dtlz2_f1.py"
+                outputs:
+                  - path: "f1.json"
+                    format: "json"
+            
+            # Job factory: parallelize the job across design points
+            # Creates 4 copies of the job (one per design point)
+            job_factory:
+              type: "range"
+              params:
+                n: 4
+            
+            # Parallelism policies
+            parallelism:
+              max_concurrent: 4      # Max 4 jobs running simultaneously
+              retry_max: 2           # Retry failed jobs up to 2 times
+              timeout_sec: 300       # Kill job if it exceeds 300 seconds
+            
+            # Stage-level scheduler (OVERRIDES branch scheduler)
+            # PRECEDENCE: stage scheduler > branch scheduler > workflow scheduler > global scheduler
+            scheduler:
+              runner_type: "JobLibRunner"
+              parameters:
+                n_jobs: 4            # 4 jobs at stage level
+                backend: "loky"
+            
+            # Output artifacts produced by this stage
+            outputs:
+              - path: "f1.json"
+                format: "json"

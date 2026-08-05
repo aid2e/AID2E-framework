@@ -1,0 +1,374 @@
+# ============================================================================
+# ePIC BIC Single-Objective Optimization
+# ============================================================================
+# This example shows how to configure and run an entire
+# ePIC workflow in YAML.
+#
+# Usage:
+#   aid2e optimize epic_imaging_optimization.yml
+# ============================================================================
+
+# SECTION 0: PROBLEM DEFINITION
+# What to optimize (objectives) and design space
+# ============================================================================
+problem:
+  name: "BIC Single-Objective Optimization"
+  problem_type: "EPIC_CALORIMETRY"
+  description: "Single-objective optimization of the BIC for angular resolution"
+  output_location: "epic_example_test"
+  work_location: "epic_example_exec"
+
+  # ePIC Environment Configuration
+  # ==============================
+  # Configure paths to the ePIC software stack. Either eic_shell OR
+  # singularity_image must be provided. If both are provided,
+  # singularity_image takes precedence.
+  epic_environment:
+
+    # Option A: Use eic-shell script
+    eic_shell: "/path/to/my/eic-shell"
+
+    # Option B: Or use singularity image
+    # singularity_image: "/path/to/my/eic_xl-nightly.sif"
+
+    # Path to ePIC installation directory. This
+    # will be copied and modified during execution.
+    epic_install: "./epic"
+
+    # Geometry configuration file to use (e.g. epic, epic_full)
+    epic_config: "epic"
+
+  # ===========================================================================
+  # PARAMETERS: Define what we're optimizing
+  # ===========================================================================
+  # Here, we want to find the optimal combination of AstroPix
+  # staves in the BIC. Staves can be enabled (1) or disabled
+  # (0) in their xml files.
+  #
+  # NOTE: the inline_design keyword indicates that parameters will
+  # be defined directly in this file. Parameters can also be defined
+  # in a separate file, such as
+  #
+  #   examples/basic/design.params
+  inline_design:
+    epic_design_space:
+      epic_design_parameters:
+        bic:
+          file_path: "compact/ecal/bic_default.xml"
+          parameters:
+
+            enable_staves_2:
+              value: 0
+              choices: [0, 1]
+              xml_path: ".//constant[@name='EcalBarrel_enable_staves_2']"
+              attribute: "value"
+              unit: ""
+
+            enable_staves_3:
+              value: 1
+              choices: [0, 1]
+              xml_path: ".//constant[@name='EcalBarrel_enable_staves_3']"
+              attribute: "value"
+              unit: ""
+
+            enable_staves_4:
+              value: 1
+              choices: [0, 1]
+              xml_path: ".//constant[@name='EcalBarrel_enable_staves_4']"
+              attribute: "value"
+              unit: ""
+
+            enable_staves_5:
+              value: 0
+              choices: [0, 1]
+              xml_path: ".//constant[@name='EcalBarrel_enable_staves_5']"
+              attribute: "value"
+              unit: ""
+
+            enable_staves_6:
+              value: 1
+              choices: [0, 1]
+              xml_path: ".//constant[@name='EcalBarrel_enable_staves_6']"
+              attribute: "value"
+              unit: ""
+
+      optimization_groups:
+        default:
+          - "bic.EcalBarrel_enable_staves_2"
+          - "bic.EcalBarrel_enable_staves_3"
+          - "bic.EcalBarrel_enable_staves_4"
+          - "bic.EcalBarrel_enable_staves_5"
+          - "bic.EcalBarrel_enable_staves_6"
+
+  # ========================================================================
+  # OBJECTIVES: Define what we're optimizing for
+  # ========================================================================
+  # This a SINGLE objective: one run of the workflow
+  # will output the calculated eta resolution, which
+  # we want to minimize
+  objectives:
+    - name: "phi_resolution"
+      direction: "minimize"
+
+      # Objective-level scheduler (applies to this objective's execution)
+      scheduler:
+        runner_type: "JobLibRunner"
+        parameters:
+          n_jobs: -1        # Use all available cores
+          backend: "threading"
+      
+      # Objective plan: HOW to compute eta_resolution
+      # TODO this is the function to extract the objectives
+      #   -- should retrieve value from an output file (e.g. maybe a json file)
+      #      generated during workflow below
+      # FIXME (DMA) the relationship between this and the workflows
+      # isn't clear to me. We might consider renaming this to be
+      # indicative of when to use plan vs. a workflow
+      objective_plan:
+        steps:
+          stages:
+            - name: "evaluate_phi_resolution"
+              script:
+                path: "scripts/test.py"
+                output_file: "photon_phi_resolution.json"
+                timeout_sec: 60  # should take no more than 1 min to extract
+              produces_objective: true
+      
+      # Metrics to extract from the objective plan output
+      metrics_keys: ["phi_resolution"]
+
+# SECTION 1: OPTIMIZER DEFINITION
+# How to optimize the defined problem
+# =============================================================================
+optimizer:
+  name: "ax"       # supported optimizers: "ax", "pymoo"
+  type: "bayesian" # supported types: "bayesian" (Ax), "generative" (PyMoo)
+
+  # ===========================================================================
+  # PARAMETERS: Opimitizer-specific strategy and options
+  # ===========================================================================
+  # Here, we define (1) our generation strategy -- how to propose new design
+  # points -- and (2) all optimizer-specific options. In this case, we will
+  #   1. Run n_initial_samples trials with design points generated quasi-
+  #      randomly (via a "Sobol sequence")
+  #   2. And then run n_iterations - n_initial_samples trials with design
+  #      points generated by a "Modular BoTorch" model
+  #
+  # For more details on generation strategies in Ax and BoTorch, see
+  #
+  #   https://ax.dev/docs/generation_strategy
+  #   https://botorch.org/docs/introduction
+  #
+  parameters:
+    initialization_strategy: "sobol"
+    generator: "BOTORCH_MODULAR"
+
+    # Options for Modular BoTorch generator
+    generator_kwargs:
+      botorch_acqf_class: "qLogNoisyExpectedHypervolumeImprovement"
+      acquisition_options:
+        prune_baseline: true
+
+    # Generarl generation strategy options
+    generator_gen_kwargs:
+      model_gen_options:
+        optimizer_kwargs:
+          sequential: false
+          num_restarts: 10
+
+    # Minimum (or maximum) value of computed objectives to consider design
+    # point as a viable candidate. Anything trial ABOVE (or BELOW if
+    # maximizing) this will not be considered.
+    objective_thresholds:
+      phi_resolution: 1.0
+
+    n_initial_samples: 1 # number of initialization trials
+    n_iterations: 2      # total number of trials to run
+    batch_size: 1        # (optional) max number of trials to run in parallel
+    seed: 42             # (optional) seed to use for random number generation
+
+# SECTION 2: SCHEDULER CONFIGURATION
+# Global scheduler defaults (can be overridden at workflow/branch/stage level)
+# =============================================================================
+scheduler:
+  runner_type: "JobLibRunner"
+  parameters:
+    n_jobs: 4       # Use 4 parallel jobs by default
+    backend: "loky" # Use process-based parallelism (default)
+
+# SECTION 3: WORKFLOW EXECUTION
+# How to execute the optimization (stages, parallelism, etc.)
+# =============================================================================
+# Here, we have only one workflow: optimize the number of Astropix layers
+# in the BIC. Multiple optimizations can be run in parallel, where each
+# one would have a corresponding workflow.
+#
+# Notice the 'stack_type' keyword: this indicates which software stack we're
+# going to use. For this example, we'll use the ePIC stack.
+#
+# NOTE: When objectives are simple (single script call), workflows are optional
+workflows:
+  workflows:
+    - name: "imaging_optimization"
+      description: "Optimize the number of AstroPix layers in the BIC"
+      stack_type: "epic"
+
+      # =========================================================================
+      # BRANCHES: Parallel execution paths
+      # =========================================================================
+      # One optimization can have multiple branches which run in
+      # parallel. These should correspond to independent pipelines.
+      # For example, suppose we had 2 objectives,
+      #   1. one for single particle simulations and
+      #   2. another for an event generator.
+      # These could be run in parallel as separate branches.
+      branches:
+        - name: "photon_phi_resolution"
+          description: "Calculate phi resolution for single photons"
+
+          # =====================================================================
+          # STAGES: Groups of sequential computation steps
+          # =====================================================================
+          # The workflow below has 3 stages:
+          #  1. Run overlap checks on modified geometry
+          #  2. Run Geant4 simulation via npsim for 3 kinematic points in parallel
+          #  3. Merge npsim output, run eicrecon on merged output, and finally
+          #     run analysis on eicrecon output
+          stages:
+
+            # Stage 1: run overlap checks
+            # ==================================================================
+            - name: "geo"
+              description: "Check for overlaps in modified geomtry"
+              jobs:
+
+                # JOBS: Individual steps in a stage of a workflow
+                # ==============================================================
+                # A stage can be composed of any number of jobs, which are
+                # individual actions to be run. Details of how the job is
+                # run are set in the "payload" block
+                - name: "geo_job"
+                  payload:
+                    evaluator_type: "stack" # FIXME this should be default
+                    stack_type: "epic" # FIXME this should be default
+                    job_id: "geo"
+
+
+                  # LAYERS: Components of a software stack
+                  # ============================================================
+                  # A software stack is composed of one or more components,
+                  # such as npsim or EICrecon, referred to as a "layer" in
+                  # For a stack worklow, one or more layers can be run per job.
+                  #
+                  # The "name" keyowrd indicates which layer to run. For the
+                  # ePIC stack, we support:
+                  #   -- geo: check for overlaps in geometry
+                  #   -- sim: run npsim (Geant4)
+                  #   -- rec: run EICrecon
+                  #   -- ana: run user code or other commands (e.g. running
+                  #      an analysis, compiling a plugin, etc.)
+                  layers:
+                    - name: "geo" # NOTE this should be a unique identifier for THIS instance of a layer
+                      layer: "geo"
+                      inputs:
+                        - "{{geometry_dir}}/install/share/epic/epic.xml"
+                      outputs:
+                        - "{{execution_dir}}/geo.overlaps.txt"
+
+            # Stage 2: run Geant4 simulations
+            # =================================================================
+            - name: "sim"
+              description: "Simulate single photons"
+              jobs:
+
+                # NOTE: anything in {{ }} will be substituted during execution
+                - name: "sim_job"
+                  payload:
+                    evaluator_type: "stack" # FIXME this should be default
+                    stack_type: "epic" # FIXME this should be default
+                    job_id: "sim"
+                  layers:
+                    - name: "sim"
+                      layer: "sim"
+                      inputs:
+                        - "inputs/central_photons_bin{{job_id}}.py" # FIXME job ID might not be what we want here...
+                      outputs:
+                        - "{{execution_dir}}/central_photons_bin{{job_id}}.edm4hep.root"
+
+              # Now we're going to create 3 copies of the job with job IDs
+              # 0, 1, 2. These correspond to the 3 kinematic points to run,
+              # each of which is defined by a DD4hep steering file:
+              #   - central_electrons_bin0.py
+              #   - central_electrons_bin1.py
+              #   - central_electrons_bin2.py
+              job_factory:
+                type: "range"
+                params:
+                  n: 3
+
+              # And here we specify how many copies we can run in parallel
+              parallelism:
+                max_concurrent: 3
+                retry_max: 2
+                timeout_sec: 3600 # should take no more than 30 min. per kinematic point to run
+
+            # Stage 3: Merge, run eicrecon, and do analysis
+            # =================================================================
+            - name: "merge_rec_ana"
+              description: "Merge simulation output, run reconstruction and analysis"
+              jobs:
+                - name: "merge_rec_ana_job"
+                  payload:
+                    evaluator_type: "stack" # FIXME this should be default
+                    stack_type: "epic" # FIXME this should be default
+                    job_id: "merge_rec_ana"
+
+                  # in this stage, we'll have 1 job where we run 3 layers:
+                  #   1. ana -- where we merge the 3 sim jobs
+                  #   2. rec -- where we run EICrecon on the merged sim output
+                  #   3. ana -- where we run an analysis script on the
+                  #             EICrecon output
+                  layers:
+
+                    # For 'ana' layers, you'll need to specify:
+                    #   -- 'command', which sets which command (or executable)
+                    #       to run; and
+                    #   -- 'rule', which defines how arguments and the command
+                    #      are put together on the command line
+                    # The keywords {{command}}, {{inputs}}, {{outputs}}, and
+                    # {{arguments}} will be appropriately subsituted during
+                    # execution.
+                    - name: "ana_merge"
+                      layer: "ana"
+                      inputs:
+                        - "{{outputs[sim:sim_job_0:sim](0)}}"
+                        - "{{outputs[sim:sim_job_1:sim](0)}}"
+                        - "{{outputs[sim:sim_job_2:sim](0)}}"
+                      outputs:
+                        - "{{execution_dir}}/central_photons.edm4hep.root"
+                      command: "hadd"
+                      rule: "{{command}} -f {{outputs}} {{inputs}}"
+
+                    # For the other layers, 'command' and 'rule' are already
+                    # defined. The defaults can be overwritten if needed.
+                    - name: "rec"
+                      layer: "rec"
+                      inputs:
+                        - "{{outputs[merge_rec_ana:merge_rec_ana_job:ana_merge](0)}}"
+                      outputs:
+                        - "{{execution_dir}}/central_photons.edm4eic.root"
+                      arguments:
+                        - "-Pnthreads=8"
+                        - "-Peicrecon:LogLevel=debug"
+
+                    - name: "ana_reso"
+                      layer: "ana"
+                      inputs:
+                        - "{{outputs[merge_rec_ana:merge_rec_ana_job:rec](0)}}"
+                      outputs:
+                        - "{{execution_dir}}/central_photons.hist.root"
+                      arguments:
+                        - "-c phi"
+                        - "-s 22"
+                      command: "scripts/bic_angular_reso.py"
+                      rule: "python {{command}} -i {{inputs}} -o {{outputs}} {{arguments}}"

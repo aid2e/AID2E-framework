@@ -15,7 +15,7 @@ def _make_ana_layer_payload() -> Dict[str, Any]:
         "ana_details": {
             "name": "test_ana",
             "command": "python run_test_ana.py",
-            "rule": "{command} {arguments} -I {inputs} -O {outputs}",
+            "rule": "{{command}} {{arguments}} -I {{inputs}} -O {{outputs}}",
         },
         "ana_input": [
             "ana_input.root",
@@ -35,7 +35,7 @@ def _make_experiment_stack_payload() -> Dict[str, Any]:
         "sim_details" : {
             "name"    : "sim",
             "command" : "dosim",
-            "rule"    : '{command} {arguments} -I {inputs} -O {outputs}'
+            "rule"    : '{{command}} {{arguments}} -I {{inputs}} -O {{outputs}}'
         },
         "sim_input" : [
             "sim_input.root",
@@ -83,6 +83,9 @@ def test_experiment_stack():
     @dataclass
     class MyExperimentStack(ExperimentStack):
         sim: MySimLayer = field(default_factory = MySimLayer)
+
+        def make_driver_command(self, script: str) -> str:
+            return f"./{script}"
 
     mystack = MyExperimentStack()
     assert isinstance(mystack, MyExperimentStack)

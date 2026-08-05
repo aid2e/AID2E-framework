@@ -87,27 +87,13 @@ problem:
         - "silicon_tracker.inner_radius"
         - "silicon_tracker.outer_radius"
 
-optimization:
-  name: "ePIC Tracking MOBO"
-  description: "Multi-objective optimization of ePIC tracking detector design"
-  
-  optimizer:
-    name: "MOBO"
-    type: "Bayesian"
-    parameters:
-      acquisition_function: "EHVI"
-      kernel: "matern52"
-      n_restarts_optimizer: 5
-      batch_size: 4
-  
-  objectives:
-    - "maximize:tracking_efficiency"
-    - "minimize:material_budget"
-    - "maximize:momentum_resolution"
-  
-  constraints:
-    - "material_budget < 0.1"  # Less than 10% radiation length
-  
-  n_iterations: 50
-  n_initial_samples: 10
-  parallel_evaluations: 4
+optimizer:
+  name: "ax"
+  type: "bayesian"
+  parameters:
+    initialization_strategy: "sobol"
+    generator: "BOTORCH_MODULAR"
+    n_initial_samples: 10
+    n_iterations: 50
+    batch_size: 4
+    seed: 42

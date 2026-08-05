@@ -1,0 +1,68 @@
+# AID2E Full Example Configuration with SLURM HPC Scheduler
+# This example demonstrates using the SLURM runner for HPC cluster execution
+
+problem:
+  name: "DTLZ2 Multi-Objective Optimization on HPC"
+  problem_type: "toy"
+  output_location: "/tmp"
+  work_location: "/tmp"
+
+  objectives:
+    - name: "f1"
+      direction: "minimize"
+      computation:
+        steps:
+          stages:
+            - name: "evaluate_f1"
+              script:
+                path: "scripts/dtlz2_problem.py"
+                output_file: "objectives_{job_id}.json"
+                timeout_sec: 600
+              produces_objective: true
+      metrics_keys: ["f1"]
+    - name: "f2"
+      direction: "minimize"
+      computation:
+        steps:
+          stages:
+            - name: "evaluate_f2"
+              script:
+                path: "scripts/dtlz2_problem.py"
+                output_file: "objectives_{job_id}.json"
+                timeout_sec: 600
+              produces_objective: true
+      metrics_keys: ["f2"]
+
+  design_parameters_file: "design.params"
+
+optimizer:
+  name: "ax"
+  type: "bayesian"
+  parameters:
+    initialization_strategy: "sobol"
+    generator: "BOTORCH_MODULAR"
+    n_initial_samples: 24
+    n_iterations: 100
+    batch_size: 4
+    seed: 42
+
+# Scheduler configuration for HPC execution using SLURM
+scheduler:
+  runner_type: "SlurmRunner"
+  parameters:
+    partition: "gpu"  # SLURM queue/partition name
+    ntasks: 1
+    cpus_per_task: 8  # Use 8 CPUs per task
+    mem: "32GB"  # Allocate 32 GB memory per task
+    time: "12:00:00"  # 12 hour wall clock limit
+    gres: "gpu:1"  # Request 1 GPU per task
+    job_name_prefix: "aid2e_dtlz2"
+    constraint: "gpu:v100"  # Specific GPU constraint
+  max_retries: 3
+  output_location: "./slurm_output"
+  monitor_interval: 60  # Check job status every 60 seconds
+
+metadata:
+  project: "AID2E"
+  description: "AI assisted Detector Design for EIC - HPC Execution"
+  version: "0.0.1"

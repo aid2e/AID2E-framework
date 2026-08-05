@@ -1,33 +1,49 @@
 #!/usr/bin/env python3
 """
-ePIC-specific design configuration with XML modification support.
-Extends the base DesignConfig from the configurations module.
+ePIC-specific design configuration. Extends the base
+DesignConfig from the configurations module.
 """
 
-from typing import Dict, List, Optional, Tuple, Any
+from typing import ClassVar, Dict, List, Optional, Tuple, Union, Any
 from pydantic import BaseModel, Field, RootModel, model_validator
 from pathlib import Path
 import yaml
 import os
 import re
 
-from aid2e.utilities.configurations.base_models import BaseParameter
-from aid2e.utilities.configurations.design_config import DesignConfig, ParameterConstraint
+from aid2e.utilities.configurations.base_models import BaseParameter, RangeParameter, ChoiceParameter
+from aid2e.utilities.configurations.design_config import DesignConfig, DesignConfigLoader, ParameterConstraint
 
 
-class EpicParameter(BaseParameter):
+class EpicRangeParameter(RangeParameter):
     """
     Parameter with XML modification capability for ePIC detector.
-    Extends BaseParameter with XML path, file path, and unit information.
+    Extends RangeParameter with XML path, file path, and unit information.
     """
-    value: float
-    bounds: Tuple[float, float]
     xml_path: str  # XPath to XML element, e.g., "//constant[@name='...']/@value"
     unit: Optional[str] = None  # e.g., "mm", "cm", "um"
-    
+    attribute: Optional[str] = "value"  # the attribute of XML element to set, e.g. value
+
     @property
     def type(self) -> str:
         return "epic_range"
+
+class EpicChoiceParameter(ChoiceParameter):
+    """
+    Parameter with XML modification capability for ePIC detector.
+    Extends ChoiceParameter with XML path, file path, and unit information.
+    """
+    xml_path: str  # XPath to XML element, e.g., "//constant[@name='...']/@value"
+    unit: Optional[str] = None  # e.g., "mm", "cm", "um"
+    attribute: Optional[str] = "value"  # the attribute of XML element to set, e.g. value
+
+    @property
+    def type(self) -> str:
+        return "epic_choice"
+
+
+# Generic ePIC parameter
+EpicParameter = Union[EpicRangeParameter, EpicChoiceParameter]
 
 
 class EpicParameterGroup(BaseModel):
@@ -39,7 +55,10 @@ class EpicParameterGroup(BaseModel):
 
 
 class EpicDesignParameters(RootModel[Dict[str, EpicParameterGroup]]):
-    """Collection of ePIC parameter groups."""
+    """
+    Collection of ePIC parameter groups.
+    """
+    key: ClassVar[str] = 'epic_design_parameters'
 
     @model_validator(mode="before")
     @classmethod
@@ -67,8 +86,8 @@ class EpicDesignConfig(DesignConfig):
     # Override to use ePIC-specific parameters
     design_parameters: Optional[Any] = None  # Set to None to avoid conflicts
     epic_design_parameters: EpicDesignParameters
-    optimization_groups: Optional[Dict[str, List[str]]] = Field(default_factory=dict)
-    
+    key: ClassVar[str] = 'epic_design_space'
+
     def get_flat_parameters(self) -> Dict[str, BaseParameter]:
         """Returns a flat dictionary of all parameters keyed by their qualified name."""
         flat = {}
@@ -81,7 +100,7 @@ class EpicDesignConfig(DesignConfig):
         """Get all parameter qualified names."""
         return list(self.get_flat_parameters().keys())
     
-    def get_xml_modifications(self, param_values: Optional[Dict[str, float]] = None) -> Dict[str, List[Tuple[str, str, float]]]:
+    def get_xml_modifications(self, param_values: Optional[Dict[str, float]] = None) -> Dict[str, List[Tuple[str, str, str, Any]]]:
         """
         Get XML modifications for given parameter values.
         
@@ -90,14 +109,14 @@ class EpicDesignConfig(DesignConfig):
                          If None, uses default values from config.
             
         Returns:
-            Dictionary mapping file_path -> [(xml_path, unit, new_value), ...]
+            Dictionary mapping file_path -> [(xml_path, attribute, unit, new_value), ...]
         """
         if param_values is None:
             # Use default values from config
             param_values = {name: param.value for name, param in self.get_flat_parameters().items()}
         
         modifications = {}
-        
+
         for group_name, group in self.epic_design_parameters.root.items():
             # Expand environment variables in file path
             file_path = os.path.expandvars(group.file_path)
@@ -111,6 +130,7 @@ class EpicDesignConfig(DesignConfig):
                     new_value = param_values[qualified_name]
                     modifications[file_path].append((
                         param.xml_path,
+                        param.attribute,
                         param.unit or "",
                         new_value
                     ))
@@ -120,48 +140,24 @@ class EpicDesignConfig(DesignConfig):
     def get_file_paths(self) -> List[str]:
         """Get all unique file paths referenced in the configuration."""
         return list(set(
-            os.path.expandvars(group.file_path) 
+            os.path.expandvars(group.file_path)
             for group in self.epic_design_parameters.root.values()
         ))
-    
-    def get_optimization_group(self, group_name: str) -> Optional[List[str]]:
-        """Get parameter names for a specific optimization group."""
-        return self.optimization_groups.get(group_name) if self.optimization_groups else None
-    
-    def get_all_optimization_groups(self) -> Dict[str, List[str]]:
-        """Get all optimization groups."""
-        return self.optimization_groups or {}
 
 
-class EpicDesignConfigLoader:
+class EpicDesignConfigLoader(DesignConfigLoader):
     """
-    Loader for ePIC design configurations.
-    Loads YAML files and instantiates EpicDesignConfig objects.
+    Loader for ePIC design configurations. Can load either from
+    external files or inline YAML blocks. instantiates EpicDesignConfig
+    objects.
     """
-    
+    space_key = EpicDesignConfig.key
+    param_key = EpicDesignParameters.key
+
     @staticmethod
-    def load(file_path: str) -> "EpicDesignConfig":
+    def load(file_path: str = None, design_data: Dict[str, Any] = None) -> "EpicDesignConfig":
         """
-        Load an ePIC design configuration from a YAML file.
-        
-        Args:
-            file_path: Path to the YAML configuration file
-            
-        Returns:
-            EpicDesignConfig instance
-            
-        Raises:
-            FileNotFoundError: If the file doesn't exist
-            ValueError: If the file format is invalid
+        Load an ePIC design configuration.
         """
-        path = Path(file_path)
-        if not path.exists():
-            raise FileNotFoundError(f"Configuration file not found: {file_path}")
-        
-        with open(path, 'r') as f:
-            data = yaml.safe_load(f)
-        
-        if 'epic_design_parameters' not in data:
-            raise ValueError(f"Invalid configuration file format: {file_path}. Missing 'epic_design_parameters'.")
-        
+        data = EpicDesignConfigLoader._process_inputs(file_path, design_data)
         return EpicDesignConfig(**data)

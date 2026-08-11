@@ -12,10 +12,7 @@ Tests the DAGExecutor orchestration engine including:
 Project: AID2E v0.0.0 - AI assisted Detector Design for EIC
 """
 
-import json
 import pytest
-import shlex
-import sys
 import tempfile
 import shutil
 from pathlib import Path
@@ -33,26 +30,7 @@ from aid2e.utilities.workflows import (
     JobContext,
 )
 from aid2e.utilities.configurations import SchedulerConfiguration
-from aid2e.utilities.configurations.objectives import (
-    ObjectiveDefinition,
-    ObjectiveDirection,
-    ObjectivePlanSpec,
-)
-from aid2e.schedulers.JobLib import JobLibRunnerConfig
 from aid2e.utilities.runtime_builders import build_workflow_executor_from_config
-
-
-def objective_preprocess_step(**kwargs):
-    """Inline objective test step that depends only on the design point."""
-    return {"scaled": kwargs["design_point"]["x"] * 2.0}
-
-
-def objective_producer_step(**kwargs):
-    """Inline objective test step that consumes an upstream step result."""
-    return {
-        "score": kwargs["inputs"]["preprocess"]["scaled"] + 1.0,
-        "score_sem": 0.05,
-    }
 
 
 class TestDAGExecutorBasics:
@@ -434,62 +412,12 @@ class TestObjectiveComputation:
         executor = DAGExecutor(workflow, base_output_dir=str(tmp_path))
         
         # Simulate job outputs in XCom with correct key format (job_id:key)
-        executor.global_xcom["job1:objectives"] = {"f1": 0.5, "f1_sem": 0.01}
-        executor.global_xcom["job2:artifact:results.json"] = json.dumps(
-            {"objectives": {"f2": 0.8, "f2_sem": 0.02}}
-        )
+        executor.global_xcom["job1:objectives"] = {"f1": 0.5, "f2": 0.8}
+        executor.global_xcom["job2:result"] = "other output"
         
         objectives = executor._compute_objectives()
         
-        assert objectives == {"f1": 0.5, "f1_sem": 0.01, "f2": 0.8, "f2_sem": 0.02}
-
-    def test_joblib_command_json_artifact_returns_objective(self, tmp_path):
-        """Test a DTLZ2-style command workflow returning JSON objectives."""
-        from aid2e.utilities.configurations.objectives import ObjectiveDefinition, ObjectiveDirection
-
-        script = "import json, sys; json.dump({'objectives': {'score': 1.25}}, open(sys.argv[1], 'w'))"
-        workflow = WorkflowDefinition(
-            name="joblib_command_eval",
-            objectives=[
-                ObjectiveDefinition(name="score", direction=ObjectiveDirection.MINIMIZE),
-            ],
-            branches=[
-                BranchDefinition(
-                    name="main",
-                    stages=[
-                        StageDefinition(
-                            name="evaluate",
-                            jobs=[
-                                JobDefinition(
-                                    name="write_metrics",
-                                    command=(
-                                        f"{sys.executable} -c {shlex.quote(script)} "
-                                        "{{output_dir}}/objectives.json"
-                                    ),
-                                    payload={"evaluator_type": "bash"},
-                                    outputs=[
-                                        {
-                                            "path": "{{output_dir}}/objectives.json",
-                                            "format": "json",
-                                        }
-                                    ],
-                                )
-                            ],
-                        )
-                    ],
-                )
-            ],
-        )
-        executor = DAGExecutor(
-            workflow=workflow,
-            base_output_dir=str(tmp_path),
-            scheduler_config={
-                "runner_type": "JobLibRunner",
-                "config": JobLibRunnerConfig(n_jobs=1, backend="threading"),
-            },
-        )
-
-        assert executor.execute({"x": 0.5}) == {"score": 1.25}
+        assert objectives == {"f1": 0.5, "f2": 0.8}
     
     def test_empty_objectives_when_no_xcom(self, tmp_path):
         """Test that empty objectives returned when no XCom data."""
@@ -499,100 +427,6 @@ class TestObjectiveComputation:
         objectives = executor._compute_objectives()
         
         assert objectives == {}
-
-    def test_objective_steps_execute_inline_plan(self, tmp_path):
-        """Objective steps should execute dependencies and collect SEM fields."""
-        workflow = WorkflowDefinition(
-            name="inline_objective_plan",
-            branches=[],
-            objectives=[
-                ObjectiveDefinition(
-                    name="score",
-                    direction=ObjectiveDirection.MINIMIZE,
-                    objective_plan=ObjectivePlanSpec(
-                        steps={
-                            "stages": [
-                                {
-                                    "name": "preprocess",
-                                    "inline": {
-                                        "entrypoint": (
-                                            "tests.test_utilities.test_workflows."
-                                            "test_dag_executor:objective_preprocess_step"
-                                        )
-                                    },
-                                },
-                                {
-                                    "name": "produce",
-                                    "inline": {
-                                        "entrypoint": (
-                                            "tests.test_utilities.test_workflows."
-                                            "test_dag_executor:objective_producer_step"
-                                        )
-                                    },
-                                    "depends_on": ["preprocess"],
-                                    "produces_objective": True,
-                                },
-                            ]
-                        }
-                    ),
-                    metrics_keys=["score"],
-                )
-            ],
-        )
-        executor = DAGExecutor(workflow, base_output_dir=str(tmp_path))
-
-        assert executor.execute({"x": 2.0}) == {"score": 5.0, "score_sem": 0.05}
-
-    def test_objective_steps_execute_script_plan(self, tmp_path):
-        """Objective script steps should resolve relative paths and parse JSON."""
-        script_dir = tmp_path / "scripts"
-        script_dir.mkdir()
-        script_path = script_dir / "objective.py"
-        script_path.write_text(
-            "\n".join(
-                [
-                    "import argparse, json",
-                    "parser = argparse.ArgumentParser()",
-                    "parser.add_argument('--design_params_file')",
-                    "parser.add_argument('--output_file')",
-                    "args = parser.parse_args()",
-                    "params = json.load(open(args.design_params_file))",
-                    "json.dump({'score': params['x'] + 3.0}, open(args.output_file, 'w'))",
-                ]
-            )
-        )
-        workflow = WorkflowDefinition(
-            name="script_objective_plan",
-            branches=[],
-            objectives=[
-                ObjectiveDefinition(
-                    name="score",
-                    direction=ObjectiveDirection.MINIMIZE,
-                    objective_plan=ObjectivePlanSpec(
-                        steps={
-                            "stages": [
-                                {
-                                    "name": "evaluate",
-                                    "script": {
-                                        "path": "scripts/objective.py",
-                                        "output_file": "score.json",
-                                    },
-                                    "produces_objective": True,
-                                }
-                            ]
-                        }
-                    ),
-                    metrics_keys=["score"],
-                )
-            ],
-        )
-        executor = DAGExecutor(
-            workflow,
-            base_output_dir=str(tmp_path),
-            config_dir=str(tmp_path),
-        )
-
-        assert executor.execute({"x": 2.0}) == {"score": 5.0}
 
 
 class TestEndToEndExecution:

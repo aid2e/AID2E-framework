@@ -42,9 +42,7 @@ class CombinedObjectivePlan(BaseModel):
         name: Identifier for the combined objective bundle.
         objective_plan: Plan executed once to emit multiple metrics.
         metrics: Metrics extracted from the plan output with their directions.
-        scheduler: Reserved scheduler default for this combined plan. The v0
-            runtime executes objective plans inside the DAG executor after
-            workflow stages complete.
+        scheduler: Optional scheduler default for this combined plan.
     """
 
     name: str = Field(..., description="Combined objective bundle name")
@@ -54,7 +52,7 @@ class CombinedObjectivePlan(BaseModel):
     )
     scheduler: Optional[SchedulerConfiguration] = Field(
         default=None,
-        description="Reserved scheduler default for this combined plan",
+        description="Scheduler default for this combined plan",
     )
 
 
@@ -161,6 +159,8 @@ class StageDefinition(BaseModel):
         scheduler: Stage-level scheduler (optional, inherits global if not set).
         parallelism: Parallelism policy for this stage.
         outputs: Output artifact specs produced by this stage.
+        objective_plan: Optional plan that computes or collects objective values
+            after stage jobs complete.
         
     Example:
         >>> stage = StageDefinition(
@@ -189,6 +189,10 @@ class StageDefinition(BaseModel):
     scheduler: Optional[SchedulerConfiguration] = Field(default=None, description="Stage-level scheduler override")
     parallelism: ParallelismPolicy = Field(default_factory=ParallelismPolicy, description="Parallelism policy")
     outputs: List[ArtifactSpec] = Field(default_factory=list, description="Output artifacts")
+    objective_plan: Optional[ObjectivePlanSpec] = Field(
+        default=None,
+        description="Plan that computes or collects objective values after this stage",
+    )
 
 
 class BranchDefinition(BaseModel):

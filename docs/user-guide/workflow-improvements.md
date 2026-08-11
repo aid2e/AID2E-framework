@@ -17,8 +17,7 @@ This guide documents the improvements made to AID2E's workflow and objective spe
 
 ### What Changed?
 
-Problem YAML uses the `objective_plan` block to define how an objective value
-is computed or collected.
+The term **"computation"** has been renamed to **"objective_plan"** throughout the codebase for clarity. An objective plan represents the executable specification of how to compute an objective value.
 
 ### Key Classes
 
@@ -80,7 +79,8 @@ Cascade Precedence (highest to lowest):
   1. Stage-level scheduler (override)
   2. Branch-level scheduler (branch default)
   3. Workflow-level scheduler (workflow default)
-  4. Global scheduler (global default)
+  4. Objective-level scheduler (objective default)
+  5. Global scheduler (global default)
 ```
 
 This allows fine-grained control while maintaining sensible defaults.
@@ -96,6 +96,7 @@ effective_scheduler = resolve_scheduler_cascade(
     stage_scheduler=stage_config.scheduler,
     branch_scheduler=branch_config.scheduler,
     workflow_scheduler=workflow_config.scheduler,
+    objective_scheduler=objective_config.scheduler,
     global_scheduler=global_config.scheduler,
 )
 ```
@@ -107,8 +108,9 @@ YAML configuration with scheduler cascade:
 ```yaml
 problem:
   name: "DTLZ2"
-  problem_type: "toy"
-  design_parameters_file: "design.params"
+  type: "toy"
+  design_space:
+    path: "design.params"
 
 # Global/workflow-level scheduler
 scheduler:
@@ -118,42 +120,64 @@ scheduler:
     backend: "loky"
 
 workflows:
-  workflows:
-    - name: "dtlz2_eval"
+  - name: "dtlz2_eval"
     
-      # Workflow-level scheduler (overrides global)
-      scheduler:
-        runner_type: "JobLibRunner"
-        parameters:
-          n_jobs: 4
-          backend: "threading"
+    # Workflow-level scheduler (overrides global)
+    scheduler:
+      runner_type: "JobLibRunner"
+      parameters:
+        n_jobs: 4
+        backend: "threading"
     
-      branches:
-        - name: "main"
+    branches:
+      - name: "main"
         
-          # Branch-level scheduler (overrides workflow)
-          scheduler:
-            runner_type: "JobLibRunner"
-            parameters:
-              n_jobs: 2
-              backend: "loky"
+        # Branch-level scheduler (overrides workflow)
+        scheduler:
+          runner_type: "JobLibRunner"
+          parameters:
+            n_jobs: 2
+            backend: "loky"
         
-          stages:
-            - name: "evaluate"
+        stages:
+          - name: "evaluate"
             
-              # Stage-level scheduler (overrides branch)
-              scheduler:
-                runner_type: "SlurmRunner"
-                parameters:
-                  partition: "gpu"
-                  nodes: 1
+            # Stage-level scheduler (overrides branch)
+            scheduler:
+              runner_type: "SlurmRunner"
+              parameters:
+                partition: "gpu"
+                nodes: 1
             
-              jobs:
-                - name: "compute_objective"
-                  command: "python eval.py"
+            jobs:
+              - name: "compute_objective"
+                command: "python eval.py"
+
+    objectives:
+      - name: "f1"
+        direction: "minimize"
+        
+        # Objective-level scheduler (applies to this objective)
+        scheduler:
+          runner_type: "JobLibRunner"
+          parameters:
+            n_jobs: 1
+        
+        objective_plan:
+          steps:
+            stages:
+              - name: "evaluate_f1"
+                script:
+                  path: "scripts/dtlz2.py"
+                  output_file: "f1.json"
+                produces_objective: true
 ```
 
 ### Precedence Resolution
+
+For the objective "f1" in the above example:
+1. Check objective-level scheduler → Found: `JobLibRunner` with `n_jobs=1`
+2. This is the effective scheduler for objective execution
 
 For a stage without explicit scheduler:
 1. Check stage-level scheduler → Not found
@@ -311,7 +335,6 @@ The model automatically validates:
 
 | Old Term | New Term | Notes |
 |----------|----------|-------|
-| single `script`/`inline` block | `objective_plan.steps` | Objective computation is now represented as one or more explicit steps |
 | "Computation" | "Objective Plan" | More descriptive; plan indicates it's an executable specification |
 | `multi_steps` | `steps` | Objective plans now use a neutral name for one or more stages |
 
@@ -323,7 +346,7 @@ The model automatically validates:
 objectives:
   - name: "f1"
     direction: "minimize"
-    objective_plan:
+    computation:  # Old field name
       script:
         path: "scripts/dtlz2.py"
         output_file: "f1.json"
@@ -335,7 +358,7 @@ objectives:
 objectives:
   - name: "f1"
     direction: "minimize"
-    objective_plan:
+    objective_plan:  # New field name
       steps:
         stages:
           - name: "evaluate_f1"

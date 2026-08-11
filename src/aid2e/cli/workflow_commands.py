@@ -16,14 +16,25 @@ from typing import Optional
 import click
 
 from aid2e.utilities.configurations import load_config
-from aid2e.utilities.runtime_builders import run_optimization_from_config
+from aid2e.utilities.runtime_builders import run_optimization
 
 @click.command(name="optimize")
 @click.argument("config_file", type=click.Path(exists=True))
 @click.option("--validate-only", is_flag=True, help="Validate config but do not run")
 @click.option("-v", "--verbosity", count=True, help="Increase verbosity (can be used multiple times)")
 @click.option("--log", "log_file", type=click.Path(dir_okay=False), help="Path to log file")
-def optimize(config_file: str, validate_only: bool, verbosity: int, log_file: Optional[str]):
+@click.option("--workflow", "workflow_name", help="Workflow name to execute")
+@click.option("--output", "output_dir", type=click.Path(file_okay=False), help="Output directory for this run")
+@click.option("--run-id", help="Run directory name under the output directory")
+def optimize(
+    config_file: str,
+    validate_only: bool,
+    verbosity: int,
+    log_file: Optional[str],
+    workflow_name: Optional[str],
+    output_dir: Optional[str],
+    run_id: Optional[str],
+):
     """
     Run optimization based on configuration file.
     
@@ -51,9 +62,22 @@ def optimize(config_file: str, validate_only: bool, verbosity: int, log_file: Op
         click.echo(f"  Verbosity: {verbosity}")
         if log_file:
             click.echo(f"  Log file: {log_file}")
+        if workflow_name:
+            click.echo(f"  Workflow: {workflow_name}")
+        if output_dir:
+            click.echo(f"  Output: {output_dir}")
+        if run_id:
+            click.echo(f"  Run ID: {run_id}")
         click.echo()
-        results = run_optimization_from_config(config, config_file)
+        results = run_optimization(
+            config,
+            config_file,
+            workflow_name=workflow_name,
+            output_dir=output_dir,
+            run_id=run_id,
+        )
         click.echo(click.style("Optimization completed.", fg="green"))
+        click.echo(f"  Run directory: {results['run_dir']}")
         click.echo(f"  Results: {results['optimization_results']}")
 
     except Exception as e:

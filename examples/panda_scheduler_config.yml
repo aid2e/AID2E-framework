@@ -63,7 +63,7 @@ problem:
   objectives:
     - name: "tracking_efficiency"
       direction: "maximize"
-      objective_plan:
+      computation:
         steps:
           stages:
             - name: "evaluate_tracking_efficiency"
@@ -76,7 +76,7 @@ problem:
     
     - name: "ghost_rate"
       direction: "minimize"
-      objective_plan:
+      computation:
         steps:
           stages:
             - name: "evaluate_ghost_rate"

@@ -58,17 +58,17 @@ def version():
     click.echo("AI assisted Detector Design for EIC")
 
 
-# Future commands (planned, not registered yet)
+# Future commands (placeholders for documentation)
 
 def init_command():
     """
     Create configuration files from templates (PLANNED).
-
+    
     Will support:
     - Template-based generation
     - Interactive wizard mode
     - Type-specific templates (design/problem/optimization)
-
+    
     Usage:
         aid2e init --template dtlz2
         aid2e init --type design > design.yml
@@ -80,12 +80,12 @@ def init_command():
 def graph_command():
     """
     Visualize workflow structure and dependencies (PLANNED).
-
+    
     Will support:
     - Dependency graph generation
     - Export to PNG/SVG/DOT
     - Show parameter flow
-
+    
     Usage:
         aid2e graph config.yml
         aid2e graph config.yml --output workflow.png

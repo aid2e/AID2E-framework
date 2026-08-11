@@ -3,14 +3,13 @@
 Run dRICH detector-design optimization with AID2E. The main flow is:
 
 ```
-workflow.yml -> aid2e optimize -> drich_eval.py -> out-{trial}.json -> optimizer update
+workflow.yml -> aid2e optimize -> EpicStack stages -> objective plan -> optimizer update
 ```
 
 ## Files
 - `workflow.yml`: example config optimizer, scheduler, and epic workflow
 - `design.params`: geometry parameters and XML edit targets
-- `drich_eval.py`: launched by DAG stages; runs ePIC stack layers
-- `drich_utils.py`: dRICH-specific utilities
+- `drich_utils.py`: dRICH-specific stack layer construction and objective parsing
 - `script/dRICHAna_bootstrap.cpp`: dRICH per-scan analysis code used by the `ana` stage
 
 ## ePIC Setup
@@ -35,8 +34,8 @@ aid2e optimize examples/drich/workflow.yml
 flowchart TB
   C["workflow.yml<br/>config + stages"]
   O["aid2e optimize<br/>optimizer + trial workflow runner"]
-  E["drich_eval.py<br/>run stage; EpicStack"]
-  R["out-{trial_index}.json<br/>output objectives + errors"]
+  E["DAGExecutor<br/>EpicStack stage execution"]
+  R["objective plan<br/>dRICH objective payload"]
 
   C --> O
   O -->|"trial config; DAGExecutor"| E

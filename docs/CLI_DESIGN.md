@@ -115,8 +115,8 @@ OPTIMIZATION
   Parallel: 1
   Parameters:
     initialization_strategy: sobol
-    surrogate_model: saasbo
-    acquisition_function: qnehvi
+    generator: BOTORCH_MODULAR
+    batch_size: 2
 ```
 
 ### 2. `aid2e inspect <config_file>`
@@ -181,8 +181,7 @@ OPTIMIZATION CONFIGURATION
 
   Optimizer Parameters:
     - initialization_strategy: sobol
-    - surrogate_model: saasbo
-    - acquisition_function: qnehvi
+    - generator: BOTORCH_MODULAR
     - batch_size: 3
     - seed: 42
 
@@ -271,21 +270,15 @@ Supported Problem Types:
 
 ## Planned Commands (Not Yet Implemented)
 
-The current public workflow command is `aid2e optimize`, which owns the full
-optimization loop: config loading, optimizer setup, scheduler/workflow
-execution per trial, objective collection, optimizer updates, and result
-writing.
+`aid2e optimize` is the current command for full optimization execution.
 
 ### 5. `aid2e run <config_file>` (HIGH PRIORITY)
 
-**Purpose:** Execute one configured workflow without the optimizer loop.
-
-This is intended as a debugging and validation path for one workflow execution,
-not as a replacement for `aid2e optimize`.
+**Purpose:** Execute one configured workflow once, without the optimizer loop.
 
 **Planned features:**
 - Single workflow execution from config
-- Problem/workflow/scheduler setup
+- Problem, workflow, and scheduler setup
 - Objective/result collection
 - Output directory override
 - Dry-run mode
@@ -581,15 +574,10 @@ optimizer:
 - [x] Update CLI_DESIGN.md documentation
 
 ### Immediate
-- [ ] Test all commands with example configs
+- [ ] Test `aid2e optimize` with full-config examples
+- [ ] Verify CLI entry point: `aid2e --help`
 - [ ] Add single-workflow execution as a separate `aid2e run` command
-  - [ ] Test with `examples/basic/full_example.yml`
-  - [ ] Test with `examples/configurations/dtlz2_optimization.yml`
-  - [ ] Test with `tests/test_utilities/fixtures/dtlz2/design.params`
-- [ ] Verify CLI entry point
-  - [ ] Ensure existing tests still pass
-  - [ ] Confirm entry point works: `aid2e --help`
-  - [ ] Test both import patterns work
+  - [ ] Test with a full config containing `workflows`
 
 ### Near Term
 - [ ] Implement `run` command with WorkflowOrchestrator
@@ -612,7 +600,6 @@ optimizer:
 # Test describe command
 aid2e describe examples/basic/full_example.yml
 aid2e describe examples/basic/design.params --compact
-aid2e describe examples/basic/optimizer.config --format json
 
 # Test inspect command
 aid2e inspect examples/basic/full_example.yml

@@ -10,7 +10,7 @@ problem:
   objectives:
     - name: "f1"
       direction: "minimize"
-      objective_plan:
+      computation:
         steps:
           stages:
             - name: "evaluate_f1"
@@ -22,7 +22,7 @@ problem:
       metrics_keys: ["f1"]
     - name: "f2"
       direction: "minimize"
-      objective_plan:
+      computation:
         steps:
           stages:
             - name: "evaluate_f2"

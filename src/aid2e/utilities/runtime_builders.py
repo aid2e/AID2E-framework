@@ -197,6 +197,8 @@ def build_workflow_executor_from_config(
     log_level: str = "INFO",
     config_dir: Optional[str] = None,
     trial_metadata: Optional[Dict[str, Any]] = None,
+    output_dir: Optional[str] = None,
+    work_dir: Optional[str] = None,
 ):
     """Build a DAGExecutor from loaded workflow, problem, and scheduler configs."""
     from aid2e.utilities.workflows import DAGExecutor
@@ -241,12 +243,15 @@ def build_workflow_executor_from_config(
         scheduler_config_resolver=resolve_stage_scheduler,
         config_dir=config_dir,
         trial_metadata=trial_metadata,
+        output_dir=output_dir,
+        work_dir=work_dir,
     )
 
 
 def run_trial_workflow(
     config_path: str,
-    output_dir: str,
+    run_dir: str,
+    run_work_dir: str,
     trial_index: int,
     design_point: Dict[str, Any],
     workflow_name: Optional[str] = None,
@@ -257,20 +262,18 @@ def run_trial_workflow(
 
     config_path_obj = Path(config_path).resolve()
     config = load_config(str(config_path_obj))
-    output_root = Path(output_dir).resolve()
+    trial_name = f"trial_{trial_index}"
+    output_dir = Path(run_dir).resolve() / "trials" / trial_name
+    work_dir = Path(run_work_dir).resolve() / "trials" / trial_name
 
     trial_metadata = {
         "trial_index": trial_index,
-        "output_dir": str(output_root),
         "config_path": str(config_path_obj),
     }
     trial_payload = {
         "trial_index": trial_index,
-        "output_dir": shlex.quote(str(output_root)),
+        "output_dir": shlex.quote(str(output_dir)),
         "config_path": shlex.quote(str(config_path_obj)),
-        "result_json": str(
-            output_root / "log" / "results" / f"out-{trial_index}.json"
-        ),
     }
     workflow = select_workflow(
         config.workflows,
@@ -286,10 +289,11 @@ def run_trial_workflow(
         workflow,
         problem_cfg=config.problem,
         scheduler_cfg=config.scheduler,
-        base_output_dir=str(output_root),
         log_level=log_level,
         config_dir=str(config_path_obj.parent),
         trial_metadata=trial_metadata,
+        output_dir=str(output_dir),
+        work_dir=str(work_dir),
     ).execute(design_point)
 
 
@@ -307,6 +311,7 @@ def run_optimization(
     output_root = Path(output_dir or config.problem.output_location).resolve()
     run_name = run_id or datetime.now().strftime("%Y%m%d_%H%M")
     run_dir = output_root / run_name
+    run_work_dir = Path(config.problem.work_location).resolve() / run_name
     run_dir.mkdir(parents=True, exist_ok=True)
     outputs = {
         "run_dir": run_dir,
@@ -376,6 +381,7 @@ def run_optimization(
                 optimizer,
                 config_path_obj,
                 run_dir,
+                run_work_dir,
                 workflow_name,
                 failed_trials,
                 max_failed_trials,
@@ -416,7 +422,8 @@ def _run_trial_batch(
     assignments: list[tuple[int, Dict[str, Any]]],
     optimizer,
     config_path: Path,
-    output_dir: Path,
+    run_dir: Path,
+    run_work_dir: Path,
     workflow_name: Optional[str],
     failed_trials: set[int],
     max_failed_trials: int,
@@ -435,7 +442,8 @@ def _run_trial_batch(
             "function": run_trial_workflow,
             "params": {
                 "config_path": str(config_path),
-                "output_dir": str(output_dir),
+                "run_dir": str(run_dir),
+                "run_work_dir": str(run_work_dir),
                 "trial_index": trial_index,
                 "design_point": design_point,
                 "workflow_name": workflow_name,
@@ -449,7 +457,7 @@ def _run_trial_batch(
         f"optimizer_batch_{batch_id}_trials",
         job_definitions,
         parallelism_policy={"max_concurrent": len(assignments)},
-        working_dir=str(output_dir),
+        working_dir=str(run_work_dir),
     )
     trial_results = {}
     if not result.success:

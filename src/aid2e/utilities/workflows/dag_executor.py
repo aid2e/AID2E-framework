@@ -110,6 +110,8 @@ class DAGExecutor:
         scheduler_config_resolver=None,
         config_dir: Optional[str] = None,
         trial_metadata: Optional[Dict[str, Any]] = None,
+        output_dir: Optional[str] = None,
+        work_dir: Optional[str] = None,
     ):
         """Initialize DAG Executor.
         
@@ -120,6 +122,10 @@ class DAGExecutor:
             scheduler_config: Optional scheduler configuration dict with keys:
                 - runner_type: str (e.g., "JobLibRunner", "PanDAiDDSRunner")
                 - config: scheduler-specific config object or dict
+            output_dir: Exact output directory for this execution. Standalone
+                executions use a timestamped directory when omitted.
+            work_dir: Exact work directory for this execution. Must be supplied
+                with output_dir.
         """
         self.workflow = workflow
         self.base_output_dir = Path(base_output_dir)
@@ -131,20 +137,27 @@ class DAGExecutor:
         self.trial_metadata = dict(trial_metadata or {})
         self.current_design_point: Dict[str, Any] = {}
         
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        if self.problem_config is not None:
-            work_root = Path(self.problem_config.work_location) / workflow.name / timestamp
-            output_root = Path(self.problem_config.output_location) / workflow.name / timestamp
+        if (output_dir is None) != (work_dir is None):
+            raise ValueError("output_dir and work_dir must be provided together")
+
+        explicit_directories = output_dir is not None
+        if explicit_directories:
+            output_root = Path(output_dir)
+            work_root = Path(work_dir)
         else:
-            output_root = self.base_output_dir / workflow.name / timestamp
-            work_root = output_root
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            if self.problem_config is not None:
+                work_root = Path(self.problem_config.work_location) / workflow.name / timestamp
+                output_root = Path(self.problem_config.output_location) / workflow.name / timestamp
+            else:
+                output_root = self.base_output_dir / workflow.name / timestamp
+                work_root = output_root
 
         work_root.mkdir(parents=True, exist_ok=True)
         output_root.mkdir(parents=True, exist_ok=True)
         self.work_dir = work_root
         self.output_dir = output_root
         self.scheduler_submit_dir = self.work_dir / "_scheduler"
-        self.scheduler_submit_dir.mkdir(parents=True, exist_ok=True)
         
         # If provided, activate environment variables
         if self.problem_config is not None:
@@ -152,9 +165,12 @@ class DAGExecutor:
                 self.problem_config.environment_config.activate()
 
         # Initialize logger
+        logger_dir = (
+            self.output_dir / "log" if explicit_directories else self.output_dir
+        )
         self.logger = ExecutionLogger(
             job_name=f"executor_{workflow.name}",
-            output_dir=str(self.output_dir),
+            output_dir=str(logger_dir),
             log_level=log_level,
         )
         
@@ -242,15 +258,11 @@ class DAGExecutor:
             workflow_id=self.workflow.name,
             parameters=dict(self.trial_metadata),
         )
-        output_dir = Path(
-            self.workflow_context.parameters.get("output_dir", self.output_dir)
-        ).resolve()
+        output_dir = self.output_dir.resolve()
         workflow_dirs = {
             "output_dir": output_dir,
             "work_dir": self.work_dir.resolve(),
             "log_dir": output_dir / "log",
-            "results_dir": output_dir / "results",
-            "artifacts_dir": output_dir / "artifacts",
         }
         for directory in workflow_dirs.values():
             directory.mkdir(parents=True, exist_ok=True)
@@ -563,13 +575,16 @@ class DAGExecutor:
             "poll_interval": 5,  # Default poll interval for async schedulers
         }
         
+        stage_working_dir = self.scheduler_submit_dir / stage.name
+        stage_working_dir.mkdir(parents=True, exist_ok=True)
+
         # Execute stage via scheduler
         try:
             result = scheduler.run_stage(
                 stage_name=stage.name,
                 job_definitions=job_definitions,
                 parallelism_policy=parallelism_policy,
-                working_dir=str(self.scheduler_submit_dir / stage.name),
+                working_dir=str(stage_working_dir),
             )
             
             # Process results and update XCom

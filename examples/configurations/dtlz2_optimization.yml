@@ -4,8 +4,8 @@
 problem:
   name: "DTLZ2 Multi-Objective Optimization"
   problem_type: "DTLZ2"
-  output_location: "/tmp"
-  work_location: "/tmp"
+  output_location: "./output/dtlz2"
+  work_location: "./work/dtlz2"
 
   inline_design:
     design_space:

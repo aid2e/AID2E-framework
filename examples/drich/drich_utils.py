@@ -37,9 +37,10 @@ def _trial_context(problem_config, workflow_context):
     trial_index = workflow_context.get("trial_index")
     if trial_index is None:
         raise ValueError("dRICH payloads require trial_index")
+    output_dir = Path(workflow_context["output_dir"])
     paths = {
-        "results_dir": Path(workflow_context["results_dir"]),
-        "sim_dir": Path(workflow_context["artifacts_dir"]),
+        "results_dir": output_dir / "ana",
+        "sim_dir": output_dir / "sim_rec",
     }
     return eval_config, trial_index, paths
 

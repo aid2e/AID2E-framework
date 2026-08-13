@@ -116,7 +116,7 @@ workflows:
                       inputs:
                         - "{{geometry_dir}}/${DETECTOR_CONFIG}.xml"
                       outputs:
-                        - "{{workflow[log_dir]}}/overlap_log_{{workflow[trial_index]}}.txt"
+                        - "{{output_dir}}/overlap_log_{{workflow[trial_index]}}.txt"
 
             - name: "sim_rec"
               # Run npsim and then eicrecon in the same job

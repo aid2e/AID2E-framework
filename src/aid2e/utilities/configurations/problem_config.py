@@ -81,15 +81,16 @@ class ProblemConfiguration(BaseModel):
     def validate_paths(self) -> "ProblemConfiguration":
         """Validate directory paths and objective correctness.
 
-        - Ensures `output_location` and `work_location` exist.
+        - Ensures existing output and work paths are directories.
         - Ensures `objectives` is non-empty with unique names.
         """
         errors = []
 
-        for label, path in [("output_location", self.output_location),
-                            ("work_location", self.work_location)]:
-            if path and not Path(path).exists():
-                errors.append(f"{label} does not exist: {path}")
+        for label, value in [("output_location", self.output_location),
+                             ("work_location", self.work_location)]:
+            path = Path(value)
+            if path.exists() and not path.is_dir():
+                errors.append(f"{label} is not a directory: {value}")
 
         # Objectives must be provided and unique
         if not self.objectives:

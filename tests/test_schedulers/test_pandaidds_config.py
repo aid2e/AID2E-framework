@@ -22,12 +22,6 @@ class TestPanDAiDDSRunnerConfig:
             config = PanDAiDDSRunnerConfig()
             assert config.name == "user.envuser.aid2e_job"
 
-    def test_job_name_prefix_used_for_auto_generation(self):
-        """Test that job_name_prefix controls generated PanDA names."""
-        with patch.dict(os.environ, {"PANDA_USERNAME": "envuser"}):
-            config = PanDAiDDSRunnerConfig(job_name_prefix="custom_job")
-            assert config.name == "user.envuser.custom_job"
-    
     def test_name_validation_valid_prefix(self):
         """Test that valid names starting with 'user.' are accepted."""
         config = PanDAiDDSRunnerConfig(name="user.myname.experiment")
@@ -104,7 +98,6 @@ class TestPanDAiDDSRunnerConfig:
         """Test creating a full configuration with custom name."""
         config = PanDAiDDSRunnerConfig(
             name="user.scientist.epic_tracking",
-            job_name_prefix="custom_prefix",
             cloud="US",
             queue="BNL_PanDA_1",
             source_dir="/custom/source",
@@ -115,7 +108,6 @@ class TestPanDAiDDSRunnerConfig:
             job_dir="/tmp/panda_jobs",
         )
         assert config.name == "user.scientist.epic_tracking"
-        assert config.job_name_prefix == "custom_prefix"
         assert config.cloud == "US"
         assert config.queue == "BNL_PanDA_1"
         assert config.source_dir == "/custom/source"

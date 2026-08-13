@@ -44,6 +44,7 @@ from .execution_engine import (
 )
 from .dag_executor import (
 	DAGExecutor,
+	create_executor_from_config,
 )
 from .geometry_utils import modify_xml_files
 
@@ -87,6 +88,7 @@ __all__ = [
 	"Template",
 	# DAG Executor
 	"DAGExecutor",
+	"create_executor_from_config",
 	# Geometry utils
 	"modify_xml_files",
 ]

@@ -1458,3 +1458,34 @@ class DAGExecutor:
                     extracted[f"{objective_name}_err"] = float(payload[err_key])
                     break
         return extracted
+
+
+def create_executor_from_config(
+    workflow_config_path: str,
+    output_dir: str = "/tmp/aid2e_runs",
+) -> DAGExecutor:
+    """Create DAGExecutor from workflow configuration file.
+    
+    Convenience function for loading workflow from YAML/JSON config.
+    
+    Args:
+        workflow_config_path: Path to workflow configuration file.
+        output_dir: Base directory for execution outputs.
+        
+    Returns:
+        DAGExecutor instance.
+        
+    Example:
+        >>> executor = create_executor_from_config("configs/dtlz2.yml")
+        >>> objectives = executor.execute({"x1": 0.5, "x2": 0.7})
+    """
+    from aid2e.utilities.configurations import load_config
+    from aid2e.utilities.runtime_builders import build_workflow_executor_from_config
+
+    config = load_config(workflow_config_path)
+    return build_workflow_executor_from_config(
+        config.workflows,
+        problem_cfg=config.problem,
+        scheduler_cfg=config.scheduler,
+        base_output_dir=output_dir,
+    )

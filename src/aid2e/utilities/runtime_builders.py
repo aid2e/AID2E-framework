@@ -72,6 +72,7 @@ def build_optimizer_from_config(
             search_space=problem_cfg.design_config,
             config=pymoo_cfg,
             objective_names=objective_names,
+            objective_directions=objective_directions,
             seed=pymoo_cfg.seed,
         )
 
@@ -249,6 +250,7 @@ def run_trial_workflow(
     trial_index: int,
     design_point: Dict[str, Any],
     workflow_name: Optional[str] = None,
+    log_level: str = "WARNING",
 ) -> Dict[str, Any]:
     """Execute one optimizer candidate through the configured workflow."""
     from aid2e.utilities.configurations import load_config
@@ -285,7 +287,7 @@ def run_trial_workflow(
         problem_cfg=config.problem,
         scheduler_cfg=config.scheduler,
         base_output_dir=str(output_root),
-        log_level="WARNING",
+        log_level=log_level,
         config_dir=str(config_path_obj.parent),
         trial_metadata=trial_metadata,
     ).execute(design_point)
@@ -298,6 +300,7 @@ def run_optimization(
     workflow_name: Optional[str] = None,
     output_dir: Optional[str] = None,
     run_id: Optional[str] = None,
+    log_level: str = "WARNING",
 ) -> Dict[str, Path]:
     """Run an optimization from a full configuration."""
     config_path_obj = Path(config_path).resolve()
@@ -310,9 +313,22 @@ def run_optimization(
         "optimization_results": run_dir / "optimization_results.json",
         "pareto_front": run_dir / "pareto_front.json",
     }
-    max_failed_trials = int(
-        (config.problem.evaluation_config or {}).get("max_failed_trials", 0)
-    )
+    evaluation_config = config.problem.evaluation_config or {}
+    trial_failure_policy = evaluation_config.get("trial_failure_policy", "fail")
+    if trial_failure_policy not in {"fail", "penalty"}:
+        raise ValueError("trial_failure_policy must be 'fail' or 'penalty'")
+    penalty_objectives = evaluation_config.get("penalty_objectives", {})
+    if trial_failure_policy == "penalty":
+        try:
+            penalty_objectives = {
+                objective.name: float(penalty_objectives[objective.name])
+                for objective in config.problem.objectives
+            }
+        except KeyError as error:
+            raise ValueError(
+                f"penalty_objectives missing declared objective: {error.args[0]}"
+            ) from error
+    max_failed_trials = int(evaluation_config.get("max_failed_trials", 0))
     failed_trials: set[int] = set()
     errors_by_trial: Dict[int, Dict[str, float]] = {}
 
@@ -363,8 +379,11 @@ def run_optimization(
                 workflow_name,
                 failed_trials,
                 max_failed_trials,
+                trial_failure_policy,
+                penalty_objectives,
+                log_level,
             )
-            for trial_index, (design_point, raw_metrics) in batch_results.items():
+            for trial_index, (design_point, raw_metrics, metadata) in batch_results.items():
                 metrics = {
                     name: float(raw_metrics[name])
                     for name in optimizer.objective_names
@@ -375,6 +394,12 @@ def run_optimization(
                     if f"{name}_err" in raw_metrics
                 }
                 optimizer.update_with_results(trial_index, design_point, metrics)
+                if metadata:
+                    optimizer.set_trial_status(
+                        trial_index,
+                        "completed",
+                        metadata=metadata,
+                    )
             optimizer.save_optimization_results(
                 run_dir,
                 errors_by_trial=errors_by_trial,
@@ -395,7 +420,10 @@ def _run_trial_batch(
     workflow_name: Optional[str],
     failed_trials: set[int],
     max_failed_trials: int,
-) -> Dict[int, tuple[Dict[str, Any], Dict[str, Any]]]:
+    trial_failure_policy: str,
+    penalty_objectives: Dict[str, float],
+    log_level: str,
+) -> Dict[int, tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any]]]:
     """Submit one optimizer batch through the configured scheduler."""
     active_trials = {
         trial_index: design_point for trial_index, design_point in assignments
@@ -411,6 +439,7 @@ def _run_trial_batch(
                 "trial_index": trial_index,
                 "design_point": design_point,
                 "workflow_name": workflow_name,
+                "log_level": log_level,
             },
         }
         for trial_index, design_point in assignments
@@ -422,31 +451,38 @@ def _run_trial_batch(
         parallelism_policy={"max_concurrent": len(assignments)},
         working_dir=str(output_dir),
     )
+    trial_results = {}
     if not result.success:
-        failed_job_ids = {
-            int(status.job_id)
+        failed_statuses = {
+            int(status.job_id): status
             for status in result.job_statuses
             if status.status != "completed" and str(status.job_id).isdigit()
         }
-        if not failed_job_ids:
+        if not failed_statuses:
             raise RuntimeError(result.error_message or "Optimizer trial batch failed")
 
-        for trial_index in sorted(failed_job_ids & set(active_trials)):
-            optimizer.set_trial_status(
-                trial_index=trial_index,
-                status="failed",
-                parameters=active_trials[trial_index],
-                metadata={"reason": result.error_message},
-            )
+        for trial_index in sorted(failed_statuses.keys() & active_trials.keys()):
+            design_point = active_trials.pop(trial_index)
+            reason = failed_statuses[trial_index].stderr or result.error_message
             failed_trials.add(trial_index)
-            del active_trials[trial_index]
+            if trial_failure_policy == "penalty":
+                trial_results[trial_index] = (
+                    design_point,
+                    penalty_objectives,
+                    {"penalized": True, "reason": reason},
+                )
+            else:
+                optimizer.mark_trial_failed(
+                    trial_index,
+                    parameters=design_point,
+                    reason=reason,
+                )
 
         if len(failed_trials) > max_failed_trials:
             raise RuntimeError(
                 f"Too many failed trials: {len(failed_trials)} failed, "
                 f"max_failed_trials={max_failed_trials}"
             )
-
     completed_statuses = {
         int(status.job_id): status
         for status in result.job_statuses
@@ -458,16 +494,18 @@ def _run_trial_batch(
             "Completed optimizer batch missing trial results: "
             + ", ".join(str(index) for index in missing_results)
         )
-    return {
+    trial_results.update({
         trial_index: (
             design_point,
             _completed_status_payload(
                 completed_statuses[trial_index].outputs or {},
                 optimizer.objective_names,
             ),
+            {},
         )
         for trial_index, design_point in active_trials.items()
-    }
+    })
+    return trial_results
 
 
 def _completed_status_payload(

@@ -1,7 +1,5 @@
-"""dRICH-specific workflow payloads and objective calculations."""
+"""dRICH example workflow payloads and objective calculations."""
 
-import json
-import re
 from pathlib import Path
 
 import numpy as np
@@ -11,7 +9,7 @@ import numpy as np
 
 
 def sim_reco_files(sim_dir, npart, trial_tag, point, particle):
-    """Return dRICH simulation and reconstruction file paths for one scan point."""
+    """Return simulation and reconstruction file paths for one scan point."""
     tag = (
         f"{npart}_{trial_tag}_{particle}_p_{point['p']}_"
         f"eta_{point['eta_min']}_{point['eta_max']}"
@@ -20,7 +18,7 @@ def sim_reco_files(sim_dir, npart, trial_tag, point, particle):
 
 
 def analysis_result_file(results_dir, npart, trial_tag, point):
-    """Return the dRICH analysis text output for one scan point."""
+    """Return the analysis text output for one scan point."""
     return (
         Path(results_dir)
         / f"recon_scan_{npart}_{trial_tag}_p_{point['p']}_"
@@ -29,7 +27,7 @@ def analysis_result_file(results_dir, npart, trial_tag, point):
 
 
 def _trial_context(problem_config, workflow_context):
-    """Return dRICH inputs from the shared workflow context."""
+    """Return inputs from the shared workflow context."""
     if problem_config is None:
         raise ValueError("dRICH payloads require problem_config")
     if problem_config.evaluation_config is None:
@@ -42,64 +40,19 @@ def _trial_context(problem_config, workflow_context):
     paths = {
         "results_dir": Path(workflow_context["results_dir"]),
         "sim_dir": Path(workflow_context["artifacts_dir"]),
-        "overlap_log": Path(workflow_context["log_dir"])
-        / f"overlap_log_{trial_index}.txt",
-        "penalty_file": Path(workflow_context["log_dir"])
-        / f"penalty_{trial_index}.json",
     }
     return eval_config, trial_index, paths
 
 
-# Objective aggregation and failure policy
-
-
-def apply_overlap_policy(paths, eval_config):
-    """Apply the dRICH geometry-overlap policy and write a penalty marker."""
-    penalty_file = paths["penalty_file"]
-    if penalty_file.exists():
-        return
-
-    failure_policy = eval_config["failure_policy"]
-    if failure_policy not in {"penalty", "fail"}:
-        raise ValueError(f"Unsupported dRICH failure policy: {failure_policy}")
-
-    overlap_log = paths["overlap_log"]
-    overlap_text = overlap_log.read_text() if overlap_log.exists() else ""
-    match = re.search(
-        r"Number of illegal overlaps/extrusions\s*:\s*(\d+)",
-        overlap_text,
-    )
-    overlaps = int(match.group(1)) if match is not None else None
-
-    if overlaps is None:
-        message = "Overlap check failed: no overlap count found"
-        payload = {"reason": "checkOverlaps did not print overlap count"}
-    elif overlaps:
-        message = f"Overlap check failed: overlaps={overlaps}"
-        payload = {"overlaps": overlaps}
-    else:
-        return
-
-    if failure_policy == "fail":
-        raise RuntimeError(message)
-    penalty_file.write_text(json.dumps({"penalty": True, **payload}, indent=2))
+# Objective aggregation
 
 
 def aggregate_objectives(*, problem_config, workflow_context, **_):
-    """Return dRICH objectives for a framework objective-plan step."""
+    """Return objectives for a framework objective-plan step."""
     eval_config, trial_index, paths = _trial_context(
         problem_config,
         workflow_context,
     )
-    apply_overlap_policy(paths, eval_config)
-    failed_metrics = {
-        key: value
-        for name, failed_value in eval_config["failed_objectives"].items()
-        for key, value in ((name, float(failed_value)), (f"{name}_err", 0.0))
-    }
-    if paths["penalty_file"].exists():
-        return failed_metrics
-
     particle_count = eval_config["npart"]
     scan_points = eval_config["scan_points"]
     results = np.array(
@@ -127,11 +80,7 @@ def aggregate_objectives(*, problem_config, workflow_context, **_):
         metrics[f"{name}_err"] = float(np.linalg.norm(errors) / len(errors))
 
     if any(np.isnan(value) for value in metrics.values()):
-        if eval_config["failure_policy"] != "penalty":
-            raise RuntimeError(
-                f"objective merge failed: NaN objective for trial {trial_index}"
-            )
-        return {name: failed_metrics.get(name, value) for name, value in metrics.items()}
+        raise RuntimeError(f"NaN objective for trial {trial_index}")
 
     return metrics
 
@@ -140,15 +89,11 @@ def aggregate_objectives(*, problem_config, workflow_context, **_):
 
 
 def sim_rec_payloads(*, problem_config, workflow_context, **_):
-    """Return payload records for dRICH simulation/reconstruction jobs."""
+    """Return payload records for simulation/reconstruction jobs."""
     eval_config, trial_index, paths = _trial_context(
         problem_config,
         workflow_context,
     )
-    apply_overlap_policy(paths, eval_config)
-    if paths["penalty_file"].exists():
-        return []
-
     trial_tag = str(trial_index)
     particle_count = eval_config["npart"]
     records = []
@@ -176,15 +121,11 @@ def sim_rec_payloads(*, problem_config, workflow_context, **_):
 
 
 def ana_payloads(*, problem_config, workflow_context, **_):
-    """Return payload records for dRICH analysis jobs."""
+    """Return payload records for analysis jobs."""
     eval_config, trial_index, paths = _trial_context(
         problem_config,
         workflow_context,
     )
-    apply_overlap_policy(paths, eval_config)
-    if paths["penalty_file"].exists():
-        return []
-
     trial_tag = str(trial_index)
     particle_count = eval_config["npart"]
 

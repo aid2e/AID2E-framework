@@ -10,7 +10,9 @@ Commands for running optimization workflows and managing execution lifecycle:
 - clean: Remove temporary files (planned)
 """
 
+import logging
 import sys
+from pathlib import Path
 from typing import Optional
 
 import click
@@ -69,12 +71,23 @@ def optimize(
         if run_id:
             click.echo(f"  Run ID: {run_id}")
         click.echo()
+        log_level = "DEBUG" if verbosity > 1 else "INFO" if verbosity else "WARNING"
+        if log_file:
+            log_path = Path(log_file).expanduser()
+            log_path.parent.mkdir(parents=True, exist_ok=True)
+            logging.basicConfig(
+                filename=log_path,
+                level=getattr(logging, log_level),
+                format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
+                force=True,
+            )
         results = run_optimization(
             config,
             config_file,
             workflow_name=workflow_name,
             output_dir=output_dir,
             run_id=run_id,
+            log_level=log_level,
         )
         click.echo(click.style("Optimization completed.", fg="green"))
         click.echo(f"  Run directory: {results['run_dir']}")

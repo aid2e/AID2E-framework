@@ -3,14 +3,14 @@
 Run dRICH detector-design optimization with AID2E. The main flow is:
 
 ```
-workflow.yml -> aid2e optimize -> EpicStack stages -> objective plan -> optimizer update
+workflow.yml -> aid2e optimize -> workflow stages -> objective plan -> optimizer update
 ```
 
 ## Files
 - `workflow.yml`: example config optimizer, scheduler, and epic workflow
 - `design.params`: geometry parameters and XML edit targets
-- `drich_utils.py`: dRICH-specific stack layer construction and objective parsing
-- `script/dRICHAna_bootstrap.cpp`: dRICH per-scan analysis code used by the `ana` stage
+- `drich_utils.py`: job payloads and objective aggregation
+- `script/dRICHAna_bootstrap.cpp`: per-scan analysis code used by the `ana` stage
 
 ## ePIC Setup
 It is recommended to use the branch of the fork containing a single-mirror dRICH, which is then compatible with the already built versions of EICrecon and IRT available in eic-shell:24.11.1-stable.
@@ -32,13 +32,28 @@ aid2e optimize examples/drich/workflow.yml
 
 ```mermaid
 flowchart TB
-  C["workflow.yml<br/>config + stages"]
-  O["aid2e optimize<br/>optimizer + trial workflow runner"]
-  E["DAGExecutor<br/>EpicStack stage execution"]
-  R["objective plan<br/>dRICH objective payload"]
+  C["workflow.yml"] --> O["aid2e optimize"]
+  O --> B["Schedule trial batch"]
 
-  C --> O
-  O -->|"trial config; DAGExecutor"| E
-  E --> R
-  R -->|"update Ax"| O
+  subgraph T["Run one trial workflow"]
+    G["geo"]
+    G --> S1["sim + rec 1"]
+    G --> S2["sim + rec 2"]
+    G --> SN["... 8 jobs"]
+
+    S1 --> SF["sim + rec complete"]
+    S2 --> SF
+    SN --> SF
+
+    SF --> A1["ana 1"]
+    SF --> AN["... 4 jobs"]
+    A1 --> M["collect objectives"]
+    AN --> M
+  end
+
+  B --> T
+  B --> N["Other trials<br/>same workflow"]
+  M --> R["Collect batch results"]
+  N --> R
+  R --> U["Update optimizer"] --> O
 ```

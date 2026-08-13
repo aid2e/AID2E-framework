@@ -48,8 +48,6 @@ def test_problem_config_loader_with_fixture(tmp_path):
     problem_data = yaml.safe_load((fixture_dir / "problem.config").read_text())
     output_dir = tmp_path / "output" / "dtlz2"
     work_dir = tmp_path / "work" / "dtlz2"
-    output_dir.mkdir(parents=True)
-    work_dir.mkdir(parents=True)
 
     problem_data["problem"]["output_location"] = str(output_dir)
     problem_data["problem"]["work_location"] = str(work_dir)
@@ -62,6 +60,8 @@ def test_problem_config_loader_with_fixture(tmp_path):
 
     assert config.name == "DTLZ2 Multi-Objective Optimization"
     assert config.problem_type == "toy"
+    assert not output_dir.exists()
+    assert not work_dir.exists()
     assert "DTLZ2_variables.x1" in config.design_config.get_parameter_names()
     assert [obj.to_directive() for obj in config.objectives] == [
         "minimize:f1",

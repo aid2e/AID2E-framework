@@ -550,6 +550,21 @@ class BaseOptimizer(ABC):
         self._trial_counter = max(self._trial_counter, trial_index + 1)
         return trial
 
+    def mark_trial_failed(
+        self,
+        trial_index: int,
+        *,
+        parameters: Optional[Dict[str, Any]] = None,
+        reason: Optional[str] = None,
+    ) -> Trial:
+        """Record a failed evaluation without objective values."""
+        return self.set_trial_status(
+            trial_index,
+            TRIAL_STATUS_FAILED,
+            parameters=parameters,
+            metadata={"reason": reason} if reason else None,
+        )
+
     def get_optimization_results(
         self,
         errors_by_trial: Optional[Dict[int, Dict[str, float]]] = None,

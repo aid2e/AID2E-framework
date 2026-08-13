@@ -57,17 +57,10 @@ class EpicGeoLayer(StackLayer):
             raise ValueError(f"EpicGeoLayer takes one output, got {len(outputs)}")
         output = outputs[0]
 
-        # get output and check, exit if there were any overlaps
         checks = [
-          f' >& {output}',
-          f'grep -F "Number of illegal overlaps/extrusions : " {output} | while IFS= read -r line; do',
-          '  lastChar="${line: -1}"',
-          '  if [[ $lastChar =~ ^[0-9]$ ]]; then',
-          '    if (( lastChar > 0 )); then',
-          '      exit 9',
-          '    fi',
-          '  fi',
-          'done'
+            f' >& {output}',
+            "grep -Eq 'Number of illegal overlaps/extrusions[[:space:]]*"
+            rf":[[:space:]]*0[[:space:]]*$' {output} || exit 9",
         ]
         return '\n'.join(checks)
 

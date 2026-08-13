@@ -44,9 +44,9 @@ problem:
       - {p: 45, eta_min: 2.5, eta_max: 3.0, radiator: 1}
       - {p: 45, eta_min: 3.0, eta_max: 3.5, radiator: 1}
 
-    failure_policy: "penalty" # penalty | fail
+    trial_failure_policy: "penalty" # penalty/fail
     max_failed_trials: 5
-    failed_objectives:
+    penalty_objectives:
       piKsep_etalow: 0.0
       piKsep_etahigh: 0.0
       acceptance: 0.0
@@ -74,7 +74,7 @@ scheduler:
   runner_type: "JobLibRunner" # JobLibRunner, SlurmRunner, PanDAiDDSRunner
   parameters:
     n_jobs: 2
-    backend: "threading"
+    backend: "loky"
 
 # Workflow execution
 workflows:
@@ -89,8 +89,8 @@ workflows:
             runner_type: "SlurmRunner"
             parameters: &drich_stage_slurm
               job_name_prefix: "drich"
-              account: "vossenlab"
-              partition: "scavenger"
+              account: "<account>"
+              partition: "<partition>"
               nodes: 1
               ntasks: 1
               cpus_per_task: 1
@@ -102,19 +102,21 @@ workflows:
           stages:
             - name: "geo"
               # Edit trial XML and run checkOverlaps.
+              scheduler:
+                runner_type: "JobLibRunner"
+                parameters:
+                  n_jobs: 1
+                  backend: "threading"
               jobs:
                 - name: "drich_geo"
                   payload:
                     evaluator_type: "stack"
                   layers:
-                    - layer: "ana"
+                    - layer: "geo"
                       inputs:
                         - "{{geometry_dir}}/${DETECTOR_CONFIG}.xml"
                       outputs:
                         - "{{workflow[log_dir]}}/overlap_log_{{workflow[trial_index]}}.txt"
-                      arguments: ["-c"]
-                      command: "checkOverlaps"
-                      rule: "{{command}} {{arguments}} {{inputs}} >& {{outputs}}"
 
             - name: "sim_rec"
               # Run npsim and then eicrecon in the same job

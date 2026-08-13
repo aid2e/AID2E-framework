@@ -187,7 +187,11 @@ class JobLibScheduler(BaseScheduler):
         self.logger.info("Running stage '%s' with %d jobs", stage_name, len(job_definitions))
         self.logger.info("  Max concurrent: %s, Max retries: %s", max_concurrent, retry_max)
 
-        n_jobs = max_concurrent if max_concurrent and max_concurrent > 0 else self.config.n_jobs
+        n_jobs = self.config.n_jobs
+        if max_concurrent and n_jobs != -1:
+            n_jobs = min(n_jobs, max_concurrent)
+        elif max_concurrent:
+            n_jobs = max_concurrent
 
         try:
             parallel = joblib.Parallel(

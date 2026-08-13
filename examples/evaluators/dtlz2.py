@@ -6,22 +6,22 @@ def dtlz2_both_objectives(x: List[float]) -> Dict[str, float]:
     """Compute both DTLZ2 objectives in one function."""
     x = np.array(x)
     g = np.sum((x[1:] - 0.5) ** 2)
-    f1 = (1 + g) * np.cos(x[0] * np.pi / 2) * np.cos(x[1] * np.pi / 2)
-    f2 = (1 + g) * np.cos(x[0] * np.pi / 2) * np.sin(x[1] * np.pi / 2)
+    f1 = (1 + g) * np.cos(x[0] * np.pi / 2)
+    f2 = (1 + g) * np.sin(x[0] * np.pi / 2)
     return {"f1": float(f1), "f2": float(f2)}
 
 def dtlz2_f1_only(x: List[float]) -> float:
     """Compute only f1 objective of DTLZ2."""
     x = np.array(x)
     g = np.sum((x[1:] - 0.5) ** 2)
-    f1 = (1 + g) * np.cos(x[0] * np.pi / 2) * np.cos(x[1] * np.pi / 2)
+    f1 = (1 + g) * np.cos(x[0] * np.pi / 2)
     return float(f1)
 
 def dtlz2_f2_only(x: List[float]) -> float:
     """Compute only f2 objective of DTLZ2."""
     x = np.array(x)
     g = np.sum((x[1:] - 0.5) ** 2)
-    f2 = (1 + g) * np.cos(x[0] * np.pi / 2) * np.sin(x[1] * np.pi / 2)
+    f2 = (1 + g) * np.sin(x[0] * np.pi / 2)
     return float(f2)
 
 def objective_payload(

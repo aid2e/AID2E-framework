@@ -268,22 +268,23 @@ Supported Problem Types:
   • custom - User-defined evaluation functions
 ```
 
-## Planned Commands (Not Yet Implemented)
+## Commands
 
 `aid2e optimize` is the current command for full optimization execution.
 
-### 5. `aid2e run <config_file>` (HIGH PRIORITY)
+### 5. `aid2e run <config_file>`
 
 **Purpose:** Execute one configured workflow once, without the optimizer loop.
 
-**Planned features:**
+**Supported features:**
 - Single workflow execution from config
 - Problem, workflow, and scheduler setup
 - Objective/result collection
 - Output directory override
 - Dry-run mode
 
-**Planned usage:**
+**Usage:**
+``
 ```bash
 # Run one configured workflow
 aid2e run config.yml
@@ -298,7 +299,7 @@ aid2e run config.yml --output results/experiment_1/
 aid2e run config.yml -vv --log output.log
 ```
 
-### 6. `aid2e resume <checkpoint>` (HIGH PRIORITY)
+### 6. `aid2e resume <checkpoint>` (WIP, HIGH PRIORITY)
 
 **Purpose:** Resume an interrupted optimization run.
 
@@ -307,7 +308,7 @@ aid2e run config.yml -vv --log output.log
 - Continue from specific iteration
 - Merge results with previous runs
 
-### 7. `aid2e status` (MEDIUM PRIORITY)
+### 7. `aid2e status` (WIP, MEDIUM PRIORITY)
 
 **Purpose:** Check progress of active or completed optimization runs.
 
@@ -317,7 +318,7 @@ aid2e run config.yml -vv --log output.log
 - Show current best objectives
 - List completed runs
 
-### 8. `aid2e stop <run_id>` (MEDIUM PRIORITY)
+### 8. `aid2e stop <run_id>` (WIP, MEDIUM PRIORITY)
 
 **Purpose:** Gracefully halt a running optimization.
 
@@ -326,7 +327,7 @@ aid2e run config.yml -vv --log output.log
 - Save checkpoint before stopping
 - Force stop option
 
-### 9. `aid2e clean <output_dir>` (LOW PRIORITY)
+### 9. `aid2e clean <output_dir>` (WIP, LOW PRIORITY)
 
 **Purpose:** Remove temporary and intermediate files.
 
@@ -335,7 +336,7 @@ aid2e run config.yml -vv --log output.log
 - Remove old checkpoints
 - Dry-run to preview deletions
 
-### 10. `aid2e init` (MEDIUM PRIORITY)
+### 10. `aid2e init` (WIP, MEDIUM PRIORITY)
 
 **Purpose:** Create new configuration files from templates.
 
@@ -358,7 +359,7 @@ aid2e init --type optimization --optimizer ax > optimization.yml
 aid2e init --interactive
 ```
 
-### 11. `aid2e graph <config_file>` (LOW PRIORITY)
+### 11. `aid2e graph <config_file>` (WIP, LOW PRIORITY)
 
 **Purpose:** Visualize workflow structure and dependencies.
 

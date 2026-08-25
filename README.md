@@ -3,133 +3,105 @@
 [![Tests](https://github.com/aid2e/AID2E-framework/actions/workflows/tests.yml/badge.svg?branch=main)](https://github.com/aid2e/AID2E-framework/actions/workflows/tests.yml)
 [![Documentation](https://github.com/aid2e/AID2E-framework/actions/workflows/docs-deploy.yml/badge.svg?branch=main)](https://aid2e.github.io/AID2E-framework)
 
-AI assisted Detector Design for EIC (AID2E) is a Python toolkit for authoring and validating detector design optimization workflows. It provides typed configuration models, a Click-based CLI, scheduler/optimizer hooks, and ePIC-specific utilities. Docs: https://aid2e.github.io/AID2E-framework
+AI assisted Detector Design for EIC (AID2E) is a Python framework for
+configuring and running detector design optimization workflows. It provides
+typed configuration models, optimizer and scheduler integrations, workflow
+execution, a command-line interface, and ePIC-specific utilities.
 
-------------------------------------------------------------------------
+See the [documentation](https://aid2e.github.io/AID2E-framework) for
+installation, configuration, and usage.
 
-## Requirements
+## Current Features
 
--   Python **3.11+**
--   pip
+### Problem and Objective Definition
 
-------------------------------------------------------------------------
+  - Load configuration from YAML/dict
+  - Problem, optimizer, scheduler, design, objective, and workflow specs
+  - Full validation through Pydantic
+  - ObjectiveDirection (MINIMIZE/MAXIMIZE)
+  - ObjectivePlanSpec (inline/script/multi-step plans)
+  - ObjectiveDefinition (name, direction, and optional objective plan)
+  - Direct objective collection when workflow jobs return declared objectives
+  - Inline Python functions referenced by entrypoint
+  - Scripts configured by file path
+  - Optional objective error values through *_err fields
 
-## Installation
+### Workflow Infrastructure
 
-### Clone the repo
+  - DagDefinition with edge inference
+  - DagNode, DagEdge with flexible typing
+  - topological_sort() with Kahn's algorithm (O(V+E))
+  - detect_cycles() with DFS-based cycle detection
+  - DagValidator with comprehensive checks
+  - Execution layer computation for parallelization
+  - Sequential stages and parallel jobs within stages
+  - Range and payload job factories
+  - Generic and stack execution engines
+  - Workflow configuration models live in utilities/configurations/
+  - Workflow execution lives in utilities/workflows/
+  - Stack-specific configuration and execution are resolved through
+    StackRegistry
+  - ePIC-specific utilities remain under utilities/epic_utils/
 
-``` bash
-git clone https://github.com/aid2e/AID2E-framework.git
-cd AID2E-framework
-```
+### Scheduler Infrastructure
 
-### Create environment (recommended)
+  - BaseScheduler abstract class with a common stage execution interface
+  - JobLibScheduler for local parallel execution
+  - SlurmScheduler for scheduled command and callable jobs
+  - PanDAiDDSScheduler implementation
+  - Scheduler selection at global, workflow, branch, and stage scope
+  - Artifact collection from configured job outputs
 
-``` bash
-python -m venv .venv
-source .venv/bin/activate
-```
+### Optimizer Infrastructure
 
-### Install
+  - BaseOptimizer abstract class with shared trial tracking
+  - AxOptimizer for Bayesian optimization
+  - PyMOOOptimizer for evolutionary optimization
+  - Objective direction, result, failure, and penalty handling
+  - Failed optimizer trial status
+  - Configured penalty objectives
+  - Maximum failed-trial limit
+  - Optimization and Pareto-front result export
 
-**Core install:**
+### CLI Optimization Workflow
 
-``` bash
-pip install -e .
-```
+  - aid2e optimize loads and validates FullConfig
+  - Optimizer candidates are submitted as scheduler-backed trial batches
+  - Each trial executes one complete configured workflow
+  - Objective results update the optimizer before the next batch
 
-**Full install (recommended):**
+### Validated Examples
 
-``` bash
-pip install -e ".[all]"
-```
+  - DTLZ2 framework example
+  - dRICH ePIC workflow example
 
-------------------------------------------------------------------------
+## Known Limitations
 
-## Quick Checks
+  - Configured scheduler retry fields do not currently trigger retries
+  - PyMOO does not currently enforce design constraints
+  - PanDA/iDDS dataset handoff requires additional validation
+  - Multiple jobs returning the same direct objective require an explicit
+    aggregation plan to avoid ambiguous results
 
-### Import check
+## Planned Work
 
-``` bash
-python -c "import aid2e; print('OK')"
-```
+### Release Validation
 
-### CLI check
+  - Complete clean-install and supported-platform checks
+  - Maintain a tested optimizer, scheduler, and workflow compatibility matrix
+  - Complete backend-specific validation where external services are required
 
-``` bash
-aid2e --help
-```
+### Documentation and Examples
 
-------------------------------------------------------------------------
+  - Complete public documentation cleanup
+  - Retain and maintain the release examples
+  - Document supported backend combinations and external requirements
 
-## Optional Features Check
+### Future Enhancements
 
-``` bash
-python - <<'PY'
-modules = ["ax", "pymoo", "joblib", "pandaclient", "idds.common"]
-for m in modules:
-    try:
-        __import__(m)
-        print(f"{m}: OK")
-    except:
-        print(f"{m}: MISSING")
-PY
-```
-
-------------------------------------------------------------------------
-
-## Run Tests
-
-``` bash
-pytest
-```
-
-------------------------------------------------------------------------
-
-## Dev Setup
-
-``` bash
-pip install -e ".[dev]"
-```
-
-Formatting / linting:
-
-``` bash
-black src tests
-isort src tests
-flake8 src tests
-mypy src
-```
-
-------------------------------------------------------------------------
-
-## Docs
-
-``` bash
-pip install -e ".[docs]"
-mkdocs serve
-```
-
-------------------------------------------------------------------------
-
-## Project Structure
-
-    src/aid2e/
-      cli/
-      optimizers/
-        ax/
-        pymoo/
-      schedulers/
-      utilities/
-
-------------------------------------------------------------------------
-
-## Links
-
--   Repo: https://github.com/aid2e/AID2E-framework
--   Docs: https://aid2e.github.io/AID2E-framework
-
-------------------------------------------------------------------------
+  - Planned CLI workflow lifecycle commands
+  - Advanced retry policies
+  - Additional detector and optimization examples
 
 ## License
 

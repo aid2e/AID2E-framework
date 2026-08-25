@@ -1,4 +1,4 @@
-# AID2E Optimizer Architecture
+# Optimizers
 
 ## Overview
 
@@ -6,6 +6,14 @@
 Ax for Bayesian optimization and PyMOO for evolutionary optimization. The package
 also exports the shared search-space and trial data structures, plus the Pareto
 utility used by the base implementation.
+
+### Choosing a Backend
+
+- Use **Ax** for Bayesian single- or multi-objective optimization with native
+  support for the constraint forms described below.
+- Use **PyMOO** for evolutionary single- or multi-objective optimization with
+  generation-sized candidate batches. PyMOO does not currently enforce design
+  constraints during candidate generation.
 
 The current public export surface is:
 
@@ -19,6 +27,12 @@ The current public export surface is:
 - `PyMOOOptimizer`
 - `PyMOOOptimizerConfig`
 - `AID2EProblem`
+
+The optimizer implementations can be imported from `aid2e.optimizers`:
+
+```python
+from aid2e.optimizers import AxOptimizer, PyMOOOptimizer
+```
 
 The design is intentionally split between:
 
@@ -68,11 +82,17 @@ Statuses are normalized to lower case in `__post_init__`. The base code recogniz
 `pending`, `suggested`, `running`, `completed`, `failed`, `aborted`, and
 `cancelled`. Unknown values are preserved, but a warning is logged.
 
+Failed evaluations are recorded without objective values through
+`mark_trial_failed()`. Penalized evaluations are different: they are completed
+trials with configured penalty objective values and `penalized` metadata, so the
+optimizer can use the penalty values during subsequent candidate generation.
+
 ### `compute_pareto_front`
 
 `compute_pareto_front()` computes the non-dominated subset of completed trials
-using minimization semantics for every objective. It only considers trials whose
-status is `completed` and that have metrics. The function is used by the base
+using each objective's configured `minimize` or `maximize` direction. Missing
+directions default to minimization. It only considers trials whose status is
+`completed` and that have metrics. The function is used by the base
 implementation and is not Ax- or PyMOO-specific.
 
 ### `BaseOptimizer`
@@ -92,6 +112,7 @@ Everything else is provided by the base class:
 
 - `get_trials()`
 - `set_trial_status()`
+- `mark_trial_failed()`
 - `get_optimization_results()`
 - `save_optimization_results()`
 - `seed_from_trials()`
@@ -104,11 +125,14 @@ source trial index in metadata under `source_index`. This updates history only;
 backends that need warm-start behavior must add their own override.
 
 `get_pareto_front()` delegates to `compute_pareto_front()`. `get_best_trial()`
-uses the first Pareto member for multi-objective cases and the lowest-valued
-trial for single-objective cases.
+uses the first Pareto member for multi-objective cases and the best completed
+trial under the configured direction for single-objective cases.
 
 `get_optimization_results()` and `save_optimization_results()` provide a stable
 JSON-friendly result export, including raw status and display status labels.
+Objective `*_err` values are retained in the exported `objective_errors` fields,
+but are not currently passed into either optimizer. Ax attaches objective data
+with `sem=0.0`, and PyMOO receives only the objective values.
 
 ## Ax Backend
 
@@ -152,14 +176,14 @@ to the top-level `model_configs`.
 `AxOptimizer` converts `RangeParameter` values into Ax floating-point range
 parameters and `ChoiceParameter` values into Ax string choice parameters.
 
-Constraint handling is best effort. The backend attempts to translate
-`ParameterConstraint.rule` into an Ax linear inequality. Simple expressions are
-handled; unsupported expressions are logged and skipped rather than being forced
-into an incorrect shape.
+The backend attempts to translate `ParameterConstraint.rule` into an Ax linear
+inequality. It supports simple sums and differences with unit coefficients and
+a numeric bound. Unsupported expressions are logged and skipped, so those
+constraints are not enforced during candidate generation.
 
 For multi-objective problems, the optimization config uses Ax objectives plus
-optional objective thresholds. The objective names are treated as minimization
-targets in the Ax model.
+optional objective thresholds. Each objective and threshold uses its configured
+`minimize` or `maximize` direction; missing directions default to minimization.
 
 ### Generation strategy
 
@@ -194,6 +218,9 @@ when available.
 the metrics payload, attaches the results to the Ax experiment as deterministic
 data, marks the Ax trial completed, and updates the shared `Trial` history.
 
+`mark_trial_failed()` marks the corresponding Ax experiment trial and the shared
+`Trial` record as failed without attaching objective data.
+
 ### State model
 
 `serialize_state()` stores:
@@ -211,7 +238,9 @@ completed trials into the experiment.
 
 The code does not serialize an Ax experiment object directly. The restoration path
 is therefore reconstruction-based rather than a byte-for-byte restore of Ax
-internals.
+internals. The serialized payload does not currently include
+`objective_directions`; `load_state()` retains the directions already present on
+the initialized optimizer.
 
 ## PyMOO Backend
 
@@ -266,13 +295,31 @@ PyMOO follows an external-evaluation ask/tell flow:
   reported back
 
 `suggest_candidates()` ignores `n_candidates` as a hard request. The actual batch
-size is determined by the PyMOO algorithm. When the hint does not match the
-generated batch, a debug message is logged.
+size is determined by the PyMOO algorithm: `pop_size` for the initial generation
+and normally `n_offsprings` for later generations, with `n_offsprings` defaulting
+to `pop_size`. When the hint does not match the generated batch, a debug message
+is logged.
+
+For normal full GA, NSGA-II, and NSGA-III generations, the expected number of
+candidate evaluations is:
+
+```text
+pop_size + (n_iterations - 1) * n_offsprings
+```
+
+When `n_offsprings` is omitted, this becomes `n_iterations * pop_size`.
+MOEA/D uses its reference-direction population and does not consume the
+configured `n_offsprings` value in the current backend.
 
 The backend keeps an in-flight generation buffer and refuses to start a new
 generation until the current one has been fully updated. Trials are inserted into
 the shared history with status `pending` when they are suggested and are updated
 to `completed` when results arrive.
+
+`mark_trial_failed()` records a failed trial and places infinite objective values
+in the PyMOO generation result matrix so the remaining generation can complete.
+Configured maximize objectives are sign-adjusted to PyMOO's internal minimization
+convention before `algorithm.tell()`.
 
 `seed_from_trials()` is overridden to guard against seeding while a generation is
 in flight. The method still only updates history; it does not warm-start the
@@ -297,9 +344,9 @@ Constraints are not forwarded into PyMOO at present. When the search space
 contains constraints, the optimizer logs a warning and continues, so constraint
 satisfaction is not guaranteed by this backend.
 
-`serialize_state()` stores the search space, config, objective names, trials,
-trial counter, generation count, resolved algorithm name, and, when possible, a
-base64-encoded pickle of the PyMOO algorithm state.
+`serialize_state()` stores the search space, config, objective names and
+directions, trials, trial counter, generation count, resolved algorithm name,
+and, when possible, a base64-encoded pickle of the PyMOO algorithm state.
 
 `load_state()` reconstructs the search space and problem, then either restores
 the pickled algorithm state or rebuilds the algorithm from config and seed if the
@@ -323,9 +370,15 @@ in `src/aid2e/utilities/runtime_builders.py`:
 For Ax, the builder instantiates `AxOptimizerConfig` from the raw parameter
 payload and passes `problem_cfg.design_config` into `AxOptimizer`. For PyMOO, it
 does the same with `PyMOOOptimizerConfig`. In both cases, the builder only
-constructs the optimizer object; batch sizing and iteration counts are consumed
-by the outer orchestration or runtime loop that drives repeated
-`suggest_candidates()` and `update_with_results()` calls.
+constructs the optimizer object. The outer `run_optimization()` loop drives
+repeated `suggest_candidates()` and `update_with_results()` calls.
+
+Iteration sizing is backend-specific in that loop:
+
+- For Ax, `n_iterations` is the total candidate-evaluation budget and
+  `batch_size` controls how many candidates are submitted together.
+- For PyMOO, `n_iterations` is the number of generations. PyMOO determines the
+  number of candidates in each generation from `pop_size` and `n_offsprings`.
 
 The optimizer constructors accept `DesignConfig` objects directly, so the runtime
 builder passes the design config rather than pre-building `SearchSpace`. The base
@@ -335,20 +388,121 @@ class handles the conversion to `SearchSpace`.
 canonical optimizer config can validate backend-specific parameters without
 forcing every backend module to be imported up front.
 
-## Code-Visible Limitations
+### Failed and Penalized Trials
 
-- The base class assumes minimization semantics throughout.
+`problem.evaluation_config.trial_failure_policy` controls workflow evaluation
+failures and defaults to `fail`:
+
+- `fail` calls the backend's `mark_trial_failed()` without objective values.
+  Failed trials remain in optimization results but are excluded from Pareto
+  calculations.
+- `penalty` requires a `penalty_objectives` value for every declared objective.
+  The optimizer receives those values through `update_with_results()`, and the
+  completed trial is marked with `penalized: true` metadata. These values are
+  supplied by the user; the framework does not derive them from objective
+  directions.
+
+Both outcomes count toward `max_failed_trials`, which defaults to `0`. The
+optimization stops when the number of failed evaluations exceeds that configured
+limit, so the first failure stops the run unless a larger limit is configured.
+
+## Constraint Enforcement
+
+### Runtime Validation (SearchSpace)
+
+The `SearchSpace` provides explicit runtime constraint checking:
+
+```python
+# Check if parameter values satisfy constraints
+param_values = {'tracker.thickness': 1.5, 'tracker.radius': 9.0}
+is_valid, errors = search_space.validate(param_values)
+
+if not is_valid:
+    print(f"Constraint violations: {errors}")
+```
+
+This check is not automatically applied to candidates generated by PyMOO.
+
+### Native Enforcement (Ax Optimizer)
+
+The Ax optimizer converts constraints to Ax's native `ParameterConstraint` format:
+
+```python
+from aid2e.optimizers.ax.optimizer import AxOptimizer
+from aid2e.optimizers.ax.config import AxOptimizerConfig
+
+# Create optimizer with constraints
+ax_config = AxOptimizerConfig(
+    n_initial_samples=10,
+    initialization_strategy="sobol",
+    generator="BOTORCH_MODULAR",
+)
+
+optimizer = AxOptimizer(
+    search_space=search_space,
+    config=ax_config,
+    objective_names=["objective"]
+)
+
+# Ax enforces supported constraints during generation
+candidates = optimizer.suggest_candidates(n_candidates=5)
+```
+
+Ax conversion currently supports simple sums and differences with unit
+coefficients and a numeric bound. Unsupported forms are omitted with a warning
+and therefore are not guaranteed during candidate generation.
+
+### Ax Constraint Conversion
+
+The Ax optimizer converts constraint rules to Ax's `ParameterConstraint` format:
+
+```python
+# Design constraint
+rule: "group.x + group.y <= 1.5"
+
+# Converted to the Ax inequality
+group.x + group.y <= 1.5
+```
+
+**Conversion logic:**
+1. Parse the supported parameter sum or difference
+2. Extract the comparison operator and numeric bound
+3. Convert strict inequalities using a small epsilon
+4. Handle `>=` and `>` by negating the expression and bound
+
+Example conversion:
+
+```python
+# Original: group.x + group.y >= 0.5
+# Converted: -group.x - group.y <= -0.5
+```
+
+### Constraint Tests
+
+Constraint validation, conversion, and Ax candidate enforcement are covered in
+`tests/test_optimizers/test_constraint_integration.py`.
+
+## Runtime Guarantees and Limitations
+
+- Objective directions are passed from the problem configuration into each
+  backend and Pareto calculation. If a direction is missing, it defaults to
+  minimization.
 - `compute_pareto_front()` only considers completed trials with metrics.
-- `AxOptimizerConfig.n_iterations` and `PyMOOOptimizerConfig.n_iterations` are
-  configuration values used by outer execution flows; the optimizer classes do
-  not enforce a stop condition internally, and the runtime builder does not
-  consume them itself.
-- Ax constraint handling is best effort and only covers the constraint shapes
-  that the parser can convert safely.
-- PyMOO does not currently enforce search-space constraints.
+- The optimizer classes do not enforce their own stop condition.
+  `run_optimization()` applies the configured Ax candidate budget or PyMOO
+  generation count.
+- Ax only forwards simple sums and differences with unit coefficients and
+  numeric bounds. Unsupported forms are omitted with a warning, so they are not
+  enforced.
+- PyMOO retains search-space constraints but does not forward them to the
+  algorithm. It logs a warning, and generated candidates are not guaranteed to
+  satisfy those constraints.
 - PyMOO only supports `RangeParameter` and `ChoiceParameter`.
 - The Ax backend currently requires the node-based Ax runtime; older Ax APIs are
   not used here.
+- Ax state serialization does not currently include objective directions. A
+  restored optimizer therefore retains the directions supplied when it was
+  initialized.
 
 ## Extension Points
 
@@ -360,3 +514,10 @@ To add a new backend, the current code path requires three pieces:
 
 Shared history, Pareto computation, trial export, and backend-switch seeding can
 then be reused directly from `BaseOptimizer`.
+
+## Results and Failures
+
+6. Results and Failures
+Scheduler outputs and XCom values feed objective collection
+Failed trials are recorded by the optimizer
+Configured penalty objectives can complete a failed evaluation as penalized

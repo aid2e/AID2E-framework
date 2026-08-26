@@ -221,6 +221,10 @@ class Template:
     _substitutions = {
         "{{design_point.key}}":
             (lambda text, context: reduce(lambda result, key: result.replace(f"{{{{design_point.{key[0]}}}}}", str(key[1])), context.design_point.items(), text)),
+        "{{trial_index}}":
+            (lambda text, context: text.replace("{{trial_index}}", str(context.workflow_context.parameters["trial_index"]))
+            if context.workflow_context is not None and "trial_index" in context.workflow_context.parameters
+            else text),
         "{{job_id}}":
             (lambda text, context: text.replace("{{job_id}}", str(context.job_id))),
         "{{stage_id}}":

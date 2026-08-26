@@ -2,12 +2,12 @@
 
 This module defines the single source of truth for objectives across AID2E:
 - How objectives are specified in problems (name + direction)
-- How they're executed in workflows (script, inline, or steps/DAG)
+- How they're executed in workflows through one or more script/inline steps
 - How they're optimized by algorithms (directives like "minimize:f1")
 
 Key concepts:
     ObjectiveDirection: MINIMIZE or MAXIMIZE
-    ObjectivePlanSpec: How to compute (script path, inline function, or multi-step plan)
+    ObjectivePlanSpec: How to compute an objective through one or more steps
     ObjectiveDefinition: Complete spec (name + direction + objective plan)
     ObjectivesRegistry: Runtime mapping of objective names to definitions
 
@@ -48,6 +48,11 @@ class ScriptObjective(BaseModel):
         ...     path="scripts/dtlz2_problem.py",
         ...     output_file="objectives_{job_id}.json"
         ... )
+
+Notes:
+    Scripts receive the design-point and output paths through
+    ``--design_params_file`` / ``--output_file`` and the corresponding
+    ``AID2E_PARAMS_FILE`` / ``AID2E_OUTPUT_FILE`` environment variables.
     """
     path: str = Field(..., description="Path to objective computation script")
     output_file: str = Field(..., description="Output file pattern (e.g., objectives_*.json)")
@@ -55,34 +60,33 @@ class ScriptObjective(BaseModel):
 
 
 class InlineObjective(BaseModel):
-    """Objective computed via inline Python function.
+    """
+    Objective computed via inline Python function.
     
-    The entrypoint should reference a callable that accepts design parameters
-    and returns the objective value.
+   The entrypoint should reference a callable that accepts objective-step
+   keyword arguments and returns a scalar value or metric mapping.
     
     Attributes:
         entrypoint: Module and function reference (format: "module.path:function_name").
         
-    Example:
-        >>> inline = InlineObjective(entrypoint="my_objectives:compute_f1")
-        >>> # Expects function: def compute_f1(design_params: Dict[str, float]) -> float
-        
-    Notes:
-        - The function is imported at runtime (lazy loading).
-        - Must accept design_params: Dict[str, float] as argument.
-        - Must return a single float value.
+   Example:
+    >>> inline = InlineObjective(entrypoint="my_objectives:compute_f1")
+    >>> # def compute_f1(*, design_point, inputs, outputs,
+    >>> #                extra_args, xcom, work_dir, output_dir):
+    >>> #     return {"f1": 0.5}
     """
+
     entrypoint: str = Field(
         ...,
-        description="Module:function reference (e.g., 'my_objectives:compute_f1')"
+        description="Module path and function reference (e.g., 'my_objectives:compute_f1')"
     )
     
     @field_validator('entrypoint')
     @classmethod
     def validate_entrypoint_format(cls, v: str) -> str:
-        """Validate entrypoint has 'module:function' format."""
+        """Validate entrypoint has 'module.path:function_name' format."""
         if ':' not in v or v.count(':') != 1:
-            raise ValueError("entrypoint must be 'module:function' format")
+            raise ValueError("entrypoint must be 'module.path:function_name' format")
         module_part, func_part = v.split(':')
         if not module_part or not func_part:
             raise ValueError("entrypoint module and function names cannot be empty")
@@ -209,9 +213,7 @@ class StepPlanSpec(BaseModel):
 class ObjectivePlanSpec(BaseModel):
     """Plan for executing an objective (always modeled as steps).
 
-    The canonical form is a step plan with one or more stages. As a
-    convenience, users may supply a single script or inline definition; it will
-    be wrapped into a single-step plan automatically.
+    The canonical form is a step plan with one or more stages.
     """
 
     model_config = ConfigDict(populate_by_name=True)
@@ -238,26 +240,31 @@ class ObjectivePlanSpec(BaseModel):
         return values
 
     def is_steps(self) -> bool:
-        """Return True if this plan is a step DAG (always true for canonical form)."""
+        """Return True if this plan is a step DAG."""
         return self.steps is not None
+
 
 class ObjectiveDefinition(BaseModel):
     """Complete objective specification: name, direction, and objective plan.
 
     This is the unified model used across problem, optimization, and workflow layers.
     It combines what to optimize (name + direction) with how to execute it
-    (script, inline function, or multi-step DAG).
+    through one or more script/inline steps.
 
     Attributes:
         name: Unique objective identifier (e.g., "f1", "efficiency").
         direction: Optimization direction (minimize or maximize).
-        objective_plan: How to execute (script, inline, or steps).
-        scheduler: Optional objective-level scheduler default (cascades to stages).
+        objective_plan: How to execute the objective through steps.
+        scheduler: Reserved objective-level scheduler default. The current runtime
+            executes objective plans inside the DAG executor after workflow
+            stages complete; scheduled objective work should be represented as
+            workflow stages.
         metrics_keys: Optional keys to extract from plan output when it returns a dict.
             Useful when one plan produces multiple metrics.
             Example: plan outputs {"f1": 0.5, "f2": 0.3, "runtime": 10.2},
                     metrics_keys=["f1"] extracts only f1.
     """
+
     name: str = Field(..., description="Objective name (e.g., 'f1', 'efficiency')")
     direction: ObjectiveDirection = Field(
         ...,
@@ -265,11 +272,11 @@ class ObjectiveDefinition(BaseModel):
     )
     objective_plan: Optional[ObjectivePlanSpec] = Field(
         default=None,
-        description="How to execute the objective (script, inline, or steps)",
+        description="How to execute the objective through steps",
     )
     scheduler: Optional[SchedulerConfiguration] = Field(
         default=None,
-        description="Default scheduler for this objective; cascades to its stages",
+        description="Reserved objective-level scheduler default",
     )
     metrics_keys: List[str] = Field(
         default_factory=list,
@@ -302,7 +309,7 @@ class ObjectiveDefinition(BaseModel):
         
         Args:
             directive: String in format "minimize:name" or "maximize:name".
-            objective_plan: Optional ObjectivePlanSpec (script, inline, or steps).
+            objective_plan: Optional objective step plan.
             
         Returns:
             ObjectiveDefinition with parsed direction and name.

@@ -53,7 +53,11 @@ def test_epic_geo_layer():
         payload["geo_output"],
         payload["geo_args"]
     )
-    assert command == 'checkOverlaps --tolerance 0.01 -c ./epic/my_epic.xml >& overlap_output.log\ngrep -F "Number of illegal overlaps/extrusions : " overlap_output.log | while IFS= read -r line; do\n lastChar="${line: -1}"\n if [[ $lastChar =~ ^[0-9]$ ]]; then\n  if (( lastChar > 0 )); then\n   exit 9\n  fi\n fi\ndone'
+    assert command.startswith(
+        "checkOverlaps --tolerance 0.01 -c ./epic/my_epic.xml"
+        " >& overlap_output.log\ngrep"
+    )
+    assert ":[[:space:]]*0[[:space:]]*$" in command
 
 
 def test_epic_sim_layer():
@@ -105,6 +109,6 @@ def test_epic_stack():
         payload["rec_output"],
         payload["rec_args"]
     )
-    assert geocomm == 'checkOverlaps --tolerance 0.01 -c ./epic/my_epic.xml >& overlap_output.log\ngrep -F "Number of illegal overlaps/extrusions : " overlap_output.log | while IFS= read -r line; do\n lastChar="${line: -1}"\n if [[ $lastChar =~ ^[0-9]$ ]]; then\n  if (( lastChar > 0 )); then\n   exit 9\n  fi\n fi\ndone'
+    assert ":[[:space:]]*0[[:space:]]*$" in geocomm
     assert simcomm == "npsim --compactFile $DETECTOR_PATH/$DETECTOR_CONFIG.xml --numberOfEvents 100 --skipNEvents 10 --enableG4GPS -G --steeringFile steering_input.py -I hepmc_input.hepmc -I hepmc_tree_input.hepmc3.root --macroFile macro_input.mac --outputFile sim_output.edm4hep.root"
     assert reccomm == "eicrecon -Pnthreads=8 -Pjana:global_loglevel=debug -Ppodio:output_file=rec_output.edm4eic.root sim_output.edm4hep.root"

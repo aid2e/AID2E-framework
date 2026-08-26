@@ -5,7 +5,7 @@ Homepage: https://aid2e.github.io/aid2e-framework
 Repository: https://github.com/aid2e/AID2E-framework.git
 """
 
-from typing import Dict, Type, Any
+from typing import Dict, Optional, Type, Any
 from pydantic import BaseModel
 
 
@@ -18,6 +18,7 @@ class StackRegistry:
     _design_configs: Dict[str, Type[BaseModel]] = {}
     _design_loaders: Dict[str, Type[Any]] = {}
     _workflow_configs: Dict[str, Type[BaseModel]] = {}
+    _problem_configs: Dict[str, Type[BaseModel]] = {}
     _experimental_stacks: Dict[str, Type[Any]] = {}
 
     @classmethod
@@ -30,6 +31,7 @@ class StackRegistry:
         design_loader: Type[Any],
         workflow_config: Type[BaseModel],
         experimental_stack: Type[Any],
+        problem_config: Optional[Type[BaseModel]] = None,
     ) -> None:
         """Register a stack type and its configuration/implementation pair."""
         cls._env_configs[name] = env_config
@@ -37,6 +39,8 @@ class StackRegistry:
         cls._design_configs[name] = design_config
         cls._design_loaders[name] = design_loader
         cls._workflow_configs[name] = workflow_config
+        if problem_config is not None:
+            cls._problem_configs[name] = problem_config
         cls._experimental_stacks[name] = experimental_stack
 
     @classmethod
@@ -90,6 +94,7 @@ class StackRegistry:
                 "design_config" : cls._design_configs[name],
                 "design_loader" : cls._design_loaders[name],
                 "workflow_config" : cls._workflow_configs[name],
+                "problem_config": cls._problem_configs.get(name),
                 "experimental_stack": cls._experimental_stacks[name],
             }
             for name in cls._env_configs

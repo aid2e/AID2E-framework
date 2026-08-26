@@ -16,7 +16,7 @@ from aid2e.utilities.configurations import (
 from aid2e.utilities.epic_utils import EpicEnvConfig
 from aid2e.utilities.epic_utils.epic_design_config import EpicDesignConfig
 from aid2e.utilities.epic_utils.epic_problem_config import EpicProblemConfiguration
-from aid2e.utilities.workflows import create_executor_from_config
+from aid2e.utilities.runtime_builders import build_workflow_executor_from_config
 
 
 def _fixture_dir() -> Path:
@@ -48,8 +48,6 @@ def test_problem_config_loader_with_fixture(tmp_path):
     problem_data = yaml.safe_load((fixture_dir / "problem.config").read_text())
     output_dir = tmp_path / "output" / "dtlz2"
     work_dir = tmp_path / "work" / "dtlz2"
-    output_dir.mkdir(parents=True)
-    work_dir.mkdir(parents=True)
 
     problem_data["problem"]["output_location"] = str(output_dir)
     problem_data["problem"]["work_location"] = str(work_dir)
@@ -62,6 +60,8 @@ def test_problem_config_loader_with_fixture(tmp_path):
 
     assert config.name == "DTLZ2 Multi-Objective Optimization"
     assert config.problem_type == "toy"
+    assert not output_dir.exists()
+    assert not work_dir.exists()
     assert "DTLZ2_variables.x1" in config.design_config.get_parameter_names()
     assert [obj.to_directive() for obj in config.objectives] == [
         "minimize:f1",
@@ -286,9 +286,12 @@ def test_full_config_loader_combines_problem_and_optimization(tmp_path):
     assert scheduler.parameters["mem"] == "8G"
     assert "template_file" not in scheduler.parameters
 
-    executor = create_executor_from_config(
-        str(full_config_path),
-        output_dir=str(tmp_path / "runs"),
+    executor = build_workflow_executor_from_config(
+        config.workflows,
+        problem_cfg=config.problem,
+        scheduler_cfg=config.scheduler,
+        base_output_dir=str(tmp_path / "runs"),
+        config_dir=str(full_config_path.parent),
     )
 
     assert executor.scheduler_config["runner_type"] == "JobLibRunner"

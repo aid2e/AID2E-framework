@@ -15,6 +15,7 @@ from aid2e.utilities.configurations.experimental_stack_config import (
 from aid2e.utilities.configurations.stack_registry import StackRegistry
 from aid2e.utilities.epic_utils.epic_design_config import EpicDesignConfig, EpicDesignConfigLoader
 from aid2e.utilities.epic_utils.epic_env_config import EpicEnvConfig, EpicEnvConfigLoader
+from aid2e.utilities.epic_utils.epic_problem_config import EpicProblemConfiguration
 from aid2e.utilities.epic_utils.epic_stack_config import EpicWorkflowsConfiguration
 from aid2e.utilities.workflows.execution_engine import JobContext
 from aid2e.utilities.workflows.experimental_stack import (
@@ -56,17 +57,10 @@ class EpicGeoLayer(StackLayer):
             raise ValueError(f"EpicGeoLayer takes one output, got {len(outputs)}")
         output = outputs[0]
 
-        # get output and check, exit if there were any overlaps
         checks = [
-          f' >& {output}',
-          f'grep -F "Number of illegal overlaps/extrusions : " {output} | while IFS= read -r line; do',
-          '  lastChar="${line: -1}"',
-          '  if [[ $lastChar =~ ^[0-9]$ ]]; then',
-          '    if (( lastChar > 0 )); then',
-          '      exit 9',
-          '    fi',
-          '  fi',
-          'done'
+            f' >& {output}',
+            "grep -Eq 'Number of illegal overlaps/extrusions[[:space:]]*"
+            rf":[[:space:]]*0[[:space:]]*$' {output} || exit 9",
         ]
         return '\n'.join(checks)
 
@@ -326,4 +320,5 @@ StackRegistry.register_stack(
     design_loader=EpicDesignConfigLoader,
     workflow_config=EpicWorkflowsConfiguration,
     experimental_stack=EpicStack,
+    problem_config=EpicProblemConfiguration,
 )

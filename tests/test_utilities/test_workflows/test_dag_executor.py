@@ -56,16 +56,21 @@ class TestDAGExecutorBasics:
         assert executor.logger is not None
 
     def test_executor_output_directory_creation(self, tmp_path):
-        """Test that executor creates unique output directories."""
+        """Test explicit output and work directory creation."""
         workflow = WorkflowDefinition(name="test_workflow", branches=[], objectives=[])
-        
-        executor1 = DAGExecutor(workflow, base_output_dir=str(tmp_path))
-        executor2 = DAGExecutor(workflow, base_output_dir=str(tmp_path))
-        
-        # Should create different directories (timestamp-based)
-        assert executor1.output_dir.exists()
-        assert executor2.output_dir.exists()
-        # They might be the same if created in same second, so just check they exist
+        output_dir = tmp_path / "output" / "trials" / "trial_0"
+        work_dir = tmp_path / "work" / "trials" / "trial_0"
+
+        executor = DAGExecutor(
+            workflow,
+            output_dir=str(output_dir),
+            work_dir=str(work_dir),
+        )
+
+        assert executor.output_dir == output_dir
+        assert executor.work_dir == work_dir
+        assert output_dir.exists()
+        assert work_dir.exists()
 
 
 class TestBranchExecution:

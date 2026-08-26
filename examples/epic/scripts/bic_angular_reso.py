@@ -302,6 +302,20 @@ def CalculateHitAngReso(opts: Options = DEFAULT_OPTS) -> Dict[str, float]:
     # and return fit width as resolution
     return {f"{opts.angle}_resolution" : fdiff.GetParameter(2)}
 
+# =============================================================================
+# Extract objective from an output file
+# =============================================================================
+def ExtractObjective(*, key, file, **_):
+    """Extract objective
+
+       MORE HERE
+    """
+    metrics = {}
+    with open(file, 'r') as f:
+        data         = json.load(f)
+        value        = data[key]
+        metrics[key] = value
+    return metrics
 
 # =============================================================================
 # Main Entry Point

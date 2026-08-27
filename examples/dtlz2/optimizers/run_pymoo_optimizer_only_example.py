@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+REPO_ROOT = Path(__file__).resolve().parents[3]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
@@ -15,7 +15,7 @@ from aid2e.utilities import build_optimizer_from_config
 from aid2e.utilities.configurations import load_config
 
 
-DEFAULT_CONFIG_PATH = REPO_ROOT / "examples" / "optimizers" / "dtlz2_pymoo_optimizer_only.yml"
+DEFAULT_CONFIG_PATH = REPO_ROOT / "examples" / "dtlz2" / "optimizers" / "dtlz2_pymoo_optimizer_only.yml"
 
 
 def ordered_dtlz_vector(parameters: Dict[str, Any]) -> List[float]:

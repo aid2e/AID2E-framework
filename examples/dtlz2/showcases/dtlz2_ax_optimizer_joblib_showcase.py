@@ -515,4 +515,4 @@ if __name__ == "__main__":
         print("\nTo run this showcase, install required packages:")
         print("  pip install ax-platform joblib")
         print("\nAlternatively, use the simple random optimizer showcase:")
-        print("  python examples/dtlz2_optimizer_showcase.py")
+        print("  python examples/dtlz2/showcases/dtlz2_optimizer_showcase.py")

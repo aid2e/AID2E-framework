@@ -9,7 +9,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+REPO_ROOT = Path(__file__).resolve().parents[3]
 SRC_ROOT = REPO_ROOT / "src"
 for candidate in (str(REPO_ROOT), str(SRC_ROOT)):
     if candidate not in sys.path:
@@ -20,7 +20,7 @@ from aid2e.utilities.configurations import load_config
 
 
 def main() -> int:
-    config_path = REPO_ROOT / "examples" / "schedulers" / "workflow_example_slurm_design_json.yml"
+    config_path = REPO_ROOT / "examples" / "dtlz2" / "schedulers" / "workflow_example_slurm_design_json.yml"
     run_dir = REPO_ROOT / "experimental_tests" / "output" / (
         f"slurm_design_json_example_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}"
     )

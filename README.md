@@ -13,94 +13,71 @@ installation, configuration, and usage.
 
 ## Current Features
 
-### Problem and Objective Definition
+**Configuration and objectives**
 
-  - Load configuration from YAML/dict
-  - Problem, optimizer, scheduler, design, objective, and workflow specs
-  - Full validation through Pydantic
-  - ObjectiveDirection (MINIMIZE/MAXIMIZE)
-  - ObjectivePlanSpec (inline/script/multi-step plans)
-  - ObjectiveDefinition (name, direction, and optional objective plan)
-  - Direct objective collection when workflow jobs return declared objectives
-  - Inline Python functions referenced by entrypoint
-  - Scripts configured by file path
-  - Optional objective error values through *_err fields
+  - YAML and dict configuration with Pydantic validation
+  - Problem, design, optimizer, scheduler, objective, and workflow specifications
+  - `ObjectiveDefinition` (name, direction, and optional objective plan)
+  - Direct objective collection from workflow job results
+  - Inline, script-based, and multi-step objective plans
 
-### Workflow Infrastructure
+**Workflow execution**
 
-  - DagDefinition with edge inference
-  - DagNode, DagEdge with flexible typing
-  - topological_sort() with Kahn's algorithm (O(V+E))
-  - detect_cycles() with DFS-based cycle detection
-  - DagValidator with comprehensive checks
-  - Execution layer computation for parallelization
-  - Sequential stages and parallel jobs within stages
+  - DAG construction with edge inference, DFS-based cycle detection, validation, and O(V+E) topological sorting using Kahn’s algorithm.
+  - Execution layers for sequential stages and parallel jobs
   - Range and payload job factories
   - Generic and stack execution engines
-  - Workflow configuration models live in utilities/configurations/
-  - Workflow execution lives in utilities/workflows/
-  - Stack-specific configuration and execution are resolved through
-    StackRegistry
-  - ePIC-specific utilities remain under utilities/epic_utils/
+  - Stack-specific configuration and execution are resolved through `StackRegistry`
+  - ePIC-specific utilities remain under `utilities/epic_utils/`
 
-### Scheduler Infrastructure
+**Schedulers**
 
-  - BaseScheduler abstract class with a common stage execution interface
-  - JobLibScheduler for local parallel execution
-  - SlurmScheduler for scheduled command and callable jobs
-  - PanDAiDDSScheduler implementation
+  - Common stage execution interface through `BaseScheduler`
+  - `JobLibScheduler` for local parallel execution
+  - `SlurmScheduler` for scheduled command and callable jobs
+  - `PanDAiDDSScheduler` implementation
   - Scheduler selection at global, workflow, branch, and stage scope
   - Artifact collection from configured job outputs
 
-### Optimizer Infrastructure
+**Optimizers**
 
-  - BaseOptimizer abstract class with shared trial tracking
-  - AxOptimizer for Bayesian optimization
-  - PyMOOOptimizer for evolutionary optimization
-  - Objective direction, result, failure, and penalty handling
-  - Failed optimizer trial status
-  - Configured penalty objectives
-  - Maximum failed-trial limit
-  - Optimization and Pareto-front result export
+  - Shared trial tracking through `BaseOptimizer`
+  - `AxOptimizer` for Bayesian optimization
+  - `PyMOOOptimizer` for evolutionary optimization
+  - Minimize and maximize objective directions
+  - Failed-trial status and configured penalty objectives
+  - Configurable maximum failed-trial limit
+  - Optimization-result and Pareto-front export
 
-### CLI Optimization Workflow
+**CLI optimization**
 
-  - aid2e optimize loads and validates FullConfig
+  - `aid2e optimize` loads and validates `FullConfig`
   - Optimizer candidates are submitted as scheduler-backed trial batches
   - Each trial executes one complete configured workflow
   - Objective results update the optimizer before the next batch
 
-### Validated Examples
+**Validated examples**
 
-  - DTLZ2 framework example
-  - dRICH ePIC workflow example
+- [DTLZ2 framework example](examples/dtlz2/dtlz2_optimization.yml)
+- [dRICH ePIC workflow example](examples/epic/drich/)
 
 ## Known Limitations
 
   - Configured scheduler retry fields do not currently trigger retries
   - PyMOO does not currently enforce design constraints
-  - PanDA/iDDS dataset handoff requires additional validation
-  - Multiple jobs returning the same direct objective require an explicit
-    aggregation plan to avoid ambiguous results
+  - Multiple jobs returning the same direct objective require an explicit aggregation plan to avoid ambiguous results
 
-## Planned Work
+## Future Enhancements
 
-### Release Validation
-
-  - Complete clean-install and supported-platform checks
-  - Maintain a tested optimizer, scheduler, and workflow compatibility matrix
-  - Complete backend-specific validation where external services are required
-
-### Documentation and Examples
-
-  - Complete public documentation cleanup
-  - Retain and maintain the release examples
-  - Document supported backend combinations and external requirements
-
-### Future Enhancements
-
-  - Planned CLI workflow lifecycle commands
-  - Advanced retry policies
+  - Planned CLI workflow and utility commands (`run`, `resume`, `status`, `stop`, `clean`, `init`, and `graph`)
+  - Configuration composition and inheritance, an interactive configuration builder, and shell completion
+  - Expanded plugin support for custom optimizers
+  - Native PyMOO design-constraint enforcement and expanded constraint support for non-linear and complex expressions, constraint simplification, and automatic tightening
+  - Multiple configured workflows and mixed stack types within a workflow collection
+  - Explicit workflow-stage dependencies, non-linear DAG execution, asynchronous execution, and resource monitoring
+  - Scheduler retry and timeout execution, advanced retry policies, and a validated scheduler/evaluator compatibility matrix
+  - Optimizer uncertainty ingestion and reproducible checkpoint/resume behavior
+  - Validated PanDA multi-stage execution and dataset handoff
   - Additional detector and optimization examples
 
 ## License

@@ -17,7 +17,7 @@ problem:
 
   # Design space parameters
   design_space:
-    path: "examples/complete/design.params"
+    path: "examples/dtlz2/complete/design.params"
 
   # ========================================================================
   # OBJECTIVES: Define what we're optimizing for
@@ -35,7 +35,7 @@ problem:
           stages:
             - name: "evaluate_objectives"
               script:
-                path: "examples/complete/scripts/dtlz2_problem.py"
+                path: "examples/dtlz2/complete/scripts/dtlz2_problem.py"
                 output_file: "objectives.json"
                 timeout_sec: 600
               produces_objective: true
@@ -95,7 +95,7 @@ workflows:
             # Individual jobs for this stage
             jobs:
               - name: "dtlz2_eval"
-                command: "python examples/complete/scripts/dtlz2_problem.py"
+                command: "python examples/dtlz2/complete/scripts/dtlz2_problem.py"
                 outputs:
                   - path: "objectives.json"
                     format: "json"

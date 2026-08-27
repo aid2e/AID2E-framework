@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 import os
 import shutil
+import subprocess
 
 from aid2e.utilities.configurations.experimental_stack_config import (
     StackLayerConfig
@@ -209,7 +210,7 @@ class EpicStack(ExperimentStack):
         compiled_log = os.path.join(trial_geo_dir, "compiled.log")
         do_compiling = self.make_driver_command(compile_script)
         if not os.path.exists(compiled_log):
-            os.system(f"{do_compiling}")
+            subprocess.run(do_compiling, shell=True, check=True)
             with open(compiled_log, "w") as f:
                 f.write(f"Workflow {workflow_id} geometry compiled\n")
 

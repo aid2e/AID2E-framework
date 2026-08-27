@@ -15,35 +15,56 @@ utility used by the base implementation.
   generation-sized candidate batches. PyMOO does not currently enforce design
   constraints during candidate generation.
 
-The current public export surface is:
+## Configuration
 
-- `BaseOptimizer`
-- `SearchSpace`
-- `Trial`
-- `compute_pareto_front`
-- `AxOptimizer`
-- `AxOptimizerConfig`
-- `PyMOOProblem`
-- `PyMOOOptimizer`
-- `PyMOOOptimizerConfig`
-- `AID2EProblem`
+The optimizer is selected in the top-level `optimizer` configuration.
 
-The optimizer implementations can be imported from `aid2e.optimizers`:
+Ax configuration:
 
-```python
-from aid2e.optimizers import AxOptimizer, PyMOOOptimizer
+```yaml
+optimizer:
+  name: ax
+  type: bayesian
+  parameters:
+    initialization_strategy: sobol
+    generator: BOTORCH_MODULAR
+    n_initial_samples: 20
+    n_iterations: 100
+    batch_size: 4
+    seed: 42
 ```
 
-The design is intentionally split between:
+PyMOO configuration:
 
-- shared bookkeeping and result utilities in `src/aid2e/optimizers/base.py`
-- Ax-specific configuration, symbol resolution, and candidate generation in
-  `src/aid2e/optimizers/ax/`
-- PyMOO-specific ask/tell logic in `src/aid2e/optimizers/pymoo/`
-- canonical config and runtime builders in `src/aid2e/utilities/configurations/`
-  and `src/aid2e/utilities/runtime_builders.py`
+```yaml
+optimizer:
+  name: pymoo
+  type: evolutionary
+  parameters:
+    algorithm: nsga2
+    pop_size: 20
+    n_offsprings: 20
+    n_iterations: 5
+    seed: 42
+```
 
-## Shared Abstractions
+For Ax, `n_iterations` is the total candidate-evaluation budget and
+`batch_size` controls how many candidates are submitted together. For PyMOO,
+`n_iterations` is the number of generations; `pop_size` controls the initial
+generation and `n_offsprings` normally controls later generations.
+
+Ax initialization strategies are:
+
+- `sobol`: Low-discrepancy sampling designed to cover the search space evenly.
+- `uniform`: Independent pseudorandom sampling over each parameter range.
+- `center`: One search-space center point followed by Sobol initialization when
+  additional initial samples are requested.
+
+## Shared Behavior
+
+All optimizer backends use the same search-space representation, trial lifecycle,
+result format, and failure accounting. Backend implementations add candidate
+generation and state management without changing these shared contracts.
 
 ### `SearchSpace`
 
@@ -60,15 +81,14 @@ optimizer form by using `DesignConfig.get_flat_parameters()` and forwarding the
 associated parameter constraints.
 
 The constructor accepts either `BaseParameter` objects or dictionaries that are
-parsed into parameters. The code rejects retired dictionary shapes, including the
-legacy `values` key, and requires a concrete `value` field alongside `bounds` or
-`choices`.
+parsed into parameters. Dictionary parameter definitions require a concrete
+`value` field alongside `bounds` or `choices`.
 
 `SearchSpace.validate()` is a backend-agnostic constraint check. It evaluates
 `ParameterConstraint` objects directly and is intended for backends that do not
 enforce constraints natively.
 
-### `Trial`
+### Trial Lifecycle
 
 `Trial` is the in-memory record for one evaluated point. It stores:
 
@@ -87,7 +107,7 @@ Failed evaluations are recorded without objective values through
 trials with configured penalty objective values and `penalized` metadata, so the
 optimizer can use the penalty values during subsequent candidate generation.
 
-### `compute_pareto_front`
+### Results and Pareto Front
 
 `compute_pareto_front()` computes the non-dominated subset of completed trials
 using each objective's configured `minimize` or `maximize` direction. Missing
@@ -130,11 +150,36 @@ trial under the configured direction for single-objective cases.
 
 `get_optimization_results()` and `save_optimization_results()` provide a stable
 JSON-friendly result export, including raw status and display status labels.
+Scheduler outputs and XCom values feed objective collection before these
+results are passed to the optimizer.
+
 Objective `*_err` values are retained in the exported `objective_errors` fields,
 but are not currently passed into either optimizer. Ax attaches objective data
 with `sem=0.0`, and PyMOO receives only the objective values.
 
+### Failed and Penalized Trials
+
+`problem.evaluation_config.trial_failure_policy` controls workflow evaluation
+failures and defaults to `fail`:
+
+- `fail` calls the backend's `mark_trial_failed()` without objective values.
+  Failed trials remain in optimizer history, are excluded from Pareto
+  calculations, and are included in subsequently saved results.
+- `penalty` requires a `penalty_objectives` value for every declared objective.
+  The optimizer receives those values through `update_with_results()`, and the
+  completed trial is marked with `penalized: true` metadata. These values are
+  supplied by the user; the framework does not derive them from objective
+  directions.
+
+Both outcomes count toward `max_failed_trials`, which defaults to `0`. The
+optimization stops when the number of failed evaluations exceeds that configured
+limit, so the first failure stops the run unless a larger limit is configured.
+
 ## Ax Backend
+
+Ax provides Bayesian single- and multi-objective optimization. The backend maps
+AID2E search spaces and objectives into an Ax experiment, then records each Ax
+trial in the shared optimizer history.
 
 ### Configuration
 
@@ -153,13 +198,9 @@ Supported fields are:
 - `batch_size`
 - `seed`
 
-The config explicitly rejects retired fields such as `surrogate_model` and
-`acquisition_function`. The current surface expects the newer `generator` plus
-`generator_kwargs` split instead.
-
 `src/aid2e/optimizers/ax/_resolver.py` keeps the config YAML-friendly by resolving
 string names into the concrete Ax, BoTorch, and GPyTorch classes used by the
-modern Modular BoTorch generator. It resolves:
+Modular BoTorch generator. It resolves:
 
 - `acquisition_class`
 - `botorch_acqf_class`
@@ -171,15 +212,10 @@ likelihood, and MLL classes listed in that module. When `surrogate_spec` is
 present, it also resolves nested `metric_to_model_configs` entries in addition
 to the top-level `model_configs`.
 
-### Search-space and constraint mapping
+### Search-space and objective mapping
 
 `AxOptimizer` converts `RangeParameter` values into Ax floating-point range
 parameters and `ChoiceParameter` values into Ax string choice parameters.
-
-The backend attempts to translate `ParameterConstraint.rule` into an Ax linear
-inequality. It supports simple sums and differences with unit coefficients and
-a numeric bound. Unsupported expressions are logged and skipped, so those
-constraints are not enforced during candidate generation.
 
 For multi-objective problems, the optimization config uses Ax objectives plus
 optional objective thresholds. Each objective and threshold uses its configured
@@ -197,8 +233,7 @@ The generation strategy is built as:
 - a model-based node using `Generators.BOTORCH_MODULAR`
 
 `center` is handled as a center node followed by a Sobol initialization node when
-additional initialization samples are needed. `uniform` falls back to Sobol if
-the installed Ax runtime does not expose a uniform generator.
+additional initialization samples are needed.
 
 The backend uses `resolve_generator_kwargs()` to turn YAML-friendly values into
 Ax runtime objects before passing them into the generator spec.
@@ -244,6 +279,10 @@ the initialized optimizer.
 
 ## PyMOO Backend
 
+PyMOO provides evolutionary single- and multi-objective optimization through an
+external-evaluation ask/tell loop. AID2E schedules each generated population and
+returns the completed objective values to PyMOO as one generation.
+
 ### Configuration
 
 `PyMOOOptimizerConfig` is registered under the `pymoo` name in the optimizer
@@ -277,9 +316,6 @@ It is structural only:
 
 The class is used for ask/tell workflows where evaluation happens outside the
 optimizer, not inside the PyMOO problem object.
-
-`AID2EProblem` remains available temporarily as a deprecated compatibility
-alias. Ax does not expose an equivalent public `Problem` wrapper.
 
 Choice parameters are encoded as continuous indices and rounded back to the
 nearest valid choice during decoding. Range parameters are passed through as
@@ -353,7 +389,208 @@ the pickled algorithm state or rebuilds the algorithm from config and seed if th
 pickle is missing or cannot be loaded. Any in-flight generation state is cleared
 during load.
 
-## Runtime Construction Path
+## Constraint Enforcement
+
+Constraints are handled through three framework layers:
+
+1. **DesignConfig** validates constraint syntax at configuration load time.
+2. **SearchSpace** stores validated constraints for optimizer use.
+3. **Optimizer** enforces the constraint forms supported by its backend.
+
+### Definition and Validation
+
+Constraints are defined in the design configuration as expressions over
+parameters. When a `DesignConfig` is instantiated, it checks that the rule is a
+valid Python expression and that qualified parameter names referenced in the
+rule exist in the design. This does not prove that an expression is linear or
+supported by a particular optimizer backend.
+
+`ParameterConstraint.extract_parameter_names()` extracts qualified parameter
+names from a rule. `ParameterConstraint.validate_syntax()` validates the rule's
+syntax and parameter names.
+
+```python
+constraint = ParameterConstraint(
+    name="example",
+    rule="tracker.x + magnet.y + detector.z <= 10.0",
+)
+
+param_names = constraint.extract_parameter_names()
+# Returns: {'tracker.x', 'magnet.y', 'detector.z'}
+
+valid_params = {'tracker.x', 'magnet.y', 'detector.z'}
+is_valid, error_msg = constraint.validate_syntax(valid_params)
+
+param_values = {'tracker.x': 3.0, 'magnet.y': 4.0, 'detector.z': 2.0}
+is_satisfied = constraint.evaluate(param_values)
+# Returns: True (3.0 + 4.0 + 2.0 = 9.0 <= 10.0)
+```
+
+```python
+# Unknown parameter
+rule: "group.unknown + group.y <= 10.0"
+# ERROR: Unknown parameters: group.unknown
+
+# Invalid syntax
+rule: "group.x +* group.y <= 10.0"
+# ERROR: Invalid syntax in constraint
+```
+
+### Runtime Validation (`SearchSpace`)
+
+Validated constraints are passed to the `SearchSpace`:
+
+```python
+from aid2e.optimizers.base import SearchSpace
+
+search_space = SearchSpace.from_design_config(design_config)
+print(f"Constraints: {len(search_space.constraints)}")
+```
+
+The `SearchSpace` provides explicit runtime constraint checking:
+
+```python
+# Check if parameter values satisfy constraints
+param_values = {"group.x": 1.5, "group.y": 9.0}
+is_valid, errors = search_space.validate(param_values)
+
+if not is_valid:
+    print(f"Constraint violations: {errors}")
+```
+
+`ParameterConstraint.evaluate()` evaluates one rule against parameter values;
+`SearchSpace.validate()` applies all stored constraints and reports failures.
+This check is not automatically applied to candidates generated by PyMOO. These
+methods can evaluate other valid Python expressions, but that does not make them
+native optimizer constraints.
+
+### Native Enforcement and Conversion (Ax)
+
+The Ax optimizer converts constraints to Ax's native `ParameterConstraint` format:
+
+```python
+from aid2e.optimizers import AxOptimizer, AxOptimizerConfig, SearchSpace
+from aid2e.utilities.configurations import DesignConfig
+
+config_data = {
+    "design_parameters": {
+        "group": {
+            "parameters": {
+                "x": {"value": 1.0, "bounds": [0.5, 2.0]},
+                "y": {"value": 5.0, "bounds": [3.0, 10.0]},
+            }
+        }
+    },
+    "parameter_constraints": [
+        {
+            "name": "total_limit",
+            "rule": "group.x + group.y <= 10.0",
+        },
+        {"name": "min_y", "rule": "group.y >= 4.0"},
+    ],
+}
+
+design_config = DesignConfig(**config_data)
+search_space = SearchSpace.from_design_config(design_config)
+optimizer = AxOptimizer(
+    search_space=search_space,
+    config=AxOptimizerConfig(
+        n_initial_samples=10,
+        initialization_strategy="sobol",
+        generator="BOTORCH_MODULAR",
+    ),
+    objective_names=["objective"],
+)
+
+# Ax enforces supported constraints during generation
+candidates = optimizer.suggest_candidates(n_candidates=20)
+for candidate in candidates:
+    is_valid, errors = search_space.validate(candidate)
+    assert is_valid, f"Constraint violation: {errors}"
+```
+
+Ax conversion supports the linear inequalities accepted by Ax, including
+weighted terms and a numeric bound. Unsupported forms raise a `ValueError` when
+the Ax search space is constructed; constraints are never silently omitted.
+
+Supported comparison operators are:
+
+- `<=` - Less than or equal (upper bound)
+- `<` - Less than (strict upper bound)
+- `>=` - Greater than or equal (converted to an upper bound internally)
+- `>` - Greater than (converted to an upper bound internally)
+
+```python
+# Design constraint
+rule: "group.x + group.y <= 1.5"
+
+# Converted to the Ax inequality
+group.x + group.y <= 1.5
+```
+
+**Conversion logic:**
+1. Separate the linear expression, comparison operator, and numeric bound
+2. Convert strict inequalities to the nearest representable inclusive bound
+   with `numpy.nextafter()`
+3. Delegate linear-expression parsing and `>=` conversion to Ax
+
+Example conversion:
+
+```python
+# Original: group.x + group.y >= 0.5
+# Converted: -group.x - group.y <= -0.5
+```
+
+Weighted linear expressions are supported:
+
+```python
+rule: "group.x + 2.0 * group.y <= 3.0"
+```
+
+Non-linear expressions are rejected by Ax conversion:
+
+```python
+rule: "group.x * group.y <= 1.0"
+rule: "group.x ** 2 + group.y ** 2 <= 1.0"
+```
+
+## Developer Reference
+
+This section documents the public optimizer surface, runtime construction path,
+and the changes required to add another backend. It follows the user-facing
+backend behavior so implementation details remain available without interrupting
+the configuration and lifecycle reference.
+
+### Public Interface
+
+The current public export surface is:
+
+- `BaseOptimizer`
+- `SearchSpace`
+- `Trial`
+- `compute_pareto_front`
+- `AxOptimizer`
+- `AxOptimizerConfig`
+- `PyMOOProblem`
+- `PyMOOOptimizer`
+- `PyMOOOptimizerConfig`
+
+The optimizer implementations can be imported from `aid2e.optimizers`:
+
+```python
+from aid2e.optimizers import AxOptimizer, PyMOOOptimizer
+```
+
+The implementation is split between:
+
+- shared bookkeeping and result utilities in `src/aid2e/optimizers/base.py`
+- Ax-specific configuration, symbol resolution, and candidate generation in
+  `src/aid2e/optimizers/ax/`
+- PyMOO-specific ask/tell logic in `src/aid2e/optimizers/pymoo/`
+- canonical config and runtime builders in `src/aid2e/utilities/configurations/`
+  and `src/aid2e/utilities/runtime_builders.py`
+
+### Runtime Construction
 
 `OptimizerConfiguration` is the canonical top-level config object used by the
 framework. It stores the backend `name`, the optimizer `type`, and the raw
@@ -373,151 +610,22 @@ does the same with `PyMOOOptimizerConfig`. In both cases, the builder only
 constructs the optimizer object. The outer `run_optimization()` loop drives
 repeated `suggest_candidates()` and `update_with_results()` calls.
 
-Iteration sizing is backend-specific in that loop:
-
-- For Ax, `n_iterations` is the total candidate-evaluation budget and
-  `batch_size` controls how many candidates are submitted together.
-- For PyMOO, `n_iterations` is the number of generations. PyMOO determines the
-  number of candidates in each generation from `pop_size` and `n_offsprings`.
-
 The optimizer constructors accept `DesignConfig` objects directly, so the runtime
 builder passes the design config rather than pre-building `SearchSpace`. The base
 class handles the conversion to `SearchSpace`.
 
-`optimization_registry.py` registers the backend config models lazily so the
+`optimization_registry.py` loads built-in backend config models on demand so the
 canonical optimizer config can validate backend-specific parameters without
 forcing every backend module to be imported up front.
 
-### Failed and Penalized Trials
-
-`problem.evaluation_config.trial_failure_policy` controls workflow evaluation
-failures and defaults to `fail`:
-
-- `fail` calls the backend's `mark_trial_failed()` without objective values.
-  Failed trials remain in optimization results but are excluded from Pareto
-  calculations.
-- `penalty` requires a `penalty_objectives` value for every declared objective.
-  The optimizer receives those values through `update_with_results()`, and the
-  completed trial is marked with `penalized: true` metadata. These values are
-  supplied by the user; the framework does not derive them from objective
-  directions.
-
-Both outcomes count toward `max_failed_trials`, which defaults to `0`. The
-optimization stops when the number of failed evaluations exceeds that configured
-limit, so the first failure stops the run unless a larger limit is configured.
-
-## Constraint Enforcement
-
-### Runtime Validation (SearchSpace)
-
-The `SearchSpace` provides explicit runtime constraint checking:
-
-```python
-# Check if parameter values satisfy constraints
-param_values = {'tracker.thickness': 1.5, 'tracker.radius': 9.0}
-is_valid, errors = search_space.validate(param_values)
-
-if not is_valid:
-    print(f"Constraint violations: {errors}")
-```
-
-This check is not automatically applied to candidates generated by PyMOO.
-
-### Native Enforcement (Ax Optimizer)
-
-The Ax optimizer converts constraints to Ax's native `ParameterConstraint` format:
-
-```python
-from aid2e.optimizers.ax.optimizer import AxOptimizer
-from aid2e.optimizers.ax.config import AxOptimizerConfig
-
-# Create optimizer with constraints
-ax_config = AxOptimizerConfig(
-    n_initial_samples=10,
-    initialization_strategy="sobol",
-    generator="BOTORCH_MODULAR",
-)
-
-optimizer = AxOptimizer(
-    search_space=search_space,
-    config=ax_config,
-    objective_names=["objective"]
-)
-
-# Ax enforces supported constraints during generation
-candidates = optimizer.suggest_candidates(n_candidates=5)
-```
-
-Ax conversion currently supports simple sums and differences with unit
-coefficients and a numeric bound. Unsupported forms are omitted with a warning
-and therefore are not guaranteed during candidate generation.
-
-### Ax Constraint Conversion
-
-The Ax optimizer converts constraint rules to Ax's `ParameterConstraint` format:
-
-```python
-# Design constraint
-rule: "group.x + group.y <= 1.5"
-
-# Converted to the Ax inequality
-group.x + group.y <= 1.5
-```
-
-**Conversion logic:**
-1. Parse the supported parameter sum or difference
-2. Extract the comparison operator and numeric bound
-3. Convert strict inequalities using a small epsilon
-4. Handle `>=` and `>` by negating the expression and bound
-
-Example conversion:
-
-```python
-# Original: group.x + group.y >= 0.5
-# Converted: -group.x - group.y <= -0.5
-```
-
-### Constraint Tests
-
-Constraint validation, conversion, and Ax candidate enforcement are covered in
-`tests/test_optimizers/test_constraint_integration.py`.
-
-## Runtime Guarantees and Limitations
-
-- Objective directions are passed from the problem configuration into each
-  backend and Pareto calculation. If a direction is missing, it defaults to
-  minimization.
-- `compute_pareto_front()` only considers completed trials with metrics.
-- The optimizer classes do not enforce their own stop condition.
-  `run_optimization()` applies the configured Ax candidate budget or PyMOO
-  generation count.
-- Ax only forwards simple sums and differences with unit coefficients and
-  numeric bounds. Unsupported forms are omitted with a warning, so they are not
-  enforced.
-- PyMOO retains search-space constraints but does not forward them to the
-  algorithm. It logs a warning, and generated candidates are not guaranteed to
-  satisfy those constraints.
-- PyMOO only supports `RangeParameter` and `ChoiceParameter`.
-- The Ax backend currently requires the node-based Ax runtime; older Ax APIs are
-  not used here.
-- Ax state serialization does not currently include objective directions. A
-  restored optimizer therefore retains the directions supplied when it was
-  initialized.
-
-## Extension Points
+### Extension Points
 
 To add a new backend, the current code path requires three pieces:
 
 - a new optimizer class implementing the four abstract methods on `BaseOptimizer`
 - a Pydantic config model registered through `optimization_registry.register()`
+  and, for built-in backends, its loader in `_algorithm_config_loaders`
 - a runtime-builder branch that maps the canonical optimizer config to the new backend
 
 Shared history, Pareto computation, trial export, and backend-switch seeding can
 then be reused directly from `BaseOptimizer`.
-
-## Results and Failures
-
-6. Results and Failures
-Scheduler outputs and XCom values feed objective collection
-Failed trials are recorded by the optimizer
-Configured penalty objectives can complete a failed evaluation as penalized

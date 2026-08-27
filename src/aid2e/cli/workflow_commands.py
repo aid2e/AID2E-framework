@@ -20,6 +20,10 @@ import click
 from aid2e.utilities.configurations import load_config
 from aid2e.utilities.runtime_builders import run_optimization
 
+
+logger = logging.getLogger(__name__)
+
+
 @click.command(name="optimize")
 @click.argument("config_file", type=click.Path(exists=True))
 @click.option("--validate-only", is_flag=True, help="Validate config but do not run")
@@ -47,13 +51,28 @@ def optimize(
         aid2e optimize optimization.yml --validate-only
         aid2e optimize optimization.yml -vv --log output.log
     """
+    log_level = (
+        "DEBUG" if verbosity > 1 else "INFO" if verbosity or log_file else "WARNING"
+    )
+    if log_file:
+        log_path = Path(log_file).expanduser()
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        logging.basicConfig(
+            filename=log_path,
+            level=getattr(logging, log_level),
+            format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
+            force=True,
+        )
+
     try:
+        logger.info("Loading configuration from %s", config_file)
         if verbosity > 0:
             click.echo(f"Loading configuration from: {config_file}")
         
         config = load_config(config_file)
         
         if validate_only:
+            logger.info("Configuration validated: %s", config_file)
             click.echo(click.style("✓ Configuration validated; skipping execution.", fg="green"))
             return
         
@@ -71,16 +90,6 @@ def optimize(
         if run_id:
             click.echo(f"  Run ID: {run_id}")
         click.echo()
-        log_level = "DEBUG" if verbosity > 1 else "INFO" if verbosity else "WARNING"
-        if log_file:
-            log_path = Path(log_file).expanduser()
-            log_path.parent.mkdir(parents=True, exist_ok=True)
-            logging.basicConfig(
-                filename=log_path,
-                level=getattr(logging, log_level),
-                format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
-                force=True,
-            )
         results = run_optimization(
             config,
             config_file,
@@ -92,8 +101,11 @@ def optimize(
         click.echo(click.style("Optimization completed.", fg="green"))
         click.echo(f"  Run directory: {results['run_dir']}")
         click.echo(f"  Results: {results['optimization_results']}")
+        logger.info("Optimization completed: %s", results["run_dir"])
 
     except Exception as e:
+        if log_file:
+            logger.exception("Optimization failed")
         click.echo(click.style(f"✗ Error: {e}", fg="red"), err=True)
         if verbosity > 1:
             import traceback

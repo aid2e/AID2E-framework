@@ -5,7 +5,7 @@ problem:
 
   # Design space parameters
   design_space:
-    path: "examples/complete/design.params"
+    path: "examples/dtlz2/complete/design.params"
 
   # ========================================================================
   # OBJECTIVES: Define what we're optimizing for
@@ -28,7 +28,7 @@ problem:
           stages:
             - name: "evaluate_f1"
               script:
-                path: "examples/complete/scripts/dtlz2_f1.py"
+                path: "examples/dtlz2/complete/scripts/dtlz2_f1.py"
                 output_file: "f1.json"
                 timeout_sec: 600
               produces_objective: true
@@ -80,7 +80,7 @@ workflows:
             # Jobs: individual computational tasks
             jobs:
               - name: "compute_f1"
-                command: "python examples/complete/scripts/dtlz2_f1.py"
+                command: "python examples/dtlz2/complete/scripts/dtlz2_f1.py"
                 outputs:
                   - path: "f1.json"
                     format: "json"

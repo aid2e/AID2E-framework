@@ -2,78 +2,7 @@
 
 This guide documents AID2E's workflow execution and objective specification system.
 
-## Table of Contents
-
-1. [Objective Plans](#objective-plans)
-2. [Workflow Execution](#workflow-execution)
-3. [Scheduler Cascade](#scheduler-cascade)
-4. [Job Factories](#job-factories)
-5. [Stack Jobs and EpicStack](#stack-jobs-and-epicstack)
-6. [Outputs and Failures](#outputs-and-failures)
-7. [Combined Objectives](#combined-objectives)
-8. [Step Plans](#step-plans)
-9. [Examples](#examples)
-
----
-
-## Objective Plans
-
-An objective plan represents the executable specification of how to compute an objective value.
-
-### Key Classes
-
-- **`ObjectiveDefinition`**: Top-level objective specification
-  - `name` (str): Objective name (e.g., "f1", "f2")
-  - `direction` (ObjectiveDirection): MINIMIZE or MAXIMIZE
-  - `objective_plan` (ObjectivePlanSpec): How to compute this objective
-  - `scheduler` (Optional[SchedulerConfiguration]): Reserved; objective-level scheduler execution is not currently supported
-  - `metrics_keys` (List[str]): Key to extract from objective output; a single-objective plan must resolve to exactly one key
-
-- **`ObjectivePlanSpec`**: Canonical specification for computing an objective
-  - Uses `steps`: `StepPlanSpec` with one or more stages
-  - Each stage defines either:
-    - `script`: Path to executable script
-    - `inline`: Entrypoint to Python function
-
-In a full configuration, `problem.objectives` is the single source of truth.
-`build_workflow_executor_from_config()` copies those definitions to the selected
-workflow and rejects duplicated `workflows[].objectives` declarations.
-
-### Single-Step and Multi-Step Plans
-
-By design, all objective plans use the same `steps` structure. A simple
-objective can define one stage, while more complex objectives can define
-multiple dependent stages. This provides:
-- Unified handling of simple and complex objective evaluations
-- Support for preprocessing, evaluation, and postprocessing stages
-- Clear separation of concerns
-
-Example (single script stage):
-
-```python
-ObjectiveDefinition(
-    name="f1",
-    direction=ObjectiveDirection.MINIMIZE,
-    objective_plan=ObjectivePlanSpec(
-        steps=StepPlanSpec(
-            stages=[
-                StepStage(
-                    name="f1_stage_0",
-                    script=ScriptObjective(
-                        path="scripts/dtlz2.py",
-                        output_file="f1.json",
-                    ),
-                    produces_objective=True,
-                )
-            ]
-        )
-    )
-)
-```
-
----
-
-## Workflow Execution
+## Execution Model
 
 A workflow evaluates one design point. It contains branches, each branch
 contains stages, and each stage contains zero or more jobs. The current executor
@@ -81,6 +10,10 @@ runs branches in configuration order. Within each branch, stages are treated as
 a sequential chain: every stage depends on the previous stage. Jobs expanded
 within one stage are submitted together and may run in parallel through the
 effective scheduler.
+
+A downstream stage begins only after all jobs in the preceding stage complete
+successfully. A failed scheduler stage stops the workflow and prevents later
+stages in that branch from running.
 
 The current workflow model does not expose explicit dependencies between
 workflow stages. Objective step plans have their own `depends_on` fields and are
@@ -96,8 +29,77 @@ For each stage, the executor:
 4. Collects scheduler outputs and artifacts into the workflow XCom mapping.
 5. Executes the stage objective plan, when configured.
 
-After every branch completes, the executor collects the declared objectives and
+After all branches complete, the executor collects the declared objectives and
 returns them to the optimization loop.
+
+---
+
+## Jobs and Job Factories
+
+### Job Execution Types
+
+The job `payload.evaluator_type` selects the execution engine. When it is
+omitted, the job uses command execution.
+
+- **Command/Bash** executes `job.command`; `payload.env` can supply environment
+  variables.
+- **Python** uses `evaluator_type: "python"` with `python_callable` and optional
+  `op_args` and `op_kwargs`. String callables use
+  `module.path:function_name`.
+- **Container** uses `evaluator_type: "container"` with image, command,
+  environment, volume, and resource settings for direct execution.
+- **Stack** uses `evaluator_type: "stack"` with a registered `stack_type` and
+  one or more ordered layers.
+
+### Job Factories
+
+A stage can execute its declared jobs directly or expand the first job as a
+template through `job_factory`. The current executor implements two factory
+types: `range` and `payloads`. Other names described by the model are not
+implemented and raise `ValueError`.
+
+The `range` factory creates `n` deep copies of the first job. Each copy is named
+`<template_name>_<index>` and receives `job_index` in its payload:
+
+```yaml
+job_factory:
+  type: "range"
+  params:
+    n: 4
+```
+
+The `payloads` factory calls a Python function referenced as
+`module.path:function_name`. The function receives `stage_id`,
+`problem_config`, and `workflow_context` and must return a list of mappings. One
+deep-copied job is created for each mapping, and that mapping is merged into the
+template payload:
+
+```yaml
+job_factory:
+  type: "payloads"
+  params:
+    from: "workflow_utils:simulation_payloads"
+```
+
+Because expansion deep-copies the template job, stack layer definitions are
+preserved for every generated job. Additional jobs declared after the first
+template are not expanded when a factory is present.
+
+### Callable Entrypoints
+
+AID2E references Python callables using:
+
+```text
+module.path:function_name
+```
+
+The framework imports the module and resolves the named function. Callable
+entrypoints can be used to execute Python jobs, generate job payloads, or
+calculate objectives. The arguments supplied to the function depend on where
+the callable is configured: Python jobs use their configured arguments and job
+context, payload factories receive the stage and workflow context, and inline
+objective functions receive the design point, workflow context, and objective
+inputs and outputs.
 
 ---
 
@@ -207,42 +209,6 @@ For a stage without explicit scheduler:
 
 ---
 
-## Job Factories
-
-A stage can execute its declared jobs directly or expand the first job as a
-template through `job_factory`. The current executor implements two factory
-types: `range` and `payloads`. Other names described by the model are not
-implemented and raise `ValueError`.
-
-The `range` factory creates `n` deep copies of the first job. Each copy is named
-`<template_name>_<index>` and receives `job_index` in its payload:
-
-```yaml
-job_factory:
-  type: "range"
-  params:
-    n: 4
-```
-
-The `payloads` factory calls a Python function referenced as
-`module.path:function_name`. The function receives `stage_id`,
-`problem_config`, and `workflow_context` and must return a list of mappings. One
-deep-copied job is created for each mapping, and that mapping is merged into the
-template payload:
-
-```yaml
-job_factory:
-  type: "payloads"
-  params:
-    from: "workflow_utils:simulation_payloads"
-```
-
-Because expansion deep-copies the template job, stack layer definitions are
-preserved for every generated job. Additional jobs declared after the first
-template are not expanded when a factory is present.
-
----
-
 ## Stack Jobs and EpicStack
 
 The stack interface allows a workflow job to execute one or more ordered layers
@@ -311,7 +277,7 @@ applies the modifications, and builds and installs that workflow copy.
 Generated ePIC driver scripts use `set -euo pipefail`, initialize the selected
 geometry, and run through `EIC_SINGULARITY_IMAGE` or `EIC_SHELL`. The workflow
 therefore requires a valid ePIC environment configuration and an ePIC design
-configuration. See the [dRICH example](../../examples/drich/README.md) for a
+configuration. See the [dRICH example](https://github.com/aid2e/AID2E-framework/tree/main/examples/epic/drich) for a
 complete `geo`, `sim`/`rec`, and `ana` workflow.
 
 The current full-config loader selects stack-specific workflow models when a
@@ -321,21 +287,7 @@ supported reliably.
 
 ---
 
-## Outputs and Failures
-
-Each job receives a work directory at `<work_dir>/<stage>/<job>` and an output
-directory at `<output_dir>/<stage>/<job>`. The workflow also creates a shared
-`log` directory. Direct job return values are pushed to XCom. For scheduler
-jobs, collected outputs, standard output, standard error, and artifacts are
-stored in the workflow XCom mapping for downstream stages and objective
-collection.
-
-For command jobs, `job.outputs` describes scheduler-collected artifacts and its
-paths are resolved against the runtime context. `StageDefinition.outputs` is
-accepted by the configuration model but is not separately collected by the
-current executor. Stack-layer `outputs` are used to construct layer commands;
-they are not automatically converted into scheduler artifact specifications, so
-downstream code should use their configured paths explicitly.
+## Objective Collection
 
 Objectives can be returned in three ways:
 
@@ -348,46 +300,88 @@ Objectives can be returned in three ways:
 
 Objective plans execute locally inside `DAGExecutor`. An inline step calls a
 configured Python function with `design_point`, `inputs`, `outputs`,
-`extra_args`, `xcom`, `work_dir`, `output_dir`, `problem_config`,
-`trial_metadata`, and `workflow_context`. A script step writes design-point and
-step-input JSON files, supplies the parameter and output paths through command
-arguments and environment variables, runs the configured executable, and reads
-its JSON output file. Step dependencies are topologically sorted, and the stage
-selected by `produces_from_stage` supplies the plan result. A stage-level plan
-must return all objectives declared for the workflow. A single-objective plan
-extracts its one declared `metrics_keys` entry or defaults to the objective
-name. Optional uncertainty values use the `<objective_name>_err` key.
+`extra_args`, `xcom`, `work_dir`, `output_dir`, `problem_config`, and
+`workflow_context`. Trial metadata is available through `workflow_context`. A
+script step writes design-point and step-input JSON files, supplies the
+parameter and output paths through command arguments and environment variables,
+runs the configured executable, and reads its JSON output file. Step
+dependencies are topologically sorted, and the stage selected by
+`produces_from_stage` supplies the plan result. A stage-level plan must return
+all objectives declared for the workflow. A single-objective plan extracts its
+one declared `metrics_keys` entry or defaults to the objective name. Optional
+uncertainty values use the `<objective_name>_err` key.
 
-The executor requires every declared objective. Missing metrics, invalid JSON,
-non-numeric values, nonzero job return codes, and failed scheduler stages are
-workflow errors. Direct objective collection currently visits XCom values in
-insertion order, so repeated objective keys can overwrite earlier values rather
-than raising an error; workflows with multiple producers should use an explicit
-aggregation plan.
+An objective plan represents the executable specification of how to compute an objective value.
 
-Workflow errors propagate to the optimization loop. The problem's
-`evaluation_config.trial_failure_policy` then determines whether the optimizer
-marks the trial as failed or completes it with configured
-`penalty_objectives`. `max_failed_trials` limits tolerated failed evaluations.
-The default policy is `fail`, the default `max_failed_trials` is `0`, and the
-`penalty` policy requires a configured value for every declared objective.
-Scheduler retry and timeout limitations are documented in the
-[scheduler guide](schedulers.md#parallelism-and-retry-behavior).
+Objective-plan `StepStage` objects are separate from workflow `StageDefinition`
+objects. Objective-plan steps execute locally inside `DAGExecutor` and do not
+use the workflow scheduler cascade.
+
+### Key Classes
+
+- **`ObjectiveDefinition`**: Top-level objective specification
+  - `name` (str): Objective name (e.g., "f1", "f2")
+  - `direction` (ObjectiveDirection): MINIMIZE or MAXIMIZE
+  - `objective_plan` (ObjectivePlanSpec): How to compute this objective
+  - `scheduler` (Optional[SchedulerConfiguration]): Reserved; objective-level scheduler execution is not currently supported
+  - `metrics_keys` (List[str]): Key to extract from objective output; a single-objective plan must resolve to exactly one key
+
+- **`ObjectivePlanSpec`**: Canonical specification for computing an objective
+  - Uses `steps`: `StepPlanSpec` with one or more stages
+  - Each stage defines either:
+    - `script`: Path to executable script
+    - `inline`: Entrypoint to Python function
+
+In a full configuration, `problem.objectives` is the single source of truth.
+`build_workflow_executor_from_config()` copies those definitions to the selected
+workflow and rejects duplicated `workflows[].objectives` declarations.
+
+### Single-Step and Multi-Step Plans
+
+By design, all objective plans use the same `steps` structure. A simple
+objective can define one stage, while more complex objectives can define
+multiple dependent stages. This provides:
+- Unified handling of simple and complex computations
+- Support for preprocessing, evaluation, and postprocessing stages
+- Clear separation of concerns
+
+Example (single script stage):
+
+```python
+ObjectiveDefinition(
+    name="f1",
+    direction=ObjectiveDirection.MINIMIZE,
+    objective_plan=ObjectivePlanSpec(
+        steps=StepPlanSpec(
+            stages=[
+                StepStage(
+                    name="f1_stage_0",
+                    script=ScriptObjective(
+                        path="scripts/dtlz2.py",
+                        output_file="f1.json",
+                    ),
+                    produces_objective=True,
+                )
+            ]
+        )
+    )
+)
+```
 
 ---
 
-## Combined Objectives
+### Combined Objectives
 
-### Motivation
+#### Motivation
 
-Sometimes a single evaluation produces **multiple objective metrics**. For example:
+Sometimes a single computation produces **multiple objective metrics**. For example:
 - A DTLZ2 evaluation script outputs both `f1` and `f2`
 - A surrogate model prediction outputs multiple target values
 - A simulation produces both efficiency and quality scores
 
 Instead of running the same plan twice, **combined objectives** allow one execution to produce multiple metrics.
 
-### Key Classes
+#### Key Classes
 
 - **`CombinedObjectivePlan`**: Bundle of a plan with multiple metric definitions
   - `name` (str): Combined objective name
@@ -400,7 +394,7 @@ Instead of running the same plan twice, **combined objectives** allow one execut
   - `direction` (ObjectiveDirection): MINIMIZE or MAXIMIZE
   - `metric_key` (str): Key to extract from plan output (e.g., "f1" from `{"f1": 0.5, "f2": 0.3}`)
 
-### Usage in Workflows
+#### Usage in Workflows
 
 Add `combined_objectives` to a `WorkflowDefinition`:
 
@@ -431,38 +425,35 @@ workflows:
               direction: "minimize"
               metric_key: "f2"  # Extract {"f2": ...} from output
 
-            - name: "efficiency"
-              direction: "maximize"
-              metric_key: "efficiency"  # Extract {"efficiency": ...}
 ```
 
-### Output Format
+#### Output Format
 
 The objective plan script should output a JSON file with the metric values:
 
 ```json
 {
   "f1": 0.45,
-  "f2": 0.67,
-  "efficiency": 0.92
+  "f2": 0.67
 }
 ```
 
 Each key in this object becomes extractable via `metric_key` in `CombinedObjectiveMetric`.
 
-`combined_objectives` remains supported for configurations that use this schema.
+`combined_objectives` is supported for configurations that use this schema.
 In canonical full configurations, the optimizer's objective names and directions
-still come from `problem.objectives`; the combined plan controls how output keys
+still come from `problem.objectives`; each combined metric should correspond to
+one of those declared objectives. The combined plan controls how output keys
 are mapped to those declared names. A configured scheduler on a combined plan
 raises an error. Use a workflow stage for scheduled aggregation work.
 
 ---
 
-## Step Plans
+### Step Plans
 
-### Structure
+#### Structure
 
-A step plan contains one or more stages, each with a distinct operation:
+A step plan contains one or more stages, each with a distinct computation:
 
 ```python
 ObjectiveDefinition(
@@ -493,7 +484,7 @@ ObjectiveDefinition(
 )
 ```
 
-### StepStage Fields
+#### StepStage Fields
 
 - `name` (str): Stage name (must be unique within a plan)
 - `script` or `inline` (exactly one): The execution mode
@@ -505,7 +496,7 @@ ObjectiveDefinition(
 - `produces_objective` (bool): Whether this stage produces the objective value
 - `depends_on` (List[str]): Names of preceding stages this depends on
 
-### Validation
+#### Validation
 
 The model automatically validates:
 - **Mutual exclusivity**: Each stage has exactly one of `script` or `inline`
@@ -519,13 +510,73 @@ rejects cyclic dependencies at runtime.
 
 ---
 
+## Outputs and Failures
+
+For `aid2e optimize`, the configured output and work locations contain one
+directory per run:
+
+```text
+<output_location>/<run-id>/
+|-- optimization_results.json
+|-- pareto_front.json
+`-- trials/
+    `-- trial_<index>/
+        |-- log/
+        |-- <stage>/<job>/
+        `-- geometry/                 # Stack workflows when prepared
+
+<work_location>/<run-id>/
+`-- trials/
+    `-- trial_<index>/
+        |-- _scheduler/<stage>/
+        |-- _objectives/<plan>/<step>/
+        `-- <stage>/<job>/
+```
+
+When a standalone `DAGExecutor` is created without explicit output and work
+directories, it creates `<workflow>/<timestamp>` directories below the problem
+output and work locations. Without a problem configuration, it uses
+`base_output_dir` for both.
+
+Each job receives a work directory at `<work_dir>/<stage>/<job>` and an output
+directory at `<output_dir>/<stage>/<job>`. The workflow also creates a shared
+`log` directory. Direct job return values are pushed to XCom. For scheduler
+jobs, collected outputs, standard output, standard error, and artifacts are
+stored in the workflow XCom mapping for downstream stages and objective
+collection.
+
+For command jobs, `job.outputs` describes scheduler-collected artifacts and its
+paths are resolved against the runtime context. `StageDefinition.outputs` is
+accepted by the configuration model but is not separately collected by the
+current executor. Stack-layer `outputs` are used to construct layer commands;
+they are not automatically converted into scheduler artifact specifications, so
+downstream code should use their configured paths explicitly.
+
+The executor requires every declared objective. Missing metrics, invalid JSON,
+non-numeric values, nonzero job return codes, and failed scheduler stages are
+workflow errors. Direct objective collection currently visits XCom values in
+insertion order, so repeated objective keys can overwrite earlier values rather
+than raising an error; workflows with multiple producers should use an explicit
+aggregation plan.
+
+Workflow errors propagate to the optimization loop. The problem's
+`evaluation_config.trial_failure_policy` then determines whether the optimizer
+marks the trial as failed or completes it with configured
+`penalty_objectives`. `max_failed_trials` limits tolerated failed evaluations.
+The default policy is `fail`, the default `max_failed_trials` is `0`, and the
+`penalty` policy requires a configured value for every declared objective.
+Scheduler retry and timeout limitations are documented in the
+[scheduler guide](schedulers.md#parallelism-and-failure-behavior).
+
+---
+
 ## Examples
 
 Current full-configuration examples include:
 
-- [DTLZ2](../../examples/configurations/dtlz2_optimization.yml): one-stage
+- [DTLZ2](https://github.com/aid2e/AID2E-framework/blob/main/examples/dtlz2/dtlz2_optimization.yml): one-stage
   objective evaluation with JobLib.
-- [dRICH](../../examples/drich/workflow.yml): scheduler cascade, payload job
+- [dRICH](https://github.com/aid2e/AID2E-framework/blob/main/examples/epic/drich/workflow.yml): scheduler cascade, payload job
   factories, EpicStack stages, and objective aggregation.
 
 ### Multi-Step Objective Plan
@@ -566,25 +617,19 @@ ObjectivePlanSpec(
 
 ---
 
-## Workflow Features
+## Developer Reference
+
+### Workflow Features
 
 1. **Objective collection**: Supports direct outputs and inline or script-based objective plans.
 2. **Scheduler cascade**: Allows both global consistency and local overrides.
-3. **Combined objectives**: Avoid redundant objective evaluations.
+3. **Combined objectives**: Avoid redundant computations.
 4. **Step plans**: Support dependent operations within a single objective.
 5. **Validation**: Rejects invalid dependencies, actions, and objective producers.
 
 ---
 
-## Questions & Support
-
-For more information:
-- See [`docs/api-reference/`](../api-reference/) for detailed API docs
-- Check [`tests/test_utilities/test_workflows/`](../../tests/test_utilities/test_workflows/) for integration tests
-- Review the [DTLZ2](../../examples/configurations/dtlz2_optimization.yml) and
-  [dRICH](../../examples/drich/workflow.yml) YAML examples for current usage
-
-## DATA FLOW (Workflow Execution)
+### DATA FLOW (Workflow Execution)
 
 User Config (YAML)
     -> Full Config Parser (load_config)
@@ -613,18 +658,26 @@ User Config (YAML)
     -> Save Optimization Results and Pareto Front
     -> Suggest Next Candidate Batch
 
-## Key Integration Points
+### Key Integration Points
 
 1. Objectives
 ProblemConfiguration.objectives -> ObjectiveDefinition[]
 The optimizer uses the declared objective names and directions
 The workflow returns or calculates values for those declared objectives
 
-4. Workflow Execution
+2. Workflow Execution
 Stages execute sequentially within a branch
 Jobs within a stage are submitted together
 Range and payload job factories support job fan-out
 
-5. Stack Registry
+3. Stack Registry
 Generic workflow code resolves stack configuration through StackRegistry
 EpicStack supplies geo, sim, rec, and ana layer behavior
+
+### Questions & Support
+
+For more information:
+- See the [API reference](../api-reference/utilities.md) for detailed API docs
+- Check the [workflow integration tests](https://github.com/aid2e/AID2E-framework/tree/main/tests/test_utilities/test_workflows) for integration tests
+- Review the [DTLZ2](https://github.com/aid2e/AID2E-framework/blob/main/examples/dtlz2/dtlz2_optimization.yml) and
+  [dRICH](https://github.com/aid2e/AID2E-framework/blob/main/examples/epic/drich/workflow.yml) YAML examples for current usage

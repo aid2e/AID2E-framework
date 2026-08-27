@@ -17,17 +17,17 @@ It is recommended to use the branch of the fork containing a single-mirror dRICH
 
 The following repository and branch hold the recommended default geometry for the optimization of the dRICH and will need to be downloaded and built prior to running.
 
-Additionally, the dRICH analysis script will need to be built from within eic-shell prior to running the optimization, located in examples/drich/script
+Additionally, the dRICH analysis script will need to be built from within eic-shell prior to running the optimization, located in examples/epic/drich/script
 
 ```
 git clone -b 24.11.1-drich-singlemirror https://github.com/cpecar/epic-geom-drich-mobo.git
 ./build_epic.sh epic-geom-drich-mobo "$EIC_SOFTWARE"
-cd examples/drich/script && make
+cd examples/epic/drich/script && make
 ```
 
 ## Run
 ```
-aid2e optimize examples/drich/workflow.yml
+aid2e optimize examples/epic/drich/workflow.yml
 ```
 
 ```mermaid

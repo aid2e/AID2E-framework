@@ -19,7 +19,7 @@ problem:
           stages:
             - name: "evaluate_f1"
               script:
-                path: "./examples/basic/scripts/dtlz2_problem.py"
+                path: "./examples/dtlz2/basic/scripts/dtlz2_problem.py"
                 output_file: "objectives_{job_id}.json"
                 timeout_sec: 300
               produces_objective: true
@@ -37,7 +37,7 @@ problem:
               depends_on: ["prepare"]
               jobs:
                 - name: "run_sim"
-                  command: "python ./examples/basic/scripts/dtlz2_problem.py"
+                  command: "python ./examples/dtlz2/basic/scripts/dtlz2_problem.py"
               produces_objective: true
       metrics_keys: ["f2"]
 

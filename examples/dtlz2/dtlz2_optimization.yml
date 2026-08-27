@@ -87,5 +87,5 @@ workflows:
                   stages:
                     - name: "evaluate"
                       inline:
-                        entrypoint: "examples.evaluators.dtlz2:objective_payload"
+                        entrypoint: "dtlz2:objective_payload"
                       produces_objective: true

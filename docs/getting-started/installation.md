@@ -1,43 +1,37 @@
 # Installation
 
-## Requirements
+AID2E requires Python 3.11 or later and is currently installed from source.
 
-- Python 3.11 or later
+## Install from Source
 
-## Installation
-
-### Clone the repo
+Clone the repository and create a Python environment (recommended):
 
 ```bash
 git clone https://github.com/aid2e/AID2E-framework.git
 cd AID2E-framework
-```
 
-### Create environment (recommended)
-
-```bash
 python -m venv .venv
 source .venv/bin/activate
+python -m pip install -e .
 ```
 
-### Install AID2E
+The editable installation includes AID2E's core optimizer and local scheduler dependencies.
+
+## PanDA/iDDS Support
+
+Install the optional PanDA dependencies when using the PanDA/iDDS scheduler:
 
 ```bash
-pip install -e .
+python -m pip install -e ".[panda]"
 ```
 
-Core and optional dependency groups are defined in `pyproject.toml`.
-
-### Optional PanDA Dependencies
-
-```bash
-pip install -e ".[panda]"
-```
-
-This extra is required only when using the PanDA/iDDS scheduler.
+Slurm, PanDA/iDDS, and ePIC software require their corresponding external environments. See the [scheduler guide](../user-guide/schedulers.md) and [workflow guide](../user-guide/workflows.md) for configuration details.
 
 ## Verify the Installation
 
 ```bash
+aid2e version
 aid2e --help
 ```
+
+Continue with the [Quick Start](quick-start.md) to validate and run the DTLZ2 example.

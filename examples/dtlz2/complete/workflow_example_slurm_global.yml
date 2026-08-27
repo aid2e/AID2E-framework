@@ -1,8 +1,8 @@
 problem:
-  name: "DTLZ2 Slurm Design-JSON Workflow Example"
+  name: "DTLZ2 Slurm Workflow Example"
   problem_type: "DTLZ2"
-  output_location: "../../experimental_tests/output/slurm_v2_output"
-  work_location: "../../experimental_tests/output/slurm_v2_work"
+  output_location: "/tmp"
+  work_location: "/tmp"
   design_parameters_file: "../optimizers/dtlz2_design.params"
   objectives:
     - name: "f1"
@@ -25,6 +25,7 @@ scheduler:
   runner_type: "SlurmRunner"
   parameters:
     job_name_prefix: "aid2e_cfg"
+    runtime_working_dir: "."
     setup_commands:
       - "module load miniforge3/24.9.2-0"
       - "conda activate env_AID2E"
@@ -32,24 +33,37 @@ scheduler:
 
 workflows:
   workflows:
-    - name: "dtlz2_slurm_design_json_eval"
-      description: "Config-driven Slurm workflow using a framework-generated design JSON file"
+    - name: "dtlz2_slurm_eval"
+      description: "Canonical global-scheduler Slurm workflow example"
+      objectives:
+        - name: "f1"
+          direction: "minimize"
+        - name: "f2"
+          direction: "minimize"
       branches:
         - name: "main"
           stages:
             - name: "evaluate"
               jobs:
                 - name: "compute_dtlz2"
-                  command: "python"
+                  command: "python examples/dtlz2/complete/scripts/slurm_dtlz2_from_cli.py"
                   rule: >-
                     {command}
-                    {repo_root}/examples/schedulers/slurm_dtlz2_from_design_json.py
-                    --design {design_file}
+                    --x1 {payload[x1]}
+                    --x2 {payload[x2]}
+                    --x3 {payload[x3]}
+                    --x4 {payload[x4]}
+                    --x5 {payload[x5]}
                     --output {payload[output_file]}
                     --label {payload[label]}
                     --sleep-sec {payload[sleep_sec]}
                     --repeat {payload[repeat]}
                   payload:
+                    x1: "{design_point[DTLZ2_variables.x1]}"
+                    x2: "{design_point[DTLZ2_variables.x2]}"
+                    x3: "{design_point[DTLZ2_variables.x3]}"
+                    x4: "{design_point[DTLZ2_variables.x4]}"
+                    x5: "{design_point[DTLZ2_variables.x5]}"
                     output_file: "{output_dir}/objectives.json"
                     label: "config-driven-slurm"
                     sleep_sec: 0.3

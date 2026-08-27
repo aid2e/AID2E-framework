@@ -43,7 +43,6 @@ Repository: https://github.com/aid2e/AID2E-framework.git
 from __future__ import annotations
 
 import logging
-import warnings
 from typing import Any, Dict, List, Optional, Tuple, Union, TYPE_CHECKING
 
 import numpy as np
@@ -156,21 +155,6 @@ class PyMOOProblem(Problem):
             "Use PyMOOOptimizer.suggest_candidates() and "
             "PyMOOOptimizer.update_with_results() with external evaluation."
         )
-
-
-class AID2EProblem(PyMOOProblem):
-    """Deprecated compatibility alias for ``PyMOOProblem``."""
-
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
-        """Warn and delegate to ``PyMOOProblem``."""
-        warnings.warn(
-            "AID2EProblem is deprecated and will be removed in the next "
-            "iteration. Use PyMOOProblem instead.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        # TODO: Remove this compatibility alias in the next iteration.
-        super().__init__(*args, **kwargs)
 
 
 # ---------------------------------------------------------------------------

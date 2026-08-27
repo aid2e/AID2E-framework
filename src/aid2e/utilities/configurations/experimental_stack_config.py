@@ -72,7 +72,7 @@ class StackLayerConfig(BaseModel):
              Sanitized data
          """
         if singular in data and plural not in data:
-            data[singular] = data[plural]
+            data[plural] = data[singular]
         if isinstance(data.get(plural), str):
             data[plural] = [data[plural]]
         return data

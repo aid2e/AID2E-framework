@@ -4,8 +4,8 @@ This module provides various optimization algorithms for multi-objective
 optimization problems, including:
 
 - BaseOptimizer: Abstract base class defining the common optimizer interface.
-- AxOptimizer: Bayesian optimization using Ax with Sobol initialization,
-  SAASBO surrogate model, and qNEHVI acquisition function.
+- AxOptimizer: Bayesian optimization using Ax with configurable initialization
+  and Modular BoTorch generation.
 - PyMOOProblem: PyMOO-only public ``Problem`` wrapper for structural ask/tell
   integrations. Ax does not expose an equivalent public problem wrapper.
 - PyMOOOptimizer: Evolutionary optimization (GA, NSGA-II, NSGA-III, MOEA/D)
@@ -19,7 +19,7 @@ Attributes:
 from aid2e import __MAIN_VERSION__
 from .base import BaseOptimizer, SearchSpace, Trial, compute_pareto_front
 from .ax import AxOptimizer, AxOptimizerConfig
-from .pymoo import AID2EProblem, PyMOOOptimizer, PyMOOOptimizerConfig, PyMOOProblem
+from .pymoo import PyMOOOptimizer, PyMOOOptimizerConfig, PyMOOProblem
 
 __version__ = __MAIN_VERSION__
 __all__ = [
@@ -32,5 +32,4 @@ __all__ = [
     "PyMOOProblem",
     "PyMOOOptimizer",
     "PyMOOOptimizerConfig",
-    "AID2EProblem",
 ]

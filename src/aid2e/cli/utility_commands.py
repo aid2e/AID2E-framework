@@ -34,6 +34,9 @@ def list_resources(item_type: Optional[str]):
         click.echo("    - Surrogate: SAASBO (Sparse Axis-Aligned Subspace BO)")
         click.echo("    - Acquisition: qNEHVI (Noisy Expected Hypervolume Improvement)")
         click.echo("    - Use case: Multi-objective optimization, continuous parameters")
+        click.echo("  • pymoo (Evolutionary Optimization)")
+        click.echo("    - Algorithms: GA, NSGA-II, NSGA-III, MOEA/D")
+        click.echo("    - Use case: Multi-objective optimization")
         click.echo()
     
     if item_type is None or item_type == "templates":

@@ -1,14 +1,15 @@
-# Scheduler/Runner Configuration Guide
+# Schedulers
 
 ## Overview
 
-The scheduler/runner configuration defines how AID2E executes optimization jobs. The framework supports three execution backends:
+The scheduler configuration defines how AID2E executes optimization jobs. The
+framework supports three execution backends:
 
 1. **JobLibRunner** - Local parallel execution using Python's joblib library
-2. **SlurmRunner** - HPC cluster execution via SLURM workload manager
+2. **SlurmRunner** - HPC cluster execution through the Slurm workload manager
 3. **PanDAiDDSRunner** - Distributed execution across multiple sites via PanDA iDDS
 
-## Configuration Setup
+## Configuration
 
 The `scheduler` section in your configuration file defines runner settings:
 
@@ -31,49 +32,13 @@ polling is controlled by runner or stage settings.
 - `monitor_interval` (`int`, default `30`): Reserved global monitoring
   interval.
 
-### Python API Usage
+### Scheduler Cascade
 
-Scheduler implementations can be imported from `aid2e.schedulers`:
+Schedulers can be set globally or for a workflow, branch, or stage. A stage
+scheduler overrides the branch, workflow, and global schedulers, in that order.
+See the [workflow guide](workflows.md#scheduler-cascade) for examples.
 
-```python
-from aid2e.schedulers import JobLibScheduler
-```
-
-```python
-from aid2e.utilities.configurations import (
-    load_config,
-    SchedulerConfiguration,
-)
-
-# Load complete config including scheduler
-config = load_config("examples/basic/full_example_slurm.yml")
-
-# Access scheduler configuration
-scheduler_cfg = config.scheduler
-print(f"Runner type: {scheduler_cfg.runner_type}")
-
-# Get validated runner-specific config
-runner_cfg = scheduler_cfg.parse_runner_params()
-print(f"Runner parameters: {runner_cfg}")
-```
-
-### Scheduler Registration
-
-The current framework has two scheduler registries:
-
-- `aid2e.utilities.configurations.scheduler_registry` maps the three supported
-  `runner_type` values to their Pydantic parameter models. Built-in models are
-  loaded lazily and also register when their scheduler package is imported.
-- `aid2e.schedulers._registry` maps short implementation names to
-  `BaseScheduler` subclasses. It currently lazy-loads only `joblib`.
-
-Config-driven runtime construction does not use the implementation registry.
-`build_scheduler_from_config()` explicitly constructs JobLib, Slurm, or PanDA.
-Adding a new config-driven scheduler therefore requires a `BaseScheduler`
-implementation, a registered parameter model, a new allowed `runner_type`, and
-a runtime-builder branch. Calling `register()` alone is not sufficient.
-
-### Parallelism and Retry Behavior
+### Parallelism and Failure Behavior
 
 Workflow stages define `parallelism.max_concurrent`, `parallelism.retry_max`,
 and `parallelism.timeout_sec`. `DAGExecutor` forwards these values to
@@ -103,7 +68,7 @@ optimization execution requires a scheduler.
 
 **Best for:** Single-machine parallel execution with multiple CPU cores
 
-### Parameters
+### Configuration
 
 - `n_jobs` (`int`, default `-1`): Number of jobs to run in parallel. `-1` uses
   all available processors.
@@ -114,7 +79,7 @@ optimization execution requires a scheduler.
 - `verbose` (`int`, default `0`): Verbosity level from 0 to 11 for joblib
   logging.
 
-### Example
+Example:
 
 ```yaml
 scheduler:
@@ -142,30 +107,25 @@ scheduler:
 - Quick prototyping with manageable problem sizes
 - Integration testing in CI/CD pipelines
 
-JobLib is synchronous at the stage level. `run_stage()` returns after every job
-has completed or failed. The configured `n_jobs` value is capped by a stage's
-`parallelism.max_concurrent` setting when that limit is present.
+### JobLib Tips
 
-When upgrading from an older AID2E version without scheduler configuration,
-use the minimal JobLib configuration above for local execution.
-
-### Troubleshooting
-
-#### JobLib jobs need a timeout
+- Python `function` jobs with `params` and command jobs both execute locally.
+- `run_stage()` returns after every job has completed or failed.
+- A stage's `parallelism.max_concurrent` setting caps the configured `n_jobs`
+  value when that limit is present.
 
 The JobLib `timeout` field applies to command subprocesses. It does not interrupt
-Python callable jobs; use a backend with an external walltime mechanism when a
-hard callable timeout is required.
+Python callable jobs.
 
 ## Slurm
 
 **Best for:** HPC cluster execution with job queuing and resource allocation
 
-### Parameters
+### Configuration
 
-- `partition` (`str` or `None`, default `None`): SLURM partition or queue name.
-- `account` (`str` or `None`, default `None`): SLURM account to charge.
-- `qos` (`str` or `None`, default `None`): SLURM quality-of-service value.
+- `partition` (`str` or `None`, default `None`): Slurm partition or queue name.
+- `account` (`str` or `None`, default `None`): Slurm account to charge.
+- `qos` (`str` or `None`, default `None`): Slurm quality-of-service value.
 - `nodes` (`int`, default `1`): Number of nodes requested.
 - `ntasks` (`int`, default `1`): Number of tasks to run.
 - `cpus_per_task` (`int` or `None`, default `None`): CPU cores per task.
@@ -175,7 +135,7 @@ hard callable timeout is required.
 - `gres` (`str` or `None`, default `None`): Generic resource, for example
   `gpu:1` for one GPU.
 - `constraint` (`str` or `None`, default `None`): Optional node constraint.
-- `job_name_prefix` (`str`, default `"aid2e"`): Prefix for generated SLURM job
+- `job_name_prefix` (`str`, default `"aid2e"`): Prefix for generated Slurm job
   names for tracking.
 - `setup_commands` (`list[str]`, default `[]`): Commands written before the
   workload command.
@@ -185,8 +145,6 @@ hard callable timeout is required.
   the workload at runtime.
 - `poll_interval` (`int`, default `5`): Stage status polling interval in
   seconds.
-- `sacct_poll_interval` (`int`, default `10`): Reserved interval; not currently
-  used separately.
 - `sbatch_extra_args` (`list[str]`, default `[]`): Additional `sbatch` command
   arguments.
 - `capture_stdout` (`bool`, default `true`): Write scheduler-owned
@@ -199,7 +157,7 @@ The file must contain a JSON object. Its values are loaded first and inline
 parameters override them before `SlurmRunnerConfig` validation. Individual job
 resource values can override the corresponding runner-level resource fields.
 
-### Example
+Example:
 
 ```yaml
 scheduler:
@@ -215,74 +173,52 @@ scheduler:
     poll_interval: 60
 ```
 
-Production setup:
-
-```yaml
-scheduler:
-  runner_type: "SlurmRunner"
-  parameters:
-    partition: "gpu"
-    ntasks: 8
-    cpus_per_task: 16
-    mem: "64GB"
-    time: "24:00:00"
-    gres: "gpu:4"
-    job_name_prefix: "aid2e_large_scale"
-    poll_interval: 300
-```
-
 ### When to Use
 
-- Production runs on HPC clusters (NERSC, XSEDE, etc.)
+- Production runs on HPC clusters
 - Large-scale optimization problems
 - GPU-accelerated evaluations
 - Jobs requiring specific resource constraints
 - When you need job queuing and fair scheduling
 
-The Slurm runner requires `sbatch`, `squeue`, and `sacct` on the submission
-host; cancellation also uses `scancel`. Python callable jobs must reference an
-importable module function, their parameters must be JSON-serializable, and the
-compute environment must provide the same Python interpreter and an importable
-AID2E installation. Paths used for parameter, result, and artifact handoff must
-be visible to the compute node.
+### Slurm Tips
 
-When upgrading from an older AID2E version, replace the old SLURM template with
-the `SlurmRunner` scheduler configuration above and move the parameters from the
-old `slurm.template` file into `parameters`.
+Command jobs and Python `function` jobs with `params` are submitted through
+`sbatch`. The submission host requires `sbatch`, `squeue`, and `sacct`;
+cancellation uses `scancel`. Callable jobs require an importable module function
+and JSON-serializable parameters. The Python environment and handoff paths must
+also be available on compute nodes.
 
-### SLURM Tips
+Useful Slurm commands:
 
 - Check available partitions: `sinfo`
 - Monitor submitted jobs: `squeue`
 - View available GPUs: `sinfo --gres`
 - Check resource limits: `slurm_limits`
 
-### Troubleshooting
-
-#### SLURM job not starting
-
-Check partition availability and resource limits:
+If a Slurm job does not start, check partition availability and resource limits:
 
 ```bash
 sinfo  # Check available partitions
 sinfo --gres  # Check GPU availability
 ```
 
-## PanDAiDDSRunner Configuration
+## PanDA/iDDS
 
 **Best for:** Distributed execution across multiple computing sites with automated load balancing
 
-### Parameters
+### Configuration
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `name` | str/None | auto-generated | PanDA job name for tracking, must start with `user.` |
-| `task_type` | str/None | "AID2E" | Reserved task classification; not currently forwarded to iDDS |
+| `job_name_prefix` | str | "aid2e_job" | Prefix used when auto-generating the PanDA job name |
+| `task_type` | str/None | "AID2E" | Type of processing (PanDA classification) |
 | `cloud` | str/None | None | Target cloud/region |
 | `queue` | str/None | None | Target PanDA queue |
 | `max_walltime` | int/None | None | Maximum walltime in seconds |
 
-### Example
+Example:
 
 ```yaml
 scheduler:
@@ -301,14 +237,6 @@ scheduler:
 - When individual sites may have intermittent availability
 - Projects requiring centralized job tracking and monitoring
 
-Function jobs require the `idds` Python package, PanDA/iDDS credentials, and an
-importable function in the remote environment. In the current runner, job
-definitions containing `function` are submitted through iDDS. Command-only job
-definitions are executed locally by the PanDA runner rather than submitted to
-PanDA.
-
-PanDA/iDDS dataset handoff requires additional validation.
-
 ### PanDA iDDS Tips
 
 - Monitor jobs via PanDA dashboard: `https://panda.cern.ch/`
@@ -316,13 +244,13 @@ PanDA/iDDS dataset handoff requires additional validation.
 - View worker logs: `idds logs --id <task_id>`
 - Troubleshoot: `idds status --id <campaign_name>`
 
-# PanDAiDDS Scheduler YAML Configuration Guide
+### Detailed YAML Configuration
 
 This guide explains how to configure the PanDAiDDS scheduler using YAML files in the AID2E framework.
 
-## Quick Start
+#### Quick Start
 
-### Minimal Configuration
+**Minimal configuration**
 
 ```yaml
 scheduler:
@@ -337,7 +265,7 @@ scheduler:
 
 The `name` field will be auto-generated as `user.<username>.aid2e_job`.
 
-### Full Configuration
+**Full configuration**
 
 ```yaml
 scheduler:
@@ -346,7 +274,7 @@ scheduler:
     name: "user.scientist.experiment"  # Must start with 'user.<username>'
     cloud: "US"
     queue: "BNL_PanDA_1"
-    source_dir: null  # null = project root unless PANDA_SOURCE_DIR is set
+    source_dir: null  # null = current directory
     source_dir_parent_level: 1
     exclude_source_files:
       - "(^|/)\\..*"  # Hidden files
@@ -359,44 +287,40 @@ scheduler:
     job_dir: "/tmp/panda_jobs"
 ```
 
-## Configuration Fields
+#### Configuration Fields
 
-### Required Fields
+**Required fields**
 
-The Pydantic model does not require explicit fields. `name`, `source_dir`, and
-`init_env` receive defaults. A usable remote submission still requires a valid
-PanDA/iDDS environment and site-appropriate `cloud` and `queue` values when the
-service cannot infer them.
+| Field | Type | Description |
+|-------|------|-------------|
+| `cloud` | string | PanDA cloud/region (e.g., "US", "EU") |
+| `queue` | string | PanDA queue name (e.g., "BNL_PanDA_1") |
 
-### Optional Fields
+**Optional fields**
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `name` | string | auto-generated | Job name, must start with `user.<username>` (auto-generates if omitted) |
+| `job_name_prefix` | string | "aid2e_job" | Prefix used when auto-generating the PanDA job name |
 | `init_env` | string/callable | "source setup_aid2e.sh; bash install_aid2e_dependencies.sh;" | Environment initialization (auto-sets if omitted, prepended if string) |
-| `post_script` | string/callable | `rm -fr .local .venv src examples tests docs` | Command executed after the remote job |
-| `cloud` | string | None | PanDA cloud/region |
-| `queue` | string | None | PanDA queue name |
-| `working_group` | string | "AID2E" | Reserved; not currently forwarded to the iDDS workflow builder |
-| `task_type` | string | "AID2E" | Reserved; not currently forwarded to the iDDS workflow builder |
 | `source_dir` | string | project root | Directory to upload to PanDA (auto-sets to project root if omitted) |
 | `max_walltime` | int | None | Maximum walltime in seconds |
 | `core_count` | int | 1 | CPU cores per job |
 | `total_memory` | int | 4000 | Memory in MB per job |
 | `enable_separate_log` | bool | true | Enable separate log files |
-| `job_dir` | string | None | Reserved; not currently forwarded to the iDDS workflow builder |
+| `job_dir` | string | None | Job working directory |
 | `source_dir_parent_level` | int | 1 | Parent levels to include |
 | `exclude_source_files` | list | See below | File patterns to exclude (.venv, venv, .git included) |
 
-### Default Excluded Files
+**Default excluded files**
 
 ```python
 [
     r"(^|/)\.[^/]+",           # Hidden files
-    r"^doc",                    # Documentation
-    r"^DTLZ2",                  # Test files
-    r".*json$",                 # JSON files
-    r".*log$",                  # Log files
+    "doc*",                     # Documentation
+    "DTLZ2*",                   # Test files
+    ".*json",                   # JSON files
+    ".*log",                    # Log files
     "work",                     # Work directory
     "log",                      # Log directory
     "OUTDIR",                   # Output directory
@@ -413,13 +337,12 @@ service cannot infer them.
     ".venv",                    # Virtual environment
     "venv",                     # Virtual environment
     ".git",                     # Git repository
-    ".local",                   # Local installation files
 ]
 ```
 
-## Auto-Generated Fields
+#### Auto-Generated Fields
 
-### Name Auto-Generation
+**Name auto-generation**
 
 The `name` field follows PanDA conventions: `user.<username>.<suffix>`
 
@@ -434,6 +357,7 @@ The `name` field follows PanDA conventions: `user.<username>.<suffix>`
 ```yaml
 # Auto-generate from system username
 parameters:
+  job_name_prefix: "aid2e_job"
   cloud: "US"
   queue: "BNL_PanDA_1"
   # name omitted → "user.<system_username>.aid2e_job"
@@ -453,7 +377,7 @@ parameters:
   queue: "BNL_PanDA_1"
 ```
 
-### Source Directory Auto-Setting
+**Source directory auto-setting**
 
 The `source_dir` field specifies which directory to upload to PanDA.
 
@@ -487,7 +411,7 @@ parameters:
   queue: "BNL_PanDA_1"
 ```
 
-### Environment Initialization Auto-Setting
+**Environment initialization auto-setting**
 
 The `init_env` field specifies commands to run before job execution.
 
@@ -519,9 +443,9 @@ parameters:
   # Result: "source setup_aid2e.sh && bash install_aid2e_dependencies.sh && export MY_VAR=value && module load gcc"
 ```
 
-## Loading Configurations
+#### Loading Configurations
 
-### Method 1: Full Config (Recommended)
+**Method 1: Full config (recommended)**
 
 ```python
 from aid2e.utilities.configurations import load_config
@@ -537,7 +461,7 @@ print(panda_config.name)
 print(panda_config.cloud)
 ```
 
-### Method 2: Scheduler Config Only
+**Method 2: Scheduler config only**
 
 ```python
 import yaml
@@ -552,7 +476,7 @@ scheduler_config = SchedulerConfigLoader.from_dict(data["scheduler"])
 panda_config = scheduler_config.parse_runner_params()
 ```
 
-### Method 3: Direct PanDA Config
+**Method 3: Direct PanDA config**
 
 ```python
 import yaml
@@ -566,9 +490,9 @@ with open("panda.yml") as f:
 panda_config = PanDAiDDSRunnerConfig(**data)
 ```
 
-## Complete Example
+#### Complete Example
 
-See `examples/panda_scheduler_config.yml` for complete examples including:
+See `examples/epic/tracking/panda_scheduler_config.yml` for complete examples including:
 - Minimal configuration
 - Full configuration with all fields
 - Environment variable usage
@@ -578,7 +502,7 @@ The examples are retained for reference but should be validated against the
 current full configuration schema before being used as complete optimization
 inputs.
 
-## PanDA Queues
+#### PanDA Queues
 
 Common PanDA queues:
 
@@ -588,25 +512,25 @@ Common PanDA queues:
 
 Contact your PanDA administrator for available queues in your cloud.
 
-## Validation
+#### Validation
 
 The configuration is validated via Pydantic models:
 - Type checking
 - Field validation
 - Name format validation (must start with `user.`)
-- Runner-specific type and value checks
+- Required field checks
 
 Invalid configurations will raise `ValidationError` with detailed messages.
 
-## See Also
+#### See Also
 
 - [PanDA Documentation](https://panda-wms.readthedocs.io/)
 - [iDDS Documentation](https://idds.readthedocs.io/)
 - [AID2E Documentation](https://aid2e.github.io/AID2E-framework)
 
-## Troubleshooting
+#### Troubleshooting
 
-### "runner_type must be one of JobLibRunner, SlurmRunner, PanDAiDDSRunner"
+**"runner_type must be one of JobLibRunner, SlurmRunner, PanDAiDDSRunner"**
 
 Check spelling and case sensitivity. Valid values are exactly:
 
@@ -614,7 +538,7 @@ Check spelling and case sensitivity. Valid values are exactly:
 - `SlurmRunner`
 - `PanDAiDDSRunner`
 
-### Issue: PanDA task walltime
+**Issue: PanDA task walltime**
 
 Increase the runner walltime when the remote task requires more time:
 ```yaml
@@ -624,15 +548,63 @@ scheduler:
     max_walltime: 7200
 ```
 
+## Developer Reference
+
+### Python API
+
+The common scheduler interface and result models are available from
+`aid2e.schedulers`. Scheduler implementations can be imported from their
+scheduler packages:
+
+```python
+from aid2e.schedulers import (
+    BaseScheduler,
+    JobStatus,
+    StageExecutionResult,
+)
+from aid2e.schedulers.JobLib import JobLibScheduler
+from aid2e.schedulers.Slurm import SlurmScheduler
+from aid2e.schedulers.PanDAiDDS import PanDAiDDSScheduler
+```
+
+```python
+from aid2e.utilities.configurations import load_config
+from aid2e.utilities.runtime_builders import build_scheduler_from_config
+
+# Load a complete configuration including its scheduler
+config = load_config("examples/dtlz2/dtlz2_optimization.yml")
+
+# Access and validate the scheduler configuration
+scheduler_cfg = config.scheduler
+print(f"Runner type: {scheduler_cfg.runner_type}")
+
+runner_cfg = scheduler_cfg.parse_runner_params()
+print(f"Runner parameters: {runner_cfg}")
+
+# Construct the configured scheduler
+scheduler = build_scheduler_from_config(scheduler_cfg)
+```
+
+### Scheduler Registration
+
+The framework has two scheduler registries:
+
+- `aid2e.utilities.configurations.scheduler_registry` maps the three supported
+  `runner_type` values to their Pydantic parameter models. Built-in models are
+  loaded on demand and also register when their scheduler package is imported.
+- `aid2e.schedulers._registry` maps short implementation names to
+  `BaseScheduler` subclasses. It currently loads only `joblib` on demand.
+
+Config-driven runtime construction does not use the implementation registry.
+`build_scheduler_from_config()` explicitly constructs JobLib, Slurm, or PanDA.
+Adding a new config-driven scheduler therefore requires a `BaseScheduler`
+implementation, a registered parameter model, a new allowed `runner_type`, and
+a runtime-builder branch. Calling `register()` alone is not sufficient.
+
 ## See Also
 
 - [Configuration Guide](configuration.md)
 - [Workflow Guide](workflows.md)
 - [Optimizer Guide](optimizers.md)
-- [Example Configurations](../../examples/basic/)
-
-## Scheduler Cascade
-
-3. Scheduler Cascade
-Stage scheduler -> branch scheduler -> workflow scheduler -> global scheduler
-The first configured scheduler in that order owns stage execution
+- DTLZ2 configuration: `examples/dtlz2/dtlz2_optimization.yml`
+- dRICH workflow: `examples/epic/drich/workflow.yml`

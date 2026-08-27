@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+REPO_ROOT = Path(__file__).resolve().parents[3]
 SRC_ROOT = REPO_ROOT / "src"
 for candidate in (str(REPO_ROOT), str(SRC_ROOT)):
     if candidate not in sys.path:
@@ -71,7 +71,7 @@ def main() -> int:
             {
                 "name": job_name,
                 "command": (
-                    "python examples/schedulers/slurm_dtlz2_from_design_json.py "
+                    "python examples/dtlz2/schedulers/slurm_dtlz2_from_design_json.py "
                     f"--design {design_path} "
                     f"--output {output_path} "
                     f"--label {job_name} "

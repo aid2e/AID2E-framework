@@ -49,7 +49,7 @@ problem:
   # be defined directly in this file. Parameters can also be defined
   # in a separate file, such as
   #
-  #   examples/basic/design.params
+  #   examples/dtlz2/basic/design.params
   inline_design:
     epic_design_space:
       epic_design_parameters:

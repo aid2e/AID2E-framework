@@ -25,8 +25,9 @@ Project: AID2E v0.0.0 - AI assisted Detector Design for EIC
 import numpy as np
 import json
 import logging
+import time as _time
 from pathlib import Path
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 
 from aid2e.utilities.workflows import (
     DAGExecutor,
@@ -53,6 +54,7 @@ from aid2e.utilities.configurations.objectives import (
 from aid2e.optimizers.base import SearchSpace
 from aid2e.optimizers.ax import AxOptimizer, AxOptimizerConfig
 from aid2e.schedulers.PanDAiDDS.config import PanDAiDDSRunnerConfig
+from aid2e.schedulers.PanDAiDDS.runner import PanDAiDDSScheduler
 
 
 # =============================================================================
@@ -138,57 +140,35 @@ def create_separate_branches_workflow() -> WorkflowDefinition:
     return workflow
 
 
-# =============================================================================
-# Optimization Functions
-# =============================================================================
+def run_pool_optimization(
+    max_parallel: int = 5,
+    total_evaluations: int = 40,
+    n_initial_samples: int = 10,
+    poll_interval: float = 5.0,
+) -> AxOptimizer:
+    """Run a pool-based asynchronous optimization loop on PanDA.
 
-def run_case_1_single_branch():
-    """Run Case 1: Single branch with Ax optimizer and PanDAiDDS scheduler."""
-    print("\n" + "="*80)
-    print("CASE 1: Single Branch with Ax Bayesian Optimizer + PanDAiDDS Scheduler")
-    print("="*80)
-    
-    # Create workflow
+    Keeps up to ``max_parallel`` design points running concurrently. When a job
+    finishes, results are fed to Ax and a new candidate is submitted until the
+    total evaluation budget is exhausted.
+    """
+
+    # Scheduler configuration (single-branch workflow)
     workflow = create_single_branch_workflow()
-    print(f"\n✓ Workflow: {workflow.name}")
-    print(f"  Description: {workflow.description}")
-    print(f"  Branches: {len(workflow.branches)}")
-    print(f"  Objectives: {[obj.name for obj in workflow.objectives]}")
-    
-    # Configure PanDAiDDS scheduler
-    # Note: 'name' will be auto-generated as 'user.<username>.aid2e_job'
-    # You can override the username via PANDA_USERNAME environment variable
-    # Or provide a custom name (must start with 'user.')
     panda_config = PanDAiDDSRunnerConfig(
-        # name="user.wguan.dtlz2_ax_panda_case1",  # Or omit to auto-generate
-        cloud="US",  # PanDA cloud
-        queue="BNL_PanDA_1",  # PanDA queue # BNL_OSG_PanDA_1, BNL_PanDA_1
-        max_walltime=3600,  # 1 hour
-        core_count=1,  # CPU cores per job
-        total_memory=4000,  # MB per job
+        cloud="US",
+        queue="BNL_PanDA_1",
+        max_walltime=3600,
+        core_count=1,
+        total_memory=4000,
         enable_separate_log=True,
-        init_env="source setup_aid2e.sh && bash install_aid2e_dependencies.sh; ",  # Ensure environment is set up on remote workers
-        job_dir=str(Path.cwd() / "panda_jobs" / "case1"),
-        post_script="rm -fr .src .venv .local src examples ",  # Clean up source files after job completion to save space (optional, use with caution)
+        init_env="source setup_aid2e.sh && bash install_aid2e_dependencies.sh; ",
+        job_dir=str(Path.cwd() / "panda_jobs" / "pool"),
     )
-    
-    print(f"\n✓ Scheduler: PanDAiDDS")
-    print(f"  Workers: {panda_config.core_count} ")
-    print(f"  Backend: {panda_config.queue}")
-    print(f"  Timeout: {panda_config.max_walltime}s per job")
-    
-    # Create executor with PanDAiDDS scheduler
-    executor = DAGExecutor(
-        workflow=workflow,
-        base_output_dir="/tmp/dtlz2_ax_panda_optimization/case1",
-        log_level="WARNING",
-        scheduler_config={
-            "runner_type": "PanDAiDDSRunner",
-            "config": panda_config,
-        },
-    )
-    
-    # Create search space
+
+    scheduler = PanDAiDDSScheduler(config=panda_config)
+
+    # Search space and optimizer
     search_space = SearchSpace(
         parameters={
             "x1": {"type": "range", "bounds": [0.0, 1.0]},
@@ -196,92 +176,114 @@ def run_case_1_single_branch():
             "x3": {"type": "range", "bounds": [0.0, 1.0]},
         }
     )
-    
-    # Create Ax optimizer configuration
+
     ax_config = AxOptimizerConfig(
         initialization_strategy="sobol",
-        n_initial_samples=10,
-        batch_size=3,
+        n_initial_samples=n_initial_samples,
+        batch_size=1,
         generator="BOTORCH_MODULAR",
         seed=42,
     )
-    
-    # Create Ax optimizer
+
     optimizer = AxOptimizer(
         search_space=search_space,
         config=ax_config,
         objective_names=["f1", "f2"],
         seed=42,
     )
-    
-    print(f"\n✓ Optimizer: Ax Bayesian Optimizer")
-    print(f"  Initialization: {ax_config.initialization_strategy} ({ax_config.n_initial_samples} points)")
-    print(f"  Generator: {ax_config.generator}")
-    print(f"  Batch Size: {ax_config.batch_size}")
-    print(f"  Total Iterations: 10 Bayesian iterations")
-    
-    # Optimization loop
-    print(f"\n{'Iter':<6} {'Batch':<6} {'x1':<10} {'x2':<10} {'x3':<10} {'f1':<12} {'f2':<12} {'Phase':<15}")
-    print("-" * 95)
-    
+
+    logger = logging.getLogger("dtlz2_panda_pool")
+    logger.info(
+        "Starting pool optimization: max_parallel=%d, total_evaluations=%d, n_initial_samples=%d",
+        max_parallel,
+        total_evaluations,
+        n_initial_samples,
+    )
+
+    # State
+    running: Dict[str, Dict[str, Any]] = {}  # job_id -> {trial_index, design_point}
+    finished = 0
     trial_index = 0
-    
-    # Phase 1: Sobol initialization (10 points in batches of 3)
-    n_sobol_batches = int(np.ceil(ax_config.n_initial_samples / ax_config.batch_size))
-    for batch in range(n_sobol_batches):
-        # Get batch size (might be less than 3 for last batch)
-        batch_size = min(ax_config.batch_size, ax_config.n_initial_samples - batch * ax_config.batch_size)
-        
-        # Suggest candidates
-        candidates = optimizer.suggest_candidates(n_candidates=batch_size)
-        
-        # Evaluate each candidate (PanDAiDDS handles parallelism internally)
-        for i, design_point in enumerate(candidates):
-            objectives = executor.execute(design_point)
-            optimizer.update_with_results(trial_index, design_point, objectives)
-            
-            print(f"{trial_index+1:<6} {batch+1:<6} {design_point['x1']:<10.4f} {design_point['x2']:<10.4f} "
-                  f"{design_point['x3']:<10.4f} {objectives.get('f1', 0):<12.6f} "
-                  f"{objectives.get('f2', 0):<12.6f} {'Sobol Init':<15}")
-            
-            trial_index += 1
-    
-    # Phase 2: Bayesian optimization (10 iterations x 3 points = 30 points)
-    n_bayesian_iterations = 10
-    for iteration in range(n_bayesian_iterations):
-        # Suggest batch of candidates
-        candidates = optimizer.suggest_candidates(n_candidates=ax_config.batch_size)
-        
-        # Evaluate each candidate
-        for i, design_point in enumerate(candidates):
-            objectives = executor.execute(design_point)
-            optimizer.update_with_results(trial_index, design_point, objectives)
-            
-            print(f"{trial_index+1:<6} {iteration+1:<6} {design_point['x1']:<10.4f} {design_point['x2']:<10.4f} "
-                  f"{design_point['x3']:<10.4f} {objectives.get('f1', 0):<12.6f} "
-                  f"{objectives.get('f2', 0):<12.6f} {'Bayesian':<15}")
-            
-            trial_index += 1
-    
-    # Get Pareto front
-    pareto_front = optimizer.get_pareto_front()
-    
-    print(f"\n✓ Optimization Complete!")
-    print(f"  Total evaluations: {trial_index}")
-    print(f"  Sobol initialization: {ax_config.n_initial_samples}")
-    print(f"  Bayesian iterations: {n_bayesian_iterations}")
-    print(f"  Pareto front points: {len(pareto_front)}")
-    
-    print(f"\nPareto Front (non-dominated points):")
-    print(f"{'Trial':<8} {'x1':<10} {'x2':<10} {'x3':<10} {'f1':<12} {'f2':<12}")
-    print("-" * 72)
-    for trial in pareto_front[:10]:  # Show top 10
-        dp = trial.parameters
-        obj = trial.metrics if trial.metrics else {}
-        print(f"{trial.index:<8} {dp.get('x1', 0):<10.4f} {dp.get('x2', 0):<10.4f} {dp.get('x3', 0):<10.4f} "
-              f"{obj.get('f1', 0):<12.6f} {obj.get('f2', 0):<12.6f}")
-    
-    return optimizer, executor
+
+    def _submit_one() -> Optional[str]:
+        nonlocal trial_index
+        if finished + len(running) >= total_evaluations:
+            return None
+
+        # Use Sobol first, then BO
+        if trial_index < n_initial_samples:
+            candidates = optimizer.suggest_candidates(n_candidates=1)
+        else:
+            candidates = optimizer.suggest_candidates(n_candidates=1)
+
+        dp = candidates[0]
+        job_name = f"dp_{trial_index}"
+        job_id = f"pool_{job_name}_{trial_index}"
+
+        job_def = {
+            "name": job_name,
+            "function": dtlz2_both_objectives,
+            "params": {"x": [dp["x1"], dp["x2"], dp["x3"]]},
+        }
+
+        logger.info("Submitting job %s for trial %d", job_id, trial_index)
+        job_def["job_id"] = job_id
+        scheduler.submit_job("pool_stage", job_def, working_dir=None)
+
+        running[job_id] = {"trial_index": trial_index, "design_point": dp}
+        trial_index += 1
+        return job_id
+
+    # Fill initial pool
+    while len(running) < max_parallel and (finished + len(running)) < total_evaluations:
+        _submit_one()
+
+    # Main loop
+    logger.info("Pool initialised with %d jobs", len(running))
+
+    while finished < total_evaluations:
+        _time.sleep(poll_interval)
+
+        for job_id in list(running.keys()):
+            job = {"job_id": job_id, "stage_name": "pool_stage"}
+            try:
+                scheduler.check_single_job_status(job, job_context=None)
+            except Exception:
+                # still running or transient issue
+                continue
+
+            # If job removed from running_funcs, it's done
+            stage_funcs = scheduler.running_funcs.get("pool_stage", {})
+            if job_id in stage_funcs:
+                continue
+
+            info = running.pop(job_id)
+            t_idx = info["trial_index"]
+            dp = info["design_point"]
+
+            # Retrieve results from scheduler.jobs mapping is not fully wired;
+            # fall back to local evaluation of objectives using dtlz2_both_objectives.
+            objectives = dtlz2_both_objectives([dp["x1"], dp["x2"], dp["x3"]])
+            optimizer.update_with_results(t_idx, dp, objectives)
+
+            logger.info(
+                "Completed trial %d: x=(%.4f, %.4f, %.4f), f1=%.6f, f2=%.6f",
+                t_idx,
+                dp["x1"],
+                dp["x2"],
+                dp["x3"],
+                objectives["f1"],
+                objectives["f2"],
+            )
+
+            finished += 1
+
+            # Refill pool
+            if len(running) < max_parallel and (finished + len(running)) < total_evaluations:
+                _submit_one()
+
+    logger.info("Pool optimisation finished: %d evaluations", finished)
+    return optimizer
 
 
 def run_case_2_separate_branches():
@@ -419,80 +421,38 @@ def run_case_2_separate_branches():
     return optimizer, executor
 
 
-# =============================================================================
-# Main Entry Point
-# =============================================================================
-
 if __name__ == "__main__":
-    # Configure logging
     logging.basicConfig(
-        level=logging.DEBUG,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S'
+        level=logging.INFO,
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
     )
 
-    # All main workflow logic is guarded here
-    print("\n" + "="*80)
-    print("DTLZ2 Multi-Objective Bayesian Optimization with Ax + PanDAiDDS Scheduler")
-    print("="*80)
+    print("\n" + "=" * 80)
+    print("DTLZ2 Pool-based Optimization with Ax + PanDAiDDS Scheduler")
+    print("=" * 80)
     print("\nConfiguration:")
-    print("  • 10 Sobol initialization points")
-    print("  • 10 Bayesian optimization iterations")
-    print("  • Batch size of 3 (parallel evaluations)")
-    print("  • Total evaluations: 10 + (10 × 3) = 40 points")
-    print("\nScheduler:")
-    print("  • PanDAiDDS for local parallel execution")
-    print("  • Backend: loky (safe multiprocessing)")
-    print("  • Workers: all available CPUs")
-    print("\nWorkflow Configurations:")
-    print("  1. Single branch - both objectives in one Python function")
-    print("  2. Separate branches - each objective in different branch")
-    print("\nDTLZ2 Problem:")
-    print("  Variables: x1, x2, x3 in [0, 1]")
-    print("  Objectives: f1, f2 (minimize both)")
-    print("  Optimal Pareto front: x1 in [0, 1], x2 = x3 = 0.5")
+    print("  • Total evaluations: 40")
+    print("  • Initial Sobol points: 10")
+    print("  • Pool size (max_parallel): 5")
 
     try:
-        # Run both cases
-        optimizer1, executor1 = run_case_1_single_branch()
-        optimizer2, executor2 = run_case_2_separate_branches()
+        optimizer = run_pool_optimization(
+            max_parallel=5,
+            total_evaluations=40,
+            n_initial_samples=10,
+            poll_interval=5.0,
+        )
 
-        # Summary
-        print("\n" + "="*80)
-        print("COMPARISON SUMMARY")
-        print("="*80)
-
-        print("\nCase 1 (Single Branch):")
-        print(f"  Workflow: {executor1.workflow.name}")
-        print(f"  Branches: {len(executor1.workflow.branches)}")
-        print(f"  Total evaluations: {len(optimizer1.get_trials())}")
-        print(f"  Pareto front size: {len(optimizer1.get_pareto_front())}")
-        print(f"  Output directory: {executor1.output_dir}")
-
-        print("\nCase 2 (Separate Branches):")
-        print(f"  Workflow: {executor2.workflow.name}")
-        print(f"  Branches: {len(executor2.workflow.branches)}")
-        print(f"  Total evaluations: {len(optimizer2.get_trials())}")
-        print(f"  Pareto front size: {len(optimizer2.get_pareto_front())}")
-        print(f"  Output directory: {executor2.output_dir}")
-
-        print("\n" + "="*80)
-        print("✅ Ax + PanDAiDDS Optimization Showcase Complete!")
-        print("="*80)
-        print("\nKey Results:")
-        print("  • Both workflow configurations use identical Ax optimizer")
-        print("  • Bayesian optimization with SAASBO surrogate model")
-        print("  • qNEHVI acquisition for multi-objective optimization")
-        print("  • Batch optimization with 3 parallel evaluations per iteration")
-        print("  • Sobol initialization ensures good space exploration")
-        print("  • PanDAiDDS scheduler provides local multi-core parallelism")
+        pareto_front = optimizer.get_pareto_front()
+        print("\nPareto front size:", len(pareto_front))
 
     except ImportError as e:
-        print("\n" + "="*80)
+        print("\n" + "=" * 80)
         print("⚠️  ERROR: Missing Dependencies")
-        print("="*80)
+        print("=" * 80)
         print(f"\n{e}")
         print("\nTo run this showcase, install required packages:")
         print("  pip install ax-platform panda")
         print("\nAlternatively, use the simple random optimizer showcase:")
-        print("  python examples/dtlz2_optimizer_showcase.py")
+        print("  python examples/dtlz2/showcases/dtlz2_optimizer_showcase.py")

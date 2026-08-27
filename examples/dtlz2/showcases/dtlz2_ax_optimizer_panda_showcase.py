@@ -1,22 +1,30 @@
-"""DTLZ2 Optimization with Ax Bayesian Optimizer.
+"""DTLZ2 Optimization with Ax Bayesian Optimizer using PanDAiDDS Runner.
 
-This example demonstrates the DAG Executor with Ax optimizer running the DTLZ2 problem
-in two different workflow configurations:
+This example demonstrates the DAG Executor with Ax optimizer and PanDAiDDS scheduler
+running the DTLZ2 problem in two different workflow configurations.
 
-Case 1: Single Branch - Both objectives computed in one Python function
-Case 2: Separate Branches - Each objective computed in a separate branch
+Key Differences from Default Showcase:
+- Uses PanDAiDDS scheduler for distributed grid job execution
+- Configures PanDA cloud, queue, and resource requirements
+- Job names auto-generated as 'user.<username>' (username from system or PANDA_USERNAME env)
 
 Configuration:
 - 10 Sobol initialization points
 - 10 Bayesian optimization iterations
 - Batch size of 3 (3 parallel evaluations per iteration)
 - Total evaluations: 10 + (10 * 3) = 40 points
+- PanDAiDDS cloud: US
+- PanDAiDDS queue: BNL_PanDA_1
+
+Environment Variables:
+- PANDA_USERNAME: Override system username for PanDA job names (optional)
 
 Project: AID2E v0.0.0 - AI assisted Detector Design for EIC
 """
 
 import numpy as np
 import json
+import logging
 from pathlib import Path
 from typing import Dict, Any, List
 
@@ -28,78 +36,30 @@ from aid2e.utilities.workflows import (
     JobDefinition,
     JobContext,
 )
+
+# Import evaluator functions from examples.evaluators.dtlz2
+from examples.evaluators.dtlz2 import (
+    dtlz2_both_objectives,
+    dtlz2_f1_only,
+    dtlz2_f2_only,
+    evaluate_both_objectives_wrapper,
+    evaluate_f1_wrapper,
+    evaluate_f2_wrapper,
+)
 from aid2e.utilities.configurations.objectives import (
     ObjectiveDefinition,
     ObjectiveDirection,
 )
 from aid2e.optimizers.base import SearchSpace
 from aid2e.optimizers.ax import AxOptimizer, AxOptimizerConfig
+from aid2e.schedulers.PanDAiDDS.config import PanDAiDDSRunnerConfig
 
 
 # =============================================================================
-# DTLZ2 Problem Implementation (same as before)
+# DTLZ2 Problem Implementation
 # =============================================================================
 
-def dtlz2_both_objectives(x: List[float]) -> Dict[str, float]:
-    """Compute both DTLZ2 objectives in one function."""
-    x = np.array(x)
-    g = np.sum((x[1:] - 0.5) ** 2)
-    f1 = (1 + g) * np.cos(x[0] * np.pi / 2) * np.cos(x[1] * np.pi / 2)
-    f2 = (1 + g) * np.cos(x[0] * np.pi / 2) * np.sin(x[1] * np.pi / 2)
-    return {"f1": float(f1), "f2": float(f2)}
 
-
-def dtlz2_f1_only(x: List[float]) -> float:
-    """Compute only f1 objective of DTLZ2."""
-    x = np.array(x)
-    g = np.sum((x[1:] - 0.5) ** 2)
-    f1 = (1 + g) * np.cos(x[0] * np.pi / 2) * np.cos(x[1] * np.pi / 2)
-    return float(f1)
-
-
-def dtlz2_f2_only(x: List[float]) -> float:
-    """Compute only f2 objective of DTLZ2."""
-    x = np.array(x)
-    g = np.sum((x[1:] - 0.5) ** 2)
-    f2 = (1 + g) * np.cos(x[0] * np.pi / 2) * np.sin(x[1] * np.pi / 2)
-    return float(f2)
-
-
-# =============================================================================
-# Python Evaluator Wrappers
-# =============================================================================
-
-def evaluate_both_objectives_wrapper(context: JobContext) -> Dict[str, float]:
-    """Wrapper to evaluate both objectives from JobContext."""
-    design_point = context.design_point
-    x = [design_point['x1'], design_point['x2'], design_point['x3']]
-    objectives = dtlz2_both_objectives(x)
-    context.add_log(f"Design point: {x}")
-    context.add_log(f"Objectives: {objectives}")
-    context.xcom_push("objectives", objectives)
-    return objectives
-
-
-def evaluate_f1_wrapper(context: JobContext) -> float:
-    """Wrapper to evaluate f1 from JobContext."""
-    design_point = context.design_point
-    x = [design_point['x1'], design_point['x2'], design_point['x3']]
-    f1 = dtlz2_f1_only(x)
-    context.add_log(f"Design point: {x}")
-    context.add_log(f"f1 = {f1}")
-    context.xcom_push("f1", f1)
-    return f1
-
-
-def evaluate_f2_wrapper(context: JobContext) -> float:
-    """Wrapper to evaluate f2 from JobContext."""
-    design_point = context.design_point
-    x = [design_point['x1'], design_point['x2'], design_point['x3']]
-    f2 = dtlz2_f2_only(x)
-    context.add_log(f"Design point: {x}")
-    context.add_log(f"f2 = {f2}")
-    context.xcom_push("f2", f2)
-    return f2
 
 
 # =============================================================================
@@ -123,8 +83,8 @@ def create_single_branch_workflow() -> WorkflowDefinition:
     main_branch = BranchDefinition(name="main", stages=[eval_stage])
     
     workflow = WorkflowDefinition(
-        name="dtlz2_ax_single_branch",
-        description="DTLZ2 with Ax optimizer - single branch",
+        name="dtlz2_ax_panda_single_branch",
+        description="DTLZ2 with Ax optimizer and PanDAiDDS scheduler - single branch",
         branches=[main_branch],
         objectives=[
             ObjectiveDefinition(name="f1", direction=ObjectiveDirection.MINIMIZE),
@@ -166,8 +126,8 @@ def create_separate_branches_workflow() -> WorkflowDefinition:
     f2_branch = BranchDefinition(name="f2_branch", stages=[f2_stage])
     
     workflow = WorkflowDefinition(
-        name="dtlz2_ax_separate_branches",
-        description="DTLZ2 with Ax optimizer - separate branches",
+        name="dtlz2_ax_panda_separate_branches",
+        description="DTLZ2 with Ax optimizer and PanDAiDDS scheduler - separate branches",
         branches=[f1_branch, f2_branch],
         objectives=[
             ObjectiveDefinition(name="f1", direction=ObjectiveDirection.MINIMIZE),
@@ -183,9 +143,9 @@ def create_separate_branches_workflow() -> WorkflowDefinition:
 # =============================================================================
 
 def run_case_1_single_branch():
-    """Run Case 1: Single branch with Ax optimizer."""
+    """Run Case 1: Single branch with Ax optimizer and PanDAiDDS scheduler."""
     print("\n" + "="*80)
-    print("CASE 1: Single Branch with Ax Bayesian Optimizer")
+    print("CASE 1: Single Branch with Ax Bayesian Optimizer + PanDAiDDS Scheduler")
     print("="*80)
     
     # Create workflow
@@ -195,11 +155,37 @@ def run_case_1_single_branch():
     print(f"  Branches: {len(workflow.branches)}")
     print(f"  Objectives: {[obj.name for obj in workflow.objectives]}")
     
-    # Create executor
+    # Configure PanDAiDDS scheduler
+    # Note: 'name' will be auto-generated as 'user.<username>.aid2e_job'
+    # You can override the username via PANDA_USERNAME environment variable
+    # Or provide a custom name (must start with 'user.')
+    panda_config = PanDAiDDSRunnerConfig(
+        # name="user.wguan.dtlz2_ax_panda_case1",  # Or omit to auto-generate
+        cloud="US",  # PanDA cloud
+        queue="BNL_PanDA_1",  # PanDA queue # BNL_OSG_PanDA_1, BNL_PanDA_1
+        max_walltime=3600,  # 1 hour
+        core_count=1,  # CPU cores per job
+        total_memory=4000,  # MB per job
+        enable_separate_log=True,
+        init_env="source setup_aid2e.sh && bash install_aid2e_dependencies.sh; ",  # Ensure environment is set up on remote workers
+        job_dir=str(Path.cwd() / "panda_jobs" / "case1"),
+        post_script="rm -fr .src .venv .local src examples ",  # Clean up source files after job completion to save space (optional, use with caution)
+    )
+    
+    print(f"\n✓ Scheduler: PanDAiDDS")
+    print(f"  Workers: {panda_config.core_count} ")
+    print(f"  Backend: {panda_config.queue}")
+    print(f"  Timeout: {panda_config.max_walltime}s per job")
+    
+    # Create executor with PanDAiDDS scheduler
     executor = DAGExecutor(
         workflow=workflow,
-        base_output_dir="/tmp/dtlz2_ax_optimization/case1",
+        base_output_dir="/tmp/dtlz2_ax_panda_optimization/case1",
         log_level="WARNING",
+        scheduler_config={
+            "runner_type": "PanDAiDDSRunner",
+            "config": panda_config,
+        },
     )
     
     # Create search space
@@ -249,7 +235,7 @@ def run_case_1_single_branch():
         # Suggest candidates
         candidates = optimizer.suggest_candidates(n_candidates=batch_size)
         
-        # Evaluate each candidate
+        # Evaluate each candidate (PanDAiDDS handles parallelism internally)
         for i, design_point in enumerate(candidates):
             objectives = executor.execute(design_point)
             optimizer.update_with_results(trial_index, design_point, objectives)
@@ -299,9 +285,9 @@ def run_case_1_single_branch():
 
 
 def run_case_2_separate_branches():
-    """Run Case 2: Separate branches with Ax optimizer."""
+    """Run Case 2: Separate branches with Ax optimizer and PanDAiDDS scheduler."""
     print("\n" + "="*80)
-    print("CASE 2: Separate Branches with Ax Bayesian Optimizer")
+    print("CASE 2: Separate Branches with Ax Bayesian Optimizer + PanDAiDDS Scheduler")
     print("="*80)
     
     # Create workflow
@@ -311,11 +297,36 @@ def run_case_2_separate_branches():
     print(f"  Branches: {len(workflow.branches)} ({[b.name for b in workflow.branches]})")
     print(f"  Objectives: {[obj.name for obj in workflow.objectives]}")
     
-    # Create executor
+    # Configure PanDAiDDS scheduler
+    # Note: 'name' will be auto-generated as 'user.<username>.aid2e_job'
+    # You can override the username via PANDA_USERNAME environment variable
+    # Or provide a custom name (must start with 'user.')
+    panda_config = PanDAiDDSRunnerConfig(
+        # name="user.wguan.dtlz2_ax_panda_case2",  # Or omit to auto-generate
+        cloud="US",  # PanDA cloud
+        queue="BNL_PanDA_1",  # PanDA queue
+        max_walltime=3600,  # 1 hour
+        core_count=1,  # CPU cores per job
+        total_memory=2000,  # MB per job
+        enable_separate_log=True,
+        job_dir=str(Path.cwd() / "panda_jobs" / "case2"),
+        post_script="rm -fr .src .venv .local src examples ",  # Clean up source files after job completion to save space (optional, use with caution)
+    )
+    
+    print(f"\n✓ Scheduler: PanDAiDDS")
+    print(f"  Workers: {panda_config.core_count} ")
+    print(f"  Backend: {panda_config.queue}")
+    print(f"  Timeout: {panda_config.max_walltime}s per job")
+    
+    # Create executor with PanDAiDDS scheduler
     executor = DAGExecutor(
         workflow=workflow,
-        base_output_dir="/tmp/dtlz2_ax_optimization/case2",
+        base_output_dir="/tmp/dtlz2_ax_panda_optimization/case2",
         log_level="WARNING",
+        scheduler_config={
+            "runner_type": "PanDAiDDSRunner",
+            "config": panda_config,
+        },
     )
     
     # Create search space
@@ -413,14 +424,26 @@ def run_case_2_separate_branches():
 # =============================================================================
 
 if __name__ == "__main__":
+    # Configure logging
+    logging.basicConfig(
+        level=logging.DEBUG,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    )
+
+    # All main workflow logic is guarded here
     print("\n" + "="*80)
-    print("DTLZ2 Multi-Objective Bayesian Optimization with Ax")
+    print("DTLZ2 Multi-Objective Bayesian Optimization with Ax + PanDAiDDS Scheduler")
     print("="*80)
     print("\nConfiguration:")
     print("  • 10 Sobol initialization points")
     print("  • 10 Bayesian optimization iterations")
     print("  • Batch size of 3 (parallel evaluations)")
     print("  • Total evaluations: 10 + (10 × 3) = 40 points")
+    print("\nScheduler:")
+    print("  • PanDAiDDS for local parallel execution")
+    print("  • Backend: loky (safe multiprocessing)")
+    print("  • Workers: all available CPUs")
     print("\nWorkflow Configurations:")
     print("  1. Single branch - both objectives in one Python function")
     print("  2. Separate branches - each objective in different branch")
@@ -428,33 +451,33 @@ if __name__ == "__main__":
     print("  Variables: x1, x2, x3 in [0, 1]")
     print("  Objectives: f1, f2 (minimize both)")
     print("  Optimal Pareto front: x1 in [0, 1], x2 = x3 = 0.5")
-    
+
     try:
         # Run both cases
         optimizer1, executor1 = run_case_1_single_branch()
         optimizer2, executor2 = run_case_2_separate_branches()
-        
+
         # Summary
         print("\n" + "="*80)
         print("COMPARISON SUMMARY")
         print("="*80)
-        
+
         print("\nCase 1 (Single Branch):")
         print(f"  Workflow: {executor1.workflow.name}")
         print(f"  Branches: {len(executor1.workflow.branches)}")
         print(f"  Total evaluations: {len(optimizer1.get_trials())}")
         print(f"  Pareto front size: {len(optimizer1.get_pareto_front())}")
         print(f"  Output directory: {executor1.output_dir}")
-        
+
         print("\nCase 2 (Separate Branches):")
         print(f"  Workflow: {executor2.workflow.name}")
         print(f"  Branches: {len(executor2.workflow.branches)}")
         print(f"  Total evaluations: {len(optimizer2.get_trials())}")
         print(f"  Pareto front size: {len(optimizer2.get_pareto_front())}")
         print(f"  Output directory: {executor2.output_dir}")
-        
+
         print("\n" + "="*80)
-        print("✅ Ax Optimization Showcase Complete!")
+        print("✅ Ax + PanDAiDDS Optimization Showcase Complete!")
         print("="*80)
         print("\nKey Results:")
         print("  • Both workflow configurations use identical Ax optimizer")
@@ -462,13 +485,14 @@ if __name__ == "__main__":
         print("  • qNEHVI acquisition for multi-objective optimization")
         print("  • Batch optimization with 3 parallel evaluations per iteration")
         print("  • Sobol initialization ensures good space exploration")
-        
+        print("  • PanDAiDDS scheduler provides local multi-core parallelism")
+
     except ImportError as e:
         print("\n" + "="*80)
-        print("⚠️  ERROR: Ax Platform Not Installed")
+        print("⚠️  ERROR: Missing Dependencies")
         print("="*80)
         print(f"\n{e}")
-        print("\nTo run this showcase, install Ax:")
-        print("  pip install ax-platform")
+        print("\nTo run this showcase, install required packages:")
+        print("  pip install ax-platform panda")
         print("\nAlternatively, use the simple random optimizer showcase:")
-        print("  python examples/dtlz2_optimizer_showcase.py")
+        print("  python examples/dtlz2/showcases/dtlz2_optimizer_showcase.py")

@@ -2,37 +2,7 @@
 
 ## Overview
 
-The AID2E CLI provides commands for inspecting and validating configuration
-files and running optimization workflows. See the
-[configuration guide](configuration.md) for supported configuration types.
-
-## CLI Modules
-
-The CLI is organized into focused modules under `src/aid2e/cli/`:
-
-- `aid2e_cli.py`: Main CLI group, command registration, and plugin discovery.
-- `_helpers.py`: Shared configuration detection and output formatting.
-- `config_commands.py`: Configuration inspection through `describe`, `inspect`,
-  and `validate`.
-- `workflow_commands.py`: Workflow commands `optimize`, `run`, `resume`, `stop`,
-  `status`, and `clean`.
-- `utility_commands.py`: Utility commands `list`, `version`, `init`, and `graph`.
-- `__init__.py`: Exports the main `cli` group.
-
-This structure separates command registration, configuration inspection,
-workflow execution, and shared helpers. Some commands are registered, while
-others have placeholders for planned commands. See below for details on
-commands and plans.
-
-## Import Patterns
-
-Only registered commands are available through `aid2e`. Unregistered
-placeholders describe planned commands and are documented separately below.
-The Click group can also be imported from `aid2e.cli`:
-
-```python
-from aid2e.cli import cli
-```
+The AID2E CLI provides commands for inspecting configuration files and running optimization workflows. See the [configuration guide](configuration.md) for supported configuration types.
 
 ## CLI Commands
 
@@ -44,17 +14,9 @@ aid2e
 |-- inspect      detailed configuration inspection
 |-- validate     configuration validation
 |-- optimize     config-driven optimization
-|-- list         available optimizers, templates, and problem types
+|-- list         available optimizers/templates/problems
 `-- version      framework version
 ```
-
-The source also preserves unregistered placeholders for planned commands:
-
-- Workflow lifecycle: `run`, `resume`, `stop`, `status`, and `clean`.
-- Utilities: `init` and `graph`.
-
-These placeholders are not available through `aid2e` until they are implemented
-and registered.
 
 ## Implemented Commands
 
@@ -86,7 +48,6 @@ aid2e describe config.yml --format yaml
 
 - Filters with `--section [problem|optimizer|design|all]`.
 - Displays parameter bounds, choices, and constraints.
-- Replaces and extends the previous `info` command.
 
 **Usage:**
 
@@ -106,7 +67,8 @@ aid2e inspect config.yml --section problem
 - Detects the configuration type.
 - Validates with the corresponding loader and model.
 - Reports validation errors.
-- Exits with code 0 on success and 1 on failure.
+- Returns `0` on success, `1` when validation fails, and `2` for invalid CLI
+  usage. Any other nonzero exit code also indicates failure.
 
 **Usage:**
 
@@ -126,10 +88,10 @@ scheduler, and workflow.
 - `--validate-only`: Validate the configuration without executing it.
 - `-v`, `--verbosity`: Increase logging verbosity; may be repeated.
 - `--log FILE`: Write logs to a file.
-- `--workflow TEXT`: Select a workflow when the configuration declares more
-  than one.
+- `--workflow TEXT`: Select a workflow when the configuration declares more than one.
 - `--output DIRECTORY`: Override the configured output directory.
-- `--run-id TEXT`: Set the run directory name.
+- `--run-id TEXT`: Set the run directory name under the output directory. When
+  omitted, AID2E uses a timestamp in `YYYYMMDD_HHMM` format.
 
 **Usage:**
 
@@ -163,48 +125,44 @@ aid2e version
 
 ## Planned Commands
 
-### `aid2e run <config_file>`
+These commands have source placeholders but are not registered with `aid2e`:
 
-Execute one configured workflow without the optimizer loop. Planned behavior
-includes workflow and scheduler setup, objective collection, output-directory
-overrides, and a dry-run mode.
+- Workflow: `run`, `resume`, `status`, `stop`, and `clean`.
+- Configuration utilities: `init` and `graph`.
 
-### `aid2e resume <checkpoint>`
+## Developer Reference
 
-Resume an interrupted optimization from saved state and continue from a
-specified iteration.
+**Python import**
 
-### `aid2e status`
+Only registered commands are available through `aid2e`. The Click group can
+also be imported from Python:
 
-Report active and completed runs, iteration progress, and current objective
-results.
+```python
+from aid2e.cli import cli
+```
 
-### `aid2e stop <run_id>`
+**Implementation modules**
 
-Stop a running optimization and preserve a checkpoint when possible.
+The CLI is organized into modules under `src/aid2e/cli/`:
 
-### `aid2e clean <output_dir>`
+- `aid2e_cli.py`: Main CLI group, command registration, and plugin discovery.
+- `_helpers.py`: Shared configuration helpers and output formatting.
+- `config_commands.py`: Configuration commands `describe`, `inspect`, and
+  `validate`.
+- `workflow_commands.py`: Implements `optimize` and contains placeholders for
+  `run`, `resume`, `stop`, `status`, and `clean`.
+- `utility_commands.py`: Implements `list` and `version` and contains
+  placeholders for `init` and `graph`.
+- `__init__.py`: Exports the main `cli` group.
 
-Remove temporary and intermediate files, with a dry-run mode to preview the
-operation.
-
-### `aid2e init`
-
-Create configuration files from templates, including an interactive mode.
-
-### `aid2e graph <config_file>`
-
-Visualize workflow dependencies and export the graph to a supported file
-format.
-
-## Testing
+## Verify the CLI
 
 ```bash
 aid2e --help
-aid2e describe examples/configurations/dtlz2_optimization.yml
-aid2e inspect examples/configurations/dtlz2_optimization.yml
-aid2e validate examples/configurations/dtlz2_optimization.yml
-aid2e optimize examples/configurations/dtlz2_optimization.yml --validate-only
+aid2e describe examples/dtlz2/dtlz2_optimization.yml
+aid2e inspect examples/dtlz2/dtlz2_optimization.yml
+aid2e validate examples/dtlz2/dtlz2_optimization.yml
+aid2e optimize examples/dtlz2/dtlz2_optimization.yml --validate-only
 aid2e list
 aid2e version
 ```
@@ -214,7 +172,4 @@ aid2e version
 - CLI implementation: `src/aid2e/cli/`
 - Configuration models and loaders: `src/aid2e/utilities/configurations/`
 - CLI tests: `tests/test_cli/`
-- Example configurations: `examples/configurations/`
-
-For issues or questions, use the
-[AID2E issue tracker](https://github.com/aid2e/AID2E-framework/issues).
+- Examples: `examples/`

@@ -389,4 +389,8 @@ workflows:
                     - name: "extract"
                       inline:
                         entrypoint: "scripts:bic_angular_reso:ExtractObjective"
-                      produces_objectives: true
+                        arguments:
+                        extra_args:
+                          key: "phi_resolution"
+                          file: "{{execution_dir}}/central_photons.hist.json"
+                      produces_objective: true

@@ -549,6 +549,7 @@ class DAGExecutor:
             job_context = JobContext(
                 task_id=task_id,
                 job_id=job_id,
+                job_index=n_seen,
                 stage_id=stage_context.stage_id,
                 workflow_id=self.workflow.name,
                 design_point=design_point,

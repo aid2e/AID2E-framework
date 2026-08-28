@@ -110,6 +110,8 @@ class JobContext:
         problem_config: Problem configuration for accessing stack-
                         dependent design space
         workflow_context: Shared workflow context (optional).
+        job_index: Index of job, will be 0 except when multiple jobs
+                   have names (e.g. when using a JobFactory)
     """
     task_id: str
     job_id: str
@@ -125,6 +127,7 @@ class JobContext:
     stage_context: Optional[StageContext] = None
     problem_config: Optional[ProblemConfiguration] = None
     workflow_context: Optional[WorkflowSharedContext] = None
+    job_index: Optional[int] = 0
 
     def xcom_key(self, key: str, task_id: str) -> str:
         """Get xcom key for a given job, stage
@@ -198,6 +201,7 @@ class Template:
     Supports:
         - {{design_point.key}} → Value for design parameter with name `key`
         - {{job_id}} → Name of current job
+        - {{job_index}} → Index of current job
         - {{stage_id}} → Name of current stage
         - {{branch_id}} → Name of current branch
         - {{workflow_id}} → Name of workflow
@@ -227,6 +231,8 @@ class Template:
             else text),
         "{{job_id}}":
             (lambda text, context: text.replace("{{job_id}}", str(context.job_id))),
+        "{{job_index}}":
+            (lambda text, context: text.replace("{{job_index}}", str(context.job_index))),
         "{{stage_id}}":
             (lambda text, context: text.replace("{{stage_id}}", str(context.stage_id))),
         "{{branch_id}}":

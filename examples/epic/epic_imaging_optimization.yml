@@ -39,6 +39,11 @@ problem:
     # Geometry configuration file to use (e.g. epic, epic_full)
     epic_config: "epic"
 
+    # Turn on/off recompilation of eometry after modifying it
+    # in a trial. Options:
+    #   "build" - 
+    geometry_mode: "build"
+
   # ===========================================================================
   # PARAMETERS: Define what we're optimizing
   # ===========================================================================
@@ -55,6 +60,7 @@ problem:
     epic_design_space:
       epic_design_parameters:
         bic:
+          #file_path: "$DETECTOR_PATH/compact/ecal/bic_default.xml"
           file_path: "compact/ecal/bic_default.xml"
           parameters:
 
@@ -297,9 +303,9 @@ workflows:
                     - name: "sim"
                       layer: "sim"
                       inputs:
-                        - "inputs/central_photons_bin{{job_id}}.py" # FIXME job ID might not be what we want here...
+                        - "inputs/central_photons_bin{{job_index}}.py"
                       outputs:
-                        - "{{execution_dir}}/central_photons_bin{{job_id}}.edm4hep.root"
+                        - "{{execution_dir}}/central_photons_bin{{job_index}}.edm4hep.root"
 
               # Now we're going to create 3 copies of the job with job IDs
               # 0, 1, 2. These correspond to the 3 kinematic points to run,
@@ -388,7 +394,7 @@ workflows:
                   stages:
                     - name: "extract"
                       inline:
-                        entrypoint: "scripts:bic_angular_reso:ExtractObjective"
+                        entrypoint: "scripts.bic_angular_reso:ExtractObjective"
                         arguments:
                         extra_args:
                           key: "phi_resolution"

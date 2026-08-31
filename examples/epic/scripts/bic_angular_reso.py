@@ -18,9 +18,6 @@ import sys
 from dataclasses import dataclass
 from typing import Dict
 
-import ROOT
-from podio.reading import get_reader
-
 
 # =============================================================================
 # Helper classes for the calculation
@@ -79,6 +76,10 @@ class Info:
         layer: most upstream layer with hits
         vector: 3D position/momentum of hit/particle
     """
+    # NOTE lazily import to avoid issues with trying to
+    # load ROOT/podio outside eic-shell
+    import ROOT
+
     energy: float = -999.0
     angle: float = -999.0
     perp: float = -999.0
@@ -153,6 +154,10 @@ def CalculateHitAngReso(opts: Options = DEFAULT_OPTS) -> Dict[str, float]:
         - value: the value of the objective, in this case the RMS of
           the fit to the mc-reco differences
     """
+    # NOTE lazily import to avoid issues with trying to
+    # load ROOT/podio outside eic-shell
+    import ROOT
+    from podio.reading import get_reader
 
     # sanitize coordinate input
     coord = opts.angle

@@ -30,6 +30,14 @@ def ExtractObjective(*, extra_args, **_):
     key  = extra_args['key']
     file = extra_args['file']
 
+    # relevant file has the same name as the ROOT
+    # output but w/ the .root suffix changed to
+    # .json
+    #   - FIXME this is clunky! Maybe this is a
+    #     a good use case for the artifact
+    #     spec?
+    file = file.replace('.root', '.json')
+
     metrics = {}
     with open(file, 'r') as f:
         data         = json.load(f)

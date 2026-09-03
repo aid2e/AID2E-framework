@@ -18,6 +18,9 @@ import sys
 from dataclasses import dataclass
 from typing import Dict
 
+import ROOT
+from podio.reading import get_reader
+
 
 # =============================================================================
 # Helper classes for the calculation
@@ -76,9 +79,6 @@ class Info:
         layer: most upstream layer with hits
         vector: 3D position/momentum of hit/particle
     """
-    # NOTE lazily import to avoid issues with trying to
-    # load ROOT/podio outside eic-shell
-    import ROOT
 
     energy: float = -999.0
     angle: float = -999.0
@@ -154,10 +154,6 @@ def CalculateHitAngReso(opts: Options = DEFAULT_OPTS) -> Dict[str, float]:
         - value: the value of the objective, in this case the RMS of
           the fit to the mc-reco differences
     """
-    # NOTE lazily import to avoid issues with trying to
-    # load ROOT/podio outside eic-shell
-    import ROOT
-    from podio.reading import get_reader
 
     # sanitize coordinate input
     coord = opts.angle
@@ -302,43 +298,11 @@ def CalculateHitAngReso(opts: Options = DEFAULT_OPTS) -> Dict[str, float]:
     metrics = {f"{opts.angle}_resolution" : fdiff.GetParameter(2)}
     js_out  = opts.ofile.replace(".root", ".json")
     with open(js_out, 'w') as o:
-       json.dump(metrics, o)
+       json.dump(metrics, o, ensure_ascii = False)
 
     # and return fit width as resolution
     return {f"{opts.angle}_resolution" : fdiff.GetParameter(2)}
 
-# =============================================================================
-# Extract objective from an output file
-# =============================================================================
-def ExtractObjective(*, extra_args, **_):
-    """Extract objective
-
-       Extracts a metric based from the JSON file
-       written by CalculateHitAngReso. The key
-       of the value to extract and the path to
-       the JSON file must be provided through
-       the `extra_args` block.
-
-       Args:
-           extra_args: dictionary of extra arugments
-                       must contain `key` and `file`
-       Returns:
-           extracted metric formatted as a dictionary
-    """
-    if 'key' not in extra_args:
-        raise KeyError(f"'key' not found in extra_args! extra_args = {extra_args}")
-
-    if 'file' not in extra_args:
-        raise KeyError(f"'file' not found in extra_args! extra_args = {extra_args}")
-    key  = extra_args['key']
-    file = extra_args['file']
-
-    metrics = {}
-    with open(file, 'r') as f:
-        data         = json.load(f)
-        value        = data[key]
-        metrics[key] = value
-    return metrics
 
 # =============================================================================
 # Main Entry Point

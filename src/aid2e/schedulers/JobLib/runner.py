@@ -228,6 +228,11 @@ class JobLibScheduler(BaseScheduler):
                     )
                 )
 
+                with open(f"/w/eic-scshelf2104/users/dereka/aid2e/dev/ForBICInFW/AID2E-framework/examples/epic/{job_name}.out", 'w') as out:
+                    out.write(result.get("stdout", ""))
+                with open(f"/w/eic-scshelf2104/users/dereka/aid2e/dev/ForBICInFW/AID2E-framework/examples/epic/{job_name}.err", 'w') as err:
+                    err.write(result.get("stderr", ""))
+
                 if result.get("outputs"):
                     all_artifacts.update(result["outputs"])
 

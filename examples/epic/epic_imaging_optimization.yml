@@ -293,8 +293,33 @@ workflows:
               description: "Simulate single photons"
               jobs:
 
-                # NOTE: anything in {{ }} will be substituted during execution
-                - name: "sim_job"
+              #  # NOTE: anything in {{ }} will be substituted during execution
+              #  - name: "sim_job"
+              #    payload:
+              #      evaluator_type: "stack" # FIXME this should be default
+              #      stack_type: "epic" # FIXME this should be default
+              #      job_id: "sim"
+              #    layers:
+              #      - name: "sim"
+              #        layer: "sim"
+              #        inputs:
+              #          - "inputs/central_photons_bin{{job_index}}.py"
+              #        outputs:
+              #          - "{{execution_dir}}/central_photons_bin{{job_index}}.edm4hep.root"
+
+              ## Now we're going to create 3 copies of the job with job IDs
+              ## 0, 1, 2. These correspond to the 3 kinematic points to run,
+              ## each of which is defined by a DD4hep steering file:
+              ##   - central_electrons_bin0.py
+              ##   - central_electrons_bin1.py
+              ##   - central_electrons_bin2.py
+              #job_factory:
+              #  type: "range"
+              #  params:
+              #    n: 3
+
+                # TEST
+                - name: "sim_job_0"
                   payload:
                     evaluator_type: "stack" # FIXME this should be default
                     stack_type: "epic" # FIXME this should be default
@@ -306,17 +331,32 @@ workflows:
                         - "inputs/central_photons_bin{{job_index}}.py"
                       outputs:
                         - "{{execution_dir}}/central_photons_bin{{job_index}}.edm4hep.root"
-
-              # Now we're going to create 3 copies of the job with job IDs
-              # 0, 1, 2. These correspond to the 3 kinematic points to run,
-              # each of which is defined by a DD4hep steering file:
-              #   - central_electrons_bin0.py
-              #   - central_electrons_bin1.py
-              #   - central_electrons_bin2.py
-              job_factory:
-                type: "range"
-                params:
-                  n: 3
+              
+                - name: "sim_job_1"
+                  payload:
+                    evaluator_type: "stack" # FIXME this should be default
+                    stack_type: "epic" # FIXME this should be default
+                    job_id: "sim"
+                  layers:
+                    - name: "sim"
+                      layer: "sim"
+                      inputs:
+                        - "inputs/central_photons_bin{{job_index}}.py"
+                      outputs:
+                        - "{{execution_dir}}/central_photons_bin{{job_index}}.edm4hep.root"
+              
+                - name: "sim_job_2"
+                  payload:
+                    evaluator_type: "stack" # FIXME this should be default
+                    stack_type: "epic" # FIXME this should be default
+                    job_id: "sim"
+                  layers:
+                    - name: "sim"
+                      layer: "sim"
+                      inputs:
+                        - "inputs/central_photons_bin{{job_index}}.py"
+                      outputs:
+                        - "{{execution_dir}}/central_photons_bin{{job_index}}.edm4hep.root"
 
               # And here we specify how many copies we can run in parallel
               parallelism:
@@ -382,7 +422,7 @@ workflows:
                       arguments:
                         - "-c phi"
                         - "-s 22"
-                      command: "scripts/bic_angular_reso.py"
+                      command: "{{workflow[config_dir]}}/scripts/bic_angular_reso.py"
                       rule: "python {{command}} -i {{inputs}} -o {{outputs}} {{arguments}}"
 
             # Stage 4: Extract objective from output of merge_rec_ana stage
@@ -394,9 +434,8 @@ workflows:
                   stages:
                     - name: "extract"
                       inline:
-                        entrypoint: "scripts.bic_angular_reso:ExtractObjective"
-                        arguments:
-                        extra_args:
-                          key: "phi_resolution"
-                          file: "{{execution_dir}}/central_photons.hist.json"
+                        entrypoint: "scripts.extract_objective:ExtractObjective"
+                      extra_args:
+                        key: "phi_resolution"
+                        file: "{{outputs[merge_rec_ana:merge_rec_ana_job:ana_reso](0)}}"
                       produces_objective: true

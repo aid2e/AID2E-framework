@@ -33,7 +33,7 @@ design_space:
           value: 0.0
           bounds: [0.0, 1.0]
 
-  design_constraints:
+  parameter_constraints:
     - name: "simple_constraint"
       description: "x1 must be less than 1.0"
       rule: "DTLZ2_variables.x1 < 1.0"

@@ -369,12 +369,16 @@ def example_6_workflow_from_config():
     print(f"Config contents:")
     print(yaml.dump(config, default_flow_style=False, indent=2))
     
-    # Load executor from config
-    from aid2e.utilities.workflows import create_executor_from_config
-    
-    executor = create_executor_from_config(
-        workflow_config_path=config_path,
-        output_dir="/tmp/aid2e_examples",
+    # Load config and build executor
+    from aid2e.utilities.configurations import load_config
+    from aid2e.utilities.runtime_builders import build_workflow_executor_from_config
+
+    loaded_config = load_config(config_path)
+    executor = build_workflow_executor_from_config(
+        loaded_config.workflows,
+        problem_cfg=loaded_config.problem,
+        scheduler_cfg=loaded_config.scheduler,
+        base_output_dir="/tmp/aid2e_examples",
     )
     
     design_point = {"param1": 1.0}

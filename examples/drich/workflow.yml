@@ -2,7 +2,7 @@
 #   1. Optimization with Ax (Sobol warmup + BO)
 #   2. Multi-objective dRICH optimization:
 #        maximize pi/K separation and acceptance
-#   3. ePIC workflow chain: geo -> sim_rec -> ana -> retrieve_results
+#   3. ePIC workflow chain: geo -> sim_rec -> ana
 # ============================================================================
 
 # Problem definition
@@ -44,9 +44,9 @@ problem:
       - {p: 45, eta_min: 2.5, eta_max: 3.0, radiator: 1}
       - {p: 45, eta_min: 3.0, eta_max: 3.5, radiator: 1}
 
-    failure_policy: "penalty" # penalty | fail
+    trial_failure_policy: "penalty" # penalty/fail
     max_failed_trials: 5
-    failed_objectives:
+    penalty_objectives:
       piKsep_etalow: 0.0
       piKsep_etahigh: 0.0
       acceptance: 0.0
@@ -74,12 +74,12 @@ scheduler:
   runner_type: "JobLibRunner" # JobLibRunner, SlurmRunner, PanDAiDDSRunner
   parameters:
     n_jobs: 2
-    backend: "threading"
+    backend: "loky"
 
 # Workflow execution
 workflows:
   workflows:
-    - name: "drich_eval"
+    - name: "drich_workflow"
       description: "dRICH evaluation workflow"
       stack_type: "epic"
 
@@ -89,8 +89,8 @@ workflows:
             runner_type: "SlurmRunner"
             parameters: &drich_stage_slurm
               job_name_prefix: "drich"
-              account: "vossenlab"
-              partition: "scavenger"
+              account: "<account>"
+              partition: "<partition>"
               nodes: 1
               ntasks: 1
               cpus_per_task: 1
@@ -102,41 +102,88 @@ workflows:
           stages:
             - name: "geo"
               # Edit trial XML and run checkOverlaps.
+              scheduler:
+                runner_type: "JobLibRunner"
+                parameters:
+                  n_jobs: 1
+                  backend: "threading"
               jobs:
                 - name: "drich_geo"
-                  command: &drich_command "{python_executable} {repo_root}/examples/drich/drich_eval.py"
-                  rule: &drich_rule_no_job_index "{command} --stage {stage_id} --trial-index {payload[trial_index]} --output-dir {payload[output_dir]} --config-path {payload[config_path]} --prepared-geometry-dir {prepared_geometry_dir}"
+                  payload:
+                    evaluator_type: "stack"
+                  layers:
+                    - layer: "geo"
+                      inputs:
+                        - "{{geometry_dir}}/${DETECTOR_CONFIG}.xml"
+                      outputs:
+                        - "{{output_dir}}/overlap_log_{{workflow[trial_index]}}.txt"
 
             - name: "sim_rec"
               # Run npsim and then eicrecon in the same job
               jobs:
                 - name: "drich_sim_rec"
-                  command: *drich_command
-                  rule: &drich_rule_with_job_index "{command} --stage {stage_id} --job-index {payload[job_index]} --trial-index {payload[trial_index]} --output-dir {payload[output_dir]} --config-path {payload[config_path]} --prepared-geometry-dir {prepared_geometry_dir}"
+                  payload:
+                    evaluator_type: "stack"
+                  layers:
+                    - layer: "sim"
+                      inputs: []
+                      outputs:
+                        - "{{payload[sim_file]}}"
+                      arguments:
+                        - "--compactFile"
+                        - "{{geometry_dir}}/${DETECTOR_CONFIG}.xml"
+                        - "-G"
+                        - "-N {{payload[npart]}}"
+                        - "--gun.etaMax {{payload[eta_max]}}"
+                        - "--gun.etaMin {{payload[eta_min]}}"
+                        - "--gun.phiMin 0"
+                        - "--gun.phiMax 6.2831853"
+                        - "--gun.momentumMax '{{payload[p]}}*GeV'"
+                        - "--gun.momentumMin '{{payload[p]}}*GeV'"
+                        - "--gun.particle {{payload[particle]}}"
+                        - "--gun.distribution eta"
+                      rule: "{{command}} {{arguments}} {{inputs}} {{outputs}}"
+                    - layer: "rec"
+                      inputs:
+                        - "{{payload[sim_file]}}"
+                      outputs:
+                        - "{{payload[reco_file]}}"
+                      arguments:
+                        - "-Pdd4hep:xml_files={{geometry_dir}}/${DETECTOR_CONFIG}.xml"
+                        - "-Ppodio:output_include_collections=DRICHHits,MCParticles,DRICHRawHits,DRICHRawHitsAssociations,DRICHAerogelTracks,DRICHGasTracks,DRICHAerogelIrtCherenkovParticleID,DRICHGasIrtCherenkovParticleID,DRICHMergedIrtCherenkovParticleID"
               job_factory:
-                type: "range"
+                type: "payloads"
                 params:
-                  # scan_points x particles = 4 x 2
-                  n: 8
+                  from: "drich_utils:sim_rec_payloads"
 
             - name: "ana"
               # Run analysis once per scan point using pi+/kaon+ reco files.
               jobs:
                 - name: "drich_ana"
-                  command: *drich_command
-                  rule: *drich_rule_with_job_index
+                  payload:
+                    evaluator_type: "stack"
+                  layers:
+                    - layer: "ana"
+                      inputs:
+                        - "{{payload[ana_inputs]}}"
+                      outputs:
+                        - "{{payload[analysis_output]}}"
+                      arguments:
+                        - "{{payload[radiator]}}"
+                        - "{{payload[bootstrap_samples]}}"
+                        - "{{payload[nbootstraps]}}"
+                      command: "{{workflow[config_dir]}}/script/dRICHAna_bootstrap"
+                      rule: "{{command}} {{inputs}} {{outputs}} {{arguments}}"
               job_factory:
-                type: "range"
+                type: "payloads"
                 params:
-                  # scan_points = 4
-                  n: 4
+                  from: "drich_utils:ana_payloads"
 
-            - name: "retrieve_results"
-              # Read analysis outputs and compute objectives.
-              jobs:
-                - name: "drich_retrieve_results"
-                  command: *drich_command
-                  rule: *drich_rule_no_job_index
-                  outputs:
-                    - path: "{payload[result_json]}"
-                      format: "json"
+            - name: "collect_objectives"
+              objective_plan:
+                steps:
+                  stages:
+                    - name: "merge"
+                      inline:
+                        entrypoint: "drich_utils:aggregate_objectives"
+                      produces_objective: true

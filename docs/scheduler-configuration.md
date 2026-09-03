@@ -15,12 +15,8 @@ The `scheduler` section in your configuration file defines runner settings:
 ```yaml
 scheduler:
   runner_type: "JobLibRunner"  # or "SlurmRunner" or "PanDAiDDSRunner"
-  joblib:     # Only if runner_type == "JobLibRunner"
-    # JobLib-specific settings
-  slurm:      # Only if runner_type == "SlurmRunner"
-    # SLURM-specific settings
-  panda:      # Only if runner_type == "PanDAiDDSRunner"
-    # PanDA iDDS-specific settings
+  parameters:
+    # Runner-specific settings
   # Common settings
   max_retries: 3
   output_location: "./scheduler_output"
@@ -45,7 +41,7 @@ scheduler:
 ```yaml
 scheduler:
   runner_type: "JobLibRunner"
-  joblib:
+  parameters:
     n_jobs: 8              # Use 8 CPU cores
     backend: "loky"        # Robust multiprocessing backend
     timeout: 3600          # 1 hour timeout per job
@@ -70,34 +66,26 @@ scheduler:
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `partition` | str | "gpu" | SLURM partition/queue name |
+| `partition` | str/None | None | SLURM partition/queue name |
 | `ntasks` | int | 1 | Number of tasks to run |
-| `cpus_per_task` | int | 1 | CPU cores per task |
-| `mem_per_task` | str | "4GB" | Memory per task (e.g., "4GB", "8000MB") |
-| `time_limit` | str | "01:00:00" | Wall clock time limit (HH:MM:SS) |
+| `cpus_per_task` | int/None | None | CPU cores per task |
+| `mem` | str/None | None | Memory request (e.g., "4GB", "8000MB") |
+| `time` | str/None | None | Wall clock time limit (HH:MM:SS) |
 | `gres` | str/None | None | Generic resource (e.g., "gpu:1" for one GPU) |
-| `job_name` | str | "aid2e_job" | SLURM job name for tracking |
-| `output_dir` | str/None | None | Directory for SLURM log files |
-| `additional_params` | dict | {} | Extra SLURM parameters (e.g., mail settings) |
+| `job_name_prefix` | str | "aid2e" | Prefix for generated SLURM job names for tracking |
 
 ### Example
 
 ```yaml
 scheduler:
   runner_type: "SlurmRunner"
-  slurm:
+  parameters:
     partition: "gpu"
     ntasks: 4
     cpus_per_task: 8
-    mem_per_task: "32GB"
-    time_limit: "12:00:00"
+    mem: "32GB"
+    time: "12:00:00"
     gres: "gpu:1"
-    job_name: "aid2e_dtlz2"
-    output_dir: "./slurm_logs"
-    additional_params:
-      mail-type: "END"
-      mail-user: "user@example.com"
-      constraint: "gpu:v100"
   max_retries: 3
   output_location: "./slurm_output"
   monitor_interval: 60
@@ -126,35 +114,22 @@ scheduler:
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `campaign_name` | str | "aid2e_optimization" | Campaign name for tracking in PanDA |
-| `processing_type` | str | "optimization" | Type of processing (PanDA classification) |
-| `vo` | str | "atlas" | Virtual organization (VO) in PanDA system |
-| `cloud` | str/None | None | Target cloud/site. None = auto-select |
-| `n_workers` | int | 10 | Number of worker processes |
-| `max_concurrent_tasks` | int | 20 | Maximum concurrent tasks across all sites |
-| `timeout_per_task` | int | 3600 | Timeout per task in seconds |
-| `retry_policy` | str | "exponential" | Retry strategy: "immediate", "linear", "exponential" |
-| `max_retries` | int | 3 | Maximum retries per failed task |
-| `additional_params` | dict | {} | Extra PanDA parameters |
+| `name` | str/None | auto-generated | PanDA job name for tracking, must start with `user.` |
+| `job_name_prefix` | str | "aid2e_job" | Prefix used when auto-generating the PanDA job name |
+| `task_type` | str/None | "AID2E" | Type of processing (PanDA classification) |
+| `cloud` | str/None | None | Target cloud/region |
+| `max_walltime` | int/None | None | Maximum walltime in seconds |
 
 ### Example
 
 ```yaml
 scheduler:
   runner_type: "PanDAiDDSRunner"
-  panda:
-    campaign_name: "aid2e_dtlz2_run1"
-    processing_type: "optimization"
-    vo: "atlas"
+  parameters:
+    job_name_prefix: "aid2e_dtlz2"
     cloud: null              # Auto-select best site
-    n_workers: 20
-    max_concurrent_tasks: 50
-    timeout_per_task: 7200   # 2 hours
-    retry_policy: "exponential"
-    max_retries: 5
-    additional_params:
-      enable_tracing: true
-      notification_email: "user@example.com"
+    task_type: "optimization"
+    max_walltime: 7200   # 2 hours
   max_retries: 5
   output_location: "./panda_output"
   monitor_interval: 120
@@ -191,7 +166,7 @@ These apply regardless of runner type:
 ```yaml
 scheduler:
   runner_type: "JobLibRunner"
-  joblib:
+  parameters:
     n_jobs: -1
 ```
 
@@ -199,18 +174,14 @@ scheduler:
 ```yaml
 scheduler:
   runner_type: "SlurmRunner"
-  slurm:
+  parameters:
     partition: "gpu"
     ntasks: 8
     cpus_per_task: 16
-    mem_per_task: "64GB"
-    time_limit: "24:00:00"
+    mem: "64GB"
+    time: "24:00:00"
     gres: "gpu:4"
-    job_name: "aid2e_large_scale"
-    output_dir: "./logs/slurm"
-    additional_params:
-      mail-type: "ALL"
-      mail-user: "admin@institution.org"
+    job_name_prefix: "aid2e_large_scale"
   max_retries: 5
   output_location: "./results/slurm"
   monitor_interval: 300
@@ -220,13 +191,10 @@ scheduler:
 ```yaml
 scheduler:
   runner_type: "PanDAiDDSRunner"
-  panda:
-    campaign_name: "my_optimization_campaign"
+  parameters:
+    job_name_prefix: "aid2e_large_scale"
     cloud: null  # Distributed across all sites
-    n_workers: 100
-    max_concurrent_tasks: 200
-    retry_policy: "exponential"
-    max_retries: 7
+    max_walltime: 7200
   max_retries: 7
   output_location: "./results/panda"
   monitor_interval: 300
@@ -238,7 +206,6 @@ scheduler:
 from aid2e.utilities.configurations import (
     load_config,
     SchedulerConfiguration,
-    JobLibRunnerConfig,
 )
 
 # Load complete config including scheduler
@@ -249,24 +216,19 @@ scheduler_cfg = config.scheduler
 print(f"Runner type: {scheduler_cfg.runner_type}")
 print(f"Max retries: {scheduler_cfg.max_retries}")
 
-# Get active runner-specific config
-if scheduler_cfg.runner_type == "JobLibRunner":
-    joblib_cfg = scheduler_cfg.joblib
-    print(f"Using {joblib_cfg.n_jobs} jobs with {joblib_cfg.backend} backend")
-
-# Or use the helper method
-active_cfg = scheduler_cfg.get_active_config()
-print(f"Active config: {active_cfg}")
+# Get validated runner-specific config
+runner_cfg = scheduler_cfg.parse_runner_params()
+print(f"Runner parameters: {runner_cfg}")
 
 # Register custom runner types if needed
-from aid2e.utilities.configurations import register_runner_config
+from aid2e.utilities.configurations import register
 from pydantic import BaseModel
 
 class CustomRunnerConfig(BaseModel):
     # Your custom fields
     pass
 
-register_runner_config("CustomRunner", CustomRunnerConfig)
+register("CustomRunner", CustomRunnerConfig)
 ```
 
 ## Migration from Legacy Scheduler Configuration
@@ -277,7 +239,7 @@ If upgrading from an older AID2E version without scheduler configuration:
    ```yaml
    scheduler:
      runner_type: "JobLibRunner"
-     joblib:
+     parameters:
        n_jobs: -1
    ```
 
@@ -285,7 +247,7 @@ If upgrading from an older AID2E version without scheduler configuration:
    ```yaml
    scheduler:
      runner_type: "SlurmRunner"
-     slurm:
+     parameters:
        # ... parameters from old slurm.template file
    ```
 
@@ -306,7 +268,7 @@ If upgrading from an older AID2E version without scheduler configuration:
 ```yaml
 scheduler:
   runner_type: "JobLibRunner"
-  joblib:
+  parameters:
     timeout: 7200  # Increase to 2 hours
 ```
 
@@ -320,13 +282,12 @@ sinfo --gres  # Check GPU availability
 
 ### Issue: PanDA task failures
 
-**Solution:** Increase `max_retries` and adjust `retry_policy`:
+**Solution:** Increase scheduler retries and the runner walltime:
 ```yaml
 scheduler:
   runner_type: "PanDAiDDSRunner"
-  panda:
-    max_retries: 7
-    retry_policy: "exponential"
+  parameters:
+    max_walltime: 7200
 ```
 
 ## See Also

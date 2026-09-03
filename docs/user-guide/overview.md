@@ -1,5 +1,9 @@
 # User Guide Overview
 
-Welcome to the AID2E Framework documentation.
+# User Guide Overview
 
-This is a placeholder page for the User Guide overview. Expand this section with walkthroughs, concepts, and step-by-step guides.
+AID2E uses full configuration files to run optimization workflows.
+
+```bash
+aid2e optimize config.yml --validate-only
+aid2e optimize config.yml

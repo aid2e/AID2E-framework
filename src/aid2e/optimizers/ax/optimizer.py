@@ -808,6 +808,22 @@ class AxOptimizer(BaseOptimizer):
         logger.debug(
             f"Updated trial {trial_index} with {len(metrics)} metrics"
         )
+
+    def mark_trial_failed(
+        self,
+        trial_index: int,
+        *,
+        parameters: Optional[Dict[str, Any]] = None,
+        reason: Optional[str] = None,
+    ) -> Trial:
+        """Mark a failed evaluation in AID2E and the Ax experiment."""
+        if trial_index in self.experiment.trials:
+            self.experiment.trials[trial_index].mark_failed(reason=reason)
+        return super().mark_trial_failed(
+            trial_index,
+            parameters=parameters,
+            reason=reason,
+        )
     
     def serialize_state(self) -> Dict[str, Any]:
         """Serialize optimizer state for distributed execution.

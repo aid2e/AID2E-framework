@@ -103,13 +103,28 @@ def test_multi_objective_optimizer_defaults_to_nsga2() -> None:
         search_space=_make_search_space(),
         config=PyMOOOptimizerConfig(pop_size=4, n_offsprings=4, seed=7),
         objective_names=["f1", "f2"],
+        objective_directions={"f1": "minimize", "f2": "maximize"},
         seed=7,
     )
 
     assert optimizer.resolved_algorithm == "nsga2"
     assert optimizer._algorithm.__class__.__name__ == "NSGA2"
 
-    _complete_generation(optimizer)
+    candidates = optimizer.suggest_candidates()
+    optimizer.mark_trial_failed(0, parameters=candidates[0], reason="evaluation failed")
+    for trial_index, parameters in enumerate(candidates[1:], start=1):
+        optimizer.update_with_results(
+            trial_index,
+            parameters,
+            {"f1": parameters["x"], "f2": parameters["y"]},
+        )
+    objective_values = optimizer._algorithm.pop.get("F").tolist()
+    assert [float("inf"), float("inf")] in objective_values
+    assert any(
+        values[1] < 0
+        for values in objective_values
+        if values[1] != float("inf")
+    )
     _complete_generation(optimizer)
 
     results = optimizer.get_optimization_results()
@@ -153,7 +168,7 @@ def test_runtime_builder_accepts_omitted_pymoo_algorithm(tmp_path) -> None:
             },
             "objectives": [
                 {"name": "f1", "direction": "minimize"},
-                {"name": "f2", "direction": "minimize"},
+                {"name": "f2", "direction": "maximize"},
             ],
         },
     )
@@ -171,5 +186,6 @@ def test_runtime_builder_accepts_omitted_pymoo_algorithm(tmp_path) -> None:
     optimizer = build_optimizer_from_config(problem_cfg, optimizer_cfg)
 
     assert isinstance(optimizer, PyMOOOptimizer)
+    assert optimizer.objective_directions["f2"].value == "maximize"
     assert optimizer.resolved_algorithm == "nsga2"
     assert optimizer.config.algorithm is None

@@ -2,7 +2,7 @@
 
 Defines generic problem models and a YAML-based loader that parses files like
 `examples/basic/problem.config`. The schema focuses on objectives (direction
-plus optional computation spec), and the design space reference, while keeping
+plus optional objective plan), and the design space reference, while keeping
 environment and workflow management outside of the problem scope.
 
 Notes:
@@ -14,7 +14,7 @@ Notes:
             behavior.
         - Objectives now normalize to the unified
             `objectives.ObjectiveDefinition` model with support for script,
-            inline, or multi-steps computation.
+            inline, or step-based objective plans.
 """
 
 from typing import Optional, List, Dict, Any
@@ -48,12 +48,12 @@ class ProblemConfiguration(BaseModel):
     work_location: str
     problem_type: str  # e.g., "EPIC_TRACKING", "DTLZ2", "CLOSURE_MOO"
 
-    # Accept any subclass of DesignConfig and EnvironmentConfig, including
-    # EpicDesignConfig and EpicEnvConfig
+    # Accept stack-specific subclasses through the stack registry.
     design_config: DesignConfig
     objectives: List[ObjectiveDefinition]
     observations: Optional[List[Dict[str, Any]]] = Field(default=None)
     environment_config: Optional[EnvironmentConfig] = Field(default=None)
+    evaluation_config: Dict[str, Any] = Field(default_factory=dict)
 
     @field_validator("objectives", mode="before")
     @classmethod
@@ -81,15 +81,16 @@ class ProblemConfiguration(BaseModel):
     def validate_paths(self) -> "ProblemConfiguration":
         """Validate directory paths and objective correctness.
 
-        - Ensures `output_location` and `work_location` exist.
+        - Ensures existing output and work paths are directories.
         - Ensures `objectives` is non-empty with unique names.
         """
         errors = []
 
-        for label, path in [("output_location", self.output_location),
-                            ("work_location", self.work_location)]:
-            if path and not Path(path).exists():
-                errors.append(f"{label} does not exist: {path}")
+        for label, value in [("output_location", self.output_location),
+                             ("work_location", self.work_location)]:
+            path = Path(value)
+            if path.exists() and not path.is_dir():
+                errors.append(f"{label} is not a directory: {value}")
 
         # Objectives must be provided and unique
         if not self.objectives:
@@ -105,16 +106,16 @@ class ProblemConfiguration(BaseModel):
         return self
 
     @staticmethod
-    def _parse_computation(computation: Any) -> Optional[ObjectivePlanSpec]:
-        """Convert computation payload to ObjectivePlanSpec."""
-        if computation is None:
+    def _parse_objective_plan(objective_plan: Any) -> Optional[ObjectivePlanSpec]:
+        """Convert an objective_plan payload to ObjectivePlanSpec."""
+        if objective_plan is None:
             return None
-        if isinstance(computation, ObjectivePlanSpec):
-            return computation
-        if isinstance(computation, dict):
-            return ObjectivePlanSpec(**dict(computation))
+        if isinstance(objective_plan, ObjectivePlanSpec):
+            return objective_plan
+        if isinstance(objective_plan, dict):
+            return ObjectivePlanSpec(**dict(objective_plan))
         raise ValueError(
-            "Invalid computation block for objective; expected mapping or "
+            "Invalid objective_plan block for objective; expected mapping or "
             "ObjectivePlanSpec"
         )
 
@@ -133,6 +134,11 @@ class ProblemConfiguration(BaseModel):
             raise ValueError(
                 "Legacy key 'minimize' is no longer supported. Use 'direction'."
             )
+        if "computation" in payload:
+            raise ValueError(
+                "Legacy key 'computation' is no longer supported. Use "
+                "'objective_plan'."
+            )
         if "direction" not in payload:
             raise ValueError("Objective entry missing required field 'direction'")
 
@@ -142,13 +148,13 @@ class ProblemConfiguration(BaseModel):
         else:
             direction = ObjectiveDirection(str(direction_raw).lower())
 
-        computation = cls._parse_computation(payload.get("computation"))
+        objective_plan = cls._parse_objective_plan(payload.get("objective_plan"))
         metrics_keys = payload.get("metrics_keys", []) or []
 
         return ObjectiveDefinition(
             name=name,
             direction=direction,
-            objective_plan=computation,
+            objective_plan=objective_plan,
             metrics_keys=metrics_keys,
         )
 
@@ -190,10 +196,14 @@ class ProblemConfigLoader:
                     objectives:
                         - name: "f1"
                             direction: "minimize"
-                            computation:
-                                script:
-                                    path: "scripts/dtlz2_problem.py"
-                                    output_file: "objectives_{job_id}.json"
+                            objective_plan:
+                                steps:
+                                    stages:
+                                        - name: "evaluate_f1"
+                                            script:
+                                                path: "scripts/dtlz2_problem.py"
+                                                output_file: "objectives_{job_id}.json"
+                                            produces_objective: true
                             metrics_keys: ["f1"]
                         - name: "f2"
                             direction: "minimize"
@@ -245,10 +255,6 @@ class ProblemConfigLoader:
             # Either both True or both False → invalid
             raise ValueError("Specify exactly one of 'design_parameters_file' or 'inline_design'")
 
-        # FIXME there is some duplication between in code between
-        # here and DesignConfigLoader. It might be useful to explore
-        # ways we could streamline the config models/loaders and how
-        # they handle file vs. inline loading
         design_data = None
         if has_path:
             design_path = resolve_path(problem["design_parameters_file"], base_dir)
@@ -258,11 +264,13 @@ class ProblemConfigLoader:
             design_data = problem["inline_design"]
 
         use_stack_design = False
+        design_stack = None
         for stack, components in StackRegistry.list_registered_stacks().items():
             design_loader = components['design_loader']
             if design_loader.space_key in design_data:
                 design_config = design_loader.load(design_data=design_data)
                 use_stack_design = True
+                design_stack = stack
                 break
 
         if not use_stack_design:
@@ -270,11 +278,13 @@ class ProblemConfigLoader:
 
         # Parse environment config if any present
         env_config = None
+        env_stack = None
         for stack, components in StackRegistry.list_registered_stacks().items():
             env_model = components['env_config']
             env_loader = components['env_loader']
             if env_model.key in problem:
                 env_config = env_loader.load(env_data=problem)
+                env_stack = stack
                 break
 
         # Build ProblemConfiguration
@@ -286,7 +296,12 @@ class ProblemConfigLoader:
         if base_dir and not work_location.is_absolute():
             work_location = (base_dir / work_location).resolve()
 
-        return ProblemConfiguration(
+        config_model = ProblemConfiguration
+        if env_config is not None and design_stack == env_stack:
+            stack_components = StackRegistry.list_registered_stacks().get(env_stack, {})
+            config_model = stack_components.get("problem_config") or ProblemConfiguration
+
+        return config_model(
             name=problem["name"],
             problem_type=problem["problem_type"],
             output_location=str(output_location),
@@ -295,6 +310,7 @@ class ProblemConfigLoader:
             objectives=objectives_raw,
             observations=problem.get("observations"),
             environment_config=env_config,
+            evaluation_config=problem.get("evaluation_config", {}),
         )
 
     @staticmethod

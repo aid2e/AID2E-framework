@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import importlib
 import json
 import logging
 import shlex
 import subprocess
+import sys
 import time
 import uuid
 from pathlib import Path
@@ -102,11 +104,11 @@ class SlurmScheduler(BaseScheduler):
         self.stages[stage_id] = stage_state
 
         for index, job_def in enumerate(job_definitions):
-            self._validate_job_definition(job_def)
             job_name = job_def.get("name", f"job_{index}")
             job_id = job_def.get("job_id") or f"{stage_name}_{job_name}_{index}"
             job_root = stage_root / job_id
             job_root.mkdir(parents=True, exist_ok=True)
+            job_def = self._prepare_job_definition(job_def, job_root)
 
             script_path = job_root / "job.sbatch"
             runtime_dir = self._resolve_runtime_dir(job_def, job_root)
@@ -253,12 +255,45 @@ class SlurmScheduler(BaseScheduler):
         self._refresh_stage_status(job_state["stage_id"])
         return True
 
-    def _validate_job_definition(self, job_def: Dict[str, Any]) -> None:
-        if job_def.get("function") is not None or job_def.get("params") is not None:
-            raise ValueError("SlurmScheduler v1 supports command jobs only")
-        command = str(job_def.get("command", "")).strip()
-        if not command:
-            raise ValueError("Job definition must include a non-empty 'command'")
+    def _prepare_job_definition(self, job_def: Dict[str, Any], job_root: Path) -> Dict[str, Any]:
+        python_callable = job_def.get("function")
+        if python_callable is None:
+            command = str(job_def.get("command", "")).strip()
+            if not command:
+                raise ValueError("Job definition must include a non-empty 'command'")
+            return job_def
+
+        module_name = getattr(python_callable, "__module__", None)
+        function_name = getattr(python_callable, "__name__", None)
+        if not module_name or not function_name or module_name == "__main__":
+            raise ValueError("Slurm Python jobs require an importable module function")
+
+        params_path = job_root / "python_job_params.json"
+        result_path = job_root / "python_job_result.json"
+        with params_path.open("w", encoding="utf-8") as handle:
+            json.dump(job_def.get("params", {}), handle, indent=2, sort_keys=True)
+
+        command = [
+            sys.executable,
+            "-m",
+            "aid2e.schedulers.Slurm.runner",
+            "--execute-python-job",
+            "--function",
+            f"{module_name}:{function_name}",
+            "--params-file",
+            str(params_path),
+            "--result-file",
+            str(result_path),
+        ]
+        outputs = [
+            *list(job_def.get("outputs") or []),
+            {"path": str(result_path), "format": "json"},
+        ]
+        return {
+            **{key: value for key, value in job_def.items() if key not in {"function", "params"}},
+            "command": " ".join(shlex.quote(part) for part in command),
+            "outputs": outputs,
+        }
 
     def _resolve_submit_root(self, working_dir: Optional[str]) -> Path:
         submit_root = self.config.submit_working_dir or working_dir or str(Path.cwd())
@@ -513,3 +548,34 @@ class SlurmScheduler(BaseScheduler):
         if not path.exists():
             return None
         return path.read_text(encoding="utf-8")
+
+
+def _run_python_job() -> int:
+    """Run one importable Python job from a Slurm batch script."""
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--execute-python-job", action="store_true")
+    parser.add_argument("--function", required=True)
+    parser.add_argument("--params-file", required=True)
+    parser.add_argument("--result-file", required=True)
+    args = parser.parse_args()
+
+    if not args.execute_python_job:
+        parser.error("Only --execute-python-job is supported")
+
+    module_name, function_name = args.function.split(":", 1)
+    callable_obj = getattr(importlib.import_module(module_name), function_name)
+    with open(args.params_file, "r", encoding="utf-8") as handle:
+        params = json.load(handle)
+
+    result = callable_obj(**params)
+    result_path = Path(args.result_file)
+    result_path.parent.mkdir(parents=True, exist_ok=True)
+    with result_path.open("w", encoding="utf-8") as handle:
+        json.dump({"result": result}, handle, indent=2, sort_keys=True)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(_run_python_job())

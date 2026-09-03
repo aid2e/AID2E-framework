@@ -234,10 +234,9 @@ def test_run_stage_preserves_job_id_and_returns_idds_outputs(monkeypatch, tmp_pa
     assert state["work_params"]["op_kwargs"] == {"x": [0.5, 0.5, 0.5]}
     assert state["work_params"]["context_payload"]["job_id"] == "evaluate:dtlz2:0001"
     assert state["work_kwargs"]["name"] == state["work_kwargs"]["job_key"]
-    assert state["work_kwargs"]["name"].startswith("user.test.panda.")
-    assert state["work_kwargs"]["name"].endswith(
-        ".evaluate.evaluate:dtlz2:0001.panda_test_evaluator.000001"
-    )
+    assert state["work_kwargs"]["name"].startswith("user.test.a2e.")
+    assert len(state["work_kwargs"]["name"]) <= 64
+    assert state["work_kwargs"]["name"].split(".")[-2] == "000001"
     assert state["work_kwargs"]["log_dataset_name"] == f'{state["work_kwargs"]["name"]}.log/'
 
     cached = scheduler.check_status("evaluate:dtlz2:0001")

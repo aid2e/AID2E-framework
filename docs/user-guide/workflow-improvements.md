@@ -29,39 +29,40 @@ The term **"computation"** has been renamed to **"objective_plan"** throughout t
   - `metrics_keys` (List[str]): Keys to extract from objective output
 
 - **`ObjectivePlanSpec`**: Canonical specification for computing an objective
-  - Can be a **single execution** (auto-wrapped):
+  - Uses `steps`: `StepPlanSpec` with one or more stages
+  - Each stage defines either:
     - `script`: Path to executable script
     - `inline`: Entrypoint to Python function
-  - Or an **explicit multi-step plan**:
-    - `multi_steps`: `MultiStepPlanSpec` with multiple stages
 
-### Single vs. Multi-Step
+### Single-Step and Multi-Step Plans
 
-By design, **all objective plans are internally canonical multi-step plans**. This provides:
+By design, all objective plans use the same `steps` structure. A simple
+objective can define one stage, while more complex objectives can define
+multiple dependent stages. This provides:
 - Unified handling of simple and complex computations
-- Support for preprocessing, evaluation, postprocessing in stages
+- Support for preprocessing, evaluation, and postprocessing stages
 - Clear separation of concerns
 
-**For convenience:**
-- A single `script` or `inline` is automatically wrapped into a one-step multi-step plan
-- Users don't need to think about the multi-step wrapper for simple cases
-
-Example (single script auto-wrapped):
+Example (single script stage):
 
 ```python
 ObjectiveDefinition(
     name="f1",
     direction=ObjectiveDirection.MINIMIZE,
     objective_plan=ObjectivePlanSpec(
-        script=ScriptObjective(
-            path="scripts/dtlz2.py",
-            output_file="f1.json"
+        steps=StepPlanSpec(
+            stages=[
+                StepStage(
+                    name="f1_stage_0",
+                    script=ScriptObjective(
+                        path="scripts/dtlz2.py",
+                        output_file="f1.json",
+                    ),
+                    produces_objective=True,
+                )
+            ]
         )
     )
-    # Internally becomes:
-    # multi_steps=MultiStepPlanSpec(stages=[
-    #     MultiStepStage(name="f1_stage_0", script=..., produces_objective=True)
-    # ])
 )
 ```
 
@@ -163,9 +164,13 @@ workflows:
             n_jobs: 1
         
         objective_plan:
-          script:
-            path: "scripts/dtlz2.py"
-            output_file: "f1.json"
+          steps:
+            stages:
+              - name: "evaluate_f1"
+                script:
+                  path: "scripts/dtlz2.py"
+                  output_file: "f1.json"
+                produces_objective: true
 ```
 
 ### Precedence Resolution
@@ -229,9 +234,13 @@ workflows:
       - name: "dtlz2_pareto"
         
         objective_plan:
-          script:
-            path: "scripts/dtlz2.py"
-            output_file: "objectives.json"
+          steps:
+            stages:
+              - name: "evaluate_objectives"
+                script:
+                  path: "scripts/dtlz2.py"
+                  output_file: "objectives.json"
+                produces_objective: true
         
         metrics:
           - name: "f1"
@@ -263,27 +272,27 @@ Each key in this object becomes extractable via `metric_key` in `CombinedObjecti
 
 ---
 
-## Multi-Step Plans
+## Step Plans
 
 ### Structure
 
-A multi-step plan contains multiple stages, each with a distinct computation:
+A step plan contains one or more stages, each with a distinct computation:
 
 ```python
 ObjectiveDefinition(
     name="complex_eval",
     direction=ObjectiveDirection.MINIMIZE,
     objective_plan=ObjectivePlanSpec(
-        multi_steps=MultiStepPlanSpec(
+        steps=StepPlanSpec(
             stages=[
-                MultiStepStage(
+                StepStage(
                     name="preprocess",
                     script=ScriptObjective(path="preprocess.py", output_file="prep.json"),
                     inputs=["design_params.json"],
                     outputs=["preprocessed.json"],
                     produces_objective=False,
                 ),
-                MultiStepStage(
+                StepStage(
                     name="evaluate",
                     script=ScriptObjective(path="evaluate.py", output_file="eval.json"),
                     inputs=["preprocessed.json"],
@@ -297,7 +306,7 @@ ObjectiveDefinition(
 )
 ```
 
-### MultiStepStage Fields
+### StepStage Fields
 
 - `name` (str): Stage name (must be unique within a plan)
 - `script` or `inline` (exactly one): The execution mode
@@ -327,8 +336,7 @@ The model automatically validates:
 | Old Term | New Term | Notes |
 |----------|----------|-------|
 | "Computation" | "Objective Plan" | More descriptive; plan indicates it's an executable specification |
-| `ObjectiveComputationSpec` | `ObjectivePlanSpec` | Direct mapping; old name kept as alias for backward compatibility |
-| `MultiStepComputationSpec` | `MultiStepPlanSpec` | Direct mapping; old name kept as alias for backward compatibility |
+| `multi_steps` | `steps` | Objective plans now use a neutral name for one or more stages |
 
 ### Updating Your Configurations
 
@@ -351,28 +359,28 @@ objectives:
   - name: "f1"
     direction: "minimize"
     objective_plan:  # New field name
-      script:
-        path: "scripts/dtlz2.py"
-        output_file: "f1.json"
+      steps:
+        stages:
+          - name: "evaluate_f1"
+            script:
+              path: "scripts/dtlz2.py"
+              output_file: "f1.json"
+            produces_objective: true
 ```
 
 ### Python Code Updates
 
-#### Before:
-
 ```python
-from aid2e.utilities.configurations import ObjectiveComputationSpec
-spec = ObjectiveComputationSpec(...)
+from aid2e.utilities.configurations import ObjectivePlanSpec, StepPlanSpec, StepStage
+
+spec = ObjectivePlanSpec(
+    steps=StepPlanSpec(
+        stages=[
+            StepStage(...),
+        ],
+    ),
+)
 ```
-
-#### After:
-
-```python
-from aid2e.utilities.configurations import ObjectivePlanSpec
-spec = ObjectivePlanSpec(...)
-```
-
-Backward compatibility aliases remain available, but new code should use the new names.
 
 ---
 
@@ -403,23 +411,23 @@ Shows:
 ```python
 # Three-stage pipeline: preprocess → evaluate → aggregate
 ObjectivePlanSpec(
-    multi_steps=MultiStepPlanSpec(
+    steps=StepPlanSpec(
         stages=[
-            MultiStepStage(
+            StepStage(
                 name="preprocess",
                 script=ScriptObjective(path="preprocess.py"),
                 inputs=["raw_design.json"],
                 outputs=["design_preprocessed.json"],
                 produces_objective=False,
             ),
-            MultiStepStage(
+            StepStage(
                 name="evaluate",
                 script=ScriptObjective(path="evaluate.py"),
                 inputs=["design_preprocessed.json"],
                 outputs=["raw_objectives.json"],
                 produces_objective=False,
             ),
-            MultiStepStage(
+            StepStage(
                 name="aggregate",
                 inline=InlineObjective(entrypoint="my_module:aggregate_objectives"),
                 inputs=["raw_objectives.json"],

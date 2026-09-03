@@ -1,28 +1,47 @@
 import numpy as np
-from typing import Dict, List
+from typing import Any, Dict, List
 from aid2e.utilities.workflows import JobContext
 
 def dtlz2_both_objectives(x: List[float]) -> Dict[str, float]:
     """Compute both DTLZ2 objectives in one function."""
     x = np.array(x)
     g = np.sum((x[1:] - 0.5) ** 2)
-    f1 = (1 + g) * np.cos(x[0] * np.pi / 2) * np.cos(x[1] * np.pi / 2)
-    f2 = (1 + g) * np.cos(x[0] * np.pi / 2) * np.sin(x[1] * np.pi / 2)
+    f1 = (1 + g) * np.cos(x[0] * np.pi / 2)
+    f2 = (1 + g) * np.sin(x[0] * np.pi / 2)
     return {"f1": float(f1), "f2": float(f2)}
 
 def dtlz2_f1_only(x: List[float]) -> float:
     """Compute only f1 objective of DTLZ2."""
     x = np.array(x)
     g = np.sum((x[1:] - 0.5) ** 2)
-    f1 = (1 + g) * np.cos(x[0] * np.pi / 2) * np.cos(x[1] * np.pi / 2)
+    f1 = (1 + g) * np.cos(x[0] * np.pi / 2)
     return float(f1)
 
 def dtlz2_f2_only(x: List[float]) -> float:
     """Compute only f2 objective of DTLZ2."""
     x = np.array(x)
     g = np.sum((x[1:] - 0.5) ** 2)
-    f2 = (1 + g) * np.cos(x[0] * np.pi / 2) * np.sin(x[1] * np.pi / 2)
+    f2 = (1 + g) * np.sin(x[0] * np.pi / 2)
     return float(f2)
+
+def objective_payload(
+    *,
+    design_point: Dict[str, Any],
+    **kwargs,
+) -> Dict[str, float]:
+    """Compute DTLZ2 objectives for the config-driven objective plan."""
+    parameter_names = [
+        name for name in design_point if name.startswith("DTLZ2_variables.x")
+    ]
+    values = [
+        design_point[name]
+        for name in sorted(
+            parameter_names,
+            key=lambda key: int(key.rsplit("x", 1)[1]),
+        )
+    ]
+    return dtlz2_both_objectives(values)
+
 
 def evaluate_both_objectives_wrapper(context: JobContext) -> Dict[str, float]:
     """Wrapper to evaluate both objectives from JobContext."""

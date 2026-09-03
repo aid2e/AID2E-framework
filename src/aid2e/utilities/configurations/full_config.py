@@ -2,26 +2,28 @@
 
 from pathlib import Path
 import sys
-from typing import Dict, Optional, Any, List
+from typing import Any, Dict, List, Optional
 
 import yaml
 from pydantic import BaseModel
 
 from .problem_config import ProblemConfiguration, ProblemConfigLoader
 from .optimizer_config import OptimizerConfiguration
-from .scheduler_config import SchedulerConfiguration
+from .scheduler_config import (
+    SchedulerConfigLoader,
+    SchedulerConfiguration,
+)
 from .stack_registry import StackRegistry
 from .workflow_config import WorkflowDefinition, WorkflowsConfiguration
 
 
 class FullConfig(BaseModel):
     """Complete configuration combining problem, optimizer, scheduler, and workflows."""
+
     problem: ProblemConfiguration
     optimizer: OptimizerConfiguration
     scheduler: Optional[SchedulerConfiguration] = None
     workflows: Optional[WorkflowsConfiguration] = None
-
-
 
 
 def _ensure_config_import_path(base_dir: Path) -> None:
@@ -29,6 +31,7 @@ def _ensure_config_import_path(base_dir: Path) -> None:
     resolved = str(base_dir.resolve())
     if resolved not in sys.path:
         sys.path.insert(0, resolved)
+
 
 def _load_init_env_file(file_path: str, base_dir: Path) -> str:
     """Load PanDA init_env commands from a YAML list or plain text file."""
@@ -66,7 +69,7 @@ def _normalize_scheduler_data(
     scheduler_raw: Dict[str, Any],
     base_dir: Path,
 ) -> SchedulerConfiguration:
-    """Normalize canonical scheduler payloads before model validation."""
+    """Normalize scheduler payloads before model validation."""
     normalized = dict(scheduler_raw)
     params = dict(normalized.get("parameters") or {})
     init_env_file = params.pop("init_env_file", None)
@@ -78,9 +81,33 @@ def _normalize_scheduler_data(
             )
         params["init_env"] = _load_init_env_file(str(init_env_file), base_dir)
     normalized["parameters"] = params
-    return SchedulerConfiguration(**normalized)
+    return SchedulerConfigLoader.from_dict(normalized, base_dir=str(base_dir))
 
-def _normalize_workflows_data(data: Dict[str, Any]) -> Optional[WorkflowsConfiguration]:
+
+def _normalize_workflow_schedulers(data: Any, base_dir: Path) -> Any:
+    """Normalize scheduler mappings nested inside workflow payloads."""
+    if isinstance(data, list):
+        return [_normalize_workflow_schedulers(item, base_dir) for item in data]
+    if not isinstance(data, dict):
+        return data
+
+    normalized = {}
+    for key, value in data.items():
+        if (
+            key in {"scheduler", "global_scheduler"}
+            and isinstance(value, dict)
+            and "runner_type" in value
+        ):
+            normalized[key] = _normalize_scheduler_data(value, base_dir)
+        else:
+            normalized[key] = _normalize_workflow_schedulers(value, base_dir)
+    return normalized
+
+
+def _normalize_workflows_data(
+    data: Dict[str, Any],
+    base_dir: Path,
+) -> Optional[WorkflowsConfiguration]:
     """Normalize canonical workflow payloads to a WorkflowsConfiguration model."""
     if "workflow" in data:
         raise ValueError(
@@ -97,6 +124,7 @@ def _normalize_workflows_data(data: Dict[str, Any]) -> Optional[WorkflowsConfigu
             "'workflows' must use the canonical wrapper form "
             "'workflows: { workflows: [...] }'."
         )
+    workflows_raw = _normalize_workflow_schedulers(workflows_raw, base_dir)
 
     # if any worklows are stack-based (indicated by the presence of `stack_type`),
     # validate workflows against stack-specific models
@@ -111,11 +139,9 @@ def _normalize_workflows_data(data: Dict[str, Any]) -> Optional[WorkflowsConfigu
         registry = StackRegistry.list_registered_stacks()
         if stack not in registry:
             raise KeyError(f"Stack {stack} not listed in StackRegistry")
-        else:
-            workflows_config = registry[stack]['workflow_config']
-            return workflows_config(**workflows_raw)
-    else:
-        return WorkflowsConfiguration(**workflows_raw)
+        workflows_config = registry[stack]["workflow_config"]
+        return workflows_config(**workflows_raw)
+    return WorkflowsConfiguration(**workflows_raw)
 
 
 def _normalize_full_config_data(data: Dict[str, Any], config_path: Path) -> Dict[str, Any]:
@@ -148,14 +174,13 @@ def _normalize_full_config_data(data: Dict[str, Any], config_path: Path) -> Dict
     problem_raw.setdefault("work_location", str(base_dir / "work"))
 
     problem_cfg = ProblemConfigLoader.from_dict(problem_raw, base_dir=str(base_dir))
-
     optimizer_cfg = OptimizerConfiguration(**data["optimizer"])
 
-    # Load scheduler configuration if present
     scheduler_cfg = None
     if "scheduler" in data:
         scheduler_cfg = _normalize_scheduler_data(data["scheduler"], base_dir)
-    workflows_cfg = _normalize_workflows_data(data)
+
+    workflows_cfg = _normalize_workflows_data(data, base_dir)
 
     return {
         "problem": problem_cfg,
@@ -168,23 +193,23 @@ def _normalize_full_config_data(data: Dict[str, Any], config_path: Path) -> Dict
 def load_config(config_file: str) -> FullConfig:
     """
     Load complete configuration from a YAML file.
-    
+
     Args:
         config_file: Path to YAML configuration file
-        
+
     Returns:
         FullConfig object with all configurations loaded
-        
+
     Raises:
         FileNotFoundError: If config file doesn't exist
         ValueError: If configuration is invalid
     """
     config_path = Path(config_file)
-    
+
     if not config_path.exists():
         raise FileNotFoundError(f"Config file not found: {config_file}")
-    
-    with open(config_path, 'r') as f:
+
+    with open(config_path, "r") as f:
         data = yaml.safe_load(f)
 
     normalized = _normalize_full_config_data(data or {}, config_path)

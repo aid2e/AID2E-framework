@@ -220,8 +220,7 @@ class PyMOOOptimizer(BaseOptimizer):
         >>> best = opt.get_best_trial()
 
     Notes:
-        - All objectives are treated as *minimisation* targets.  To maximise,
-          negate values before passing them to ``update_with_results``.
+        - Objective directions are translated to PyMOO's minimization convention.
         - Linear parameter constraints are not yet forwarded to PyMOO.  A
           warning is emitted when the search space contains constraints.
         - ``n_candidates`` passed to ``suggest_candidates`` is informational
@@ -239,6 +238,7 @@ class PyMOOOptimizer(BaseOptimizer):
         config: PyMOOOptimizerConfig,
         objective_names: List[str],
         seed: Optional[int] = None,
+        objective_directions: Optional[Dict[str, Any]] = None,
     ) -> None:
         """Initialise the PyMOO optimizer.
 
@@ -251,6 +251,7 @@ class PyMOOOptimizer(BaseOptimizer):
                 match keys in the ``metrics`` dict passed to
                 ``update_with_results``.
             seed: Integer seed overriding ``config.seed`` when provided.
+            objective_directions: Optimization direction for each objective.
 
         Raises:
             ImportError: If PyMOO is not installed.
@@ -274,6 +275,7 @@ class PyMOOOptimizer(BaseOptimizer):
             search_space=search_space,
             objective_names=objective_names,
             seed=effective_seed,
+            objective_directions=objective_directions,
         )
 
         self.config = config
@@ -321,7 +323,7 @@ class PyMOOOptimizer(BaseOptimizer):
         # Per-generation state (cleared after each tell())
         self._generation_infills: Any = None           # pymoo Population
         self._gen_pos_to_trial_idx: Dict[int, int] = {}  # position → trial_index
-        self._result_buffer: Dict[int, Dict[str, float]] = {}  # trial_index → metrics
+        self._result_buffer: Dict[int, Optional[Dict[str, float]]] = {}
 
         logger.info(
             "PyMOOOptimizer initialised: algorithm=%s, pop_size=%d, "
@@ -487,8 +489,8 @@ class PyMOOOptimizer(BaseOptimizer):
     def _flush_generation(self) -> None:
         """Advance the algorithm by one generation using buffered results.
 
-        Called automatically by ``update_with_results`` when every candidate
-        produced by the most recent ``suggest_candidates`` call has a result.
+        Called when every candidate in the current generation has completed
+        or failed.
         Builds the objective matrix ``F`` from the buffer and calls
         ``algorithm.tell()``.
 
@@ -501,8 +503,17 @@ class PyMOOOptimizer(BaseOptimizer):
 
         for pos, trial_idx in self._gen_pos_to_trial_idx.items():
             metrics = self._result_buffer[trial_idx]
+            if metrics is None:
+                F[pos, :] = np.inf
+                continue
             for j, obj in enumerate(self.objective_names):
-                F[pos, j] = metrics[obj]
+                direction = getattr(
+                    self.objective_directions.get(obj),
+                    "value",
+                    self.objective_directions.get(obj, "minimize"),
+                )
+                sign = -1.0 if str(direction).lower() == "maximize" else 1.0
+                F[pos, j] = metrics[obj] * sign
 
         self._generation_infills.set("F", F)
         self._algorithm.tell(infills=self._generation_infills)
@@ -695,9 +706,27 @@ class PyMOOOptimizer(BaseOptimizer):
             self._trials.append(None)
         self._trials[trial_index] = trial
 
-        # Flush once all candidates of the current generation have results
         if len(self._result_buffer) == len(self._gen_pos_to_trial_idx):
             self._flush_generation()
+
+    def mark_trial_failed(
+        self,
+        trial_index: int,
+        *,
+        parameters: Optional[Dict[str, Any]] = None,
+        reason: Optional[str] = None,
+    ) -> Trial:
+        """Record a failed candidate and allow its generation to finish."""
+        trial = super().mark_trial_failed(
+            trial_index,
+            parameters=parameters,
+            reason=reason,
+        )
+        if trial_index in self._gen_pos_to_trial_idx.values():
+            self._result_buffer[trial_index] = None
+            if len(self._result_buffer) == len(self._gen_pos_to_trial_idx):
+                self._flush_generation()
+        return trial
 
     def serialize_state(self) -> Dict[str, Any]:
         """Serialise optimizer state to a JSON-compatible dictionary.
@@ -754,6 +783,10 @@ class PyMOOOptimizer(BaseOptimizer):
                 "name": self.search_space.name,
             },
             "objective_names": self.objective_names,
+            "objective_directions": {
+                name: getattr(direction, "value", direction)
+                for name, direction in self.objective_directions.items()
+            },
             "seed": self.seed,
             "config": self.config.model_dump(),
             "resolved_algorithm": self.resolved_algorithm,
@@ -800,7 +833,10 @@ class PyMOOOptimizer(BaseOptimizer):
                 "Install with: pip install pymoo"
             )
 
-        required = {"search_space", "objective_names", "config", "trials"}
+        required = {
+            "search_space", "objective_names", "objective_directions",
+            "config", "trials",
+        }
         missing = required - state.keys()
         if missing:
             raise ValueError(f"load_state: missing keys in state: {missing}")
@@ -808,6 +844,7 @@ class PyMOOOptimizer(BaseOptimizer):
         # Restore config, objectives, seed
         self.config = PyMOOOptimizerConfig(**state["config"])
         self.objective_names = list(state["objective_names"])
+        self.objective_directions = dict(state["objective_directions"])
         self.seed = state.get("seed", self.config.seed)
         resolved_algorithm = self.config.resolve_algorithm(self.n_objectives)
         stored_algorithm = state.get("resolved_algorithm")

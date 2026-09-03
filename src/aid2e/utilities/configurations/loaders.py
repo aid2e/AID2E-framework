@@ -15,7 +15,7 @@ import yaml
 from .full_config import _normalize_full_config_data
 from .optimizer_config import OptimizerConfiguration
 from .problem_config import ProblemConfiguration
-from .scheduler_config import SchedulerConfiguration
+from .scheduler_config import SchedulerConfigLoader, SchedulerConfiguration
 from .workflow_config import WorkflowDefinition, WorkflowsConfiguration
 
 
@@ -83,15 +83,7 @@ def load_scheduler_config(config_file: str) -> Optional[SchedulerConfiguration]:
     if not isinstance(scheduler_raw, dict):
         raise ValueError("'scheduler' section must be a mapping")
 
-    legacy_runner_blocks = {"joblib", "pandaidds", "panda", "panDAiDDS"}
-    used_legacy_blocks = sorted(legacy_runner_blocks.intersection(scheduler_raw))
-    if used_legacy_blocks:
-        raise ValueError(
-            "Legacy nested scheduler runner blocks are no longer supported: "
-            + ", ".join(used_legacy_blocks)
-        )
-
-    return SchedulerConfiguration(**scheduler_raw)
+    return SchedulerConfigLoader.from_dict(scheduler_raw, base_dir=str(path.parent))
 
 
 def load_workflow_config(config_file: str) -> Optional[WorkflowsConfiguration]:

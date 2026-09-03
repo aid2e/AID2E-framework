@@ -234,16 +234,18 @@ def test_ax_optimizer_suggest_and_update():
     assert len(candidates) == 3
     assert all("x" in c and "y" in c for c in candidates)
 
-    for i, candidate in enumerate(candidates):
+    for i, candidate in enumerate(candidates[:2]):
         optimizer.update_with_results(
             trial_index=i,
             parameters=candidate,
             metrics={"loss": 0.5 * i},
         )
+    optimizer.mark_trial_failed(2, parameters=candidates[2], reason="evaluation failed")
 
     trials = optimizer.get_trials()
     assert len(trials) == 3
-    assert all(t.status == "completed" for t in trials)
+    assert [trial.status for trial in trials] == ["completed", "completed", "failed"]
+    assert optimizer.experiment.trials[2].status.name == "FAILED"
 
     best = optimizer.get_best_trial()
     assert best is not None

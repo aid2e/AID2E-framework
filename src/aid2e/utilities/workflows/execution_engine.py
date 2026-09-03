@@ -101,6 +101,7 @@ class JobContext:
         stage_id: Parent stage identifier.
         workflow_id: Root workflow identifier.
         design_point: Input design point (optimizer output).
+        payload: Job payload from the workflow configuration.
         xcom: Dict of data from upstream jobs (job_id:key → value).
         artifacts: Dict of output artifact paths produced by this job.
         logs: Execution logs (stdout/stderr).
@@ -115,6 +116,7 @@ class JobContext:
     stage_id: str
     workflow_id: str
     design_point: Dict[str, Any] = field(default_factory=dict)
+    payload: Dict[str, Any] = field(default_factory=dict)
     xcom: Dict[str, Any] = field(default_factory=dict)
     artifacts: Dict[str, str] = field(default_factory=dict)
     logs: List[str] = field(default_factory=list)
@@ -202,6 +204,8 @@ class Template:
         - {{execution_dir}} → Current working directory
         - {{output_dir}} → Current output directory
         - {{geometry_dir}} → Geometry directory to use
+        - {{payload[key]}} → Job payload value by key
+        - {{workflow[key]}} → Workflow context parameter by key
         - {{artifacts[key]}} → Artifact path ID'd by key
         - {{xcom[key]}} → Scalar XCom data ID'd by key
         - {{xcom[key](acc)}} → Non-scalar XCom data ID'd by key,
@@ -235,6 +239,14 @@ class Template:
             (lambda text, context: text.replace("{{geometry_dir}}", str(context.workflow_context.parameters["prepared_geometry_dir"]))
             if context.workflow_context is not None and "prepared_geometry_dir" in context.workflow_context.parameters
             else text.replace("{{geometry_dir}}", "NotAvailable")),
+        "{{payload[key]}}":
+            (lambda text, context:
+                re.sub(r"{{payload\[(.*?)\]}}", lambda match: str(context.payload[match.group(1)]), text)),
+        "{{workflow[key]}}":
+            (lambda text, context:
+                re.sub(r"{{workflow\[(.*?)\]}}", lambda match: str(context.workflow_context.parameters[match.group(1)]), text)
+                if context.workflow_context is not None
+                else text),
         "{{artifacts[key]}}":
             (lambda text, context:
                 re.sub(r"{{artifacts\[(.*?)\]}}", lambda match: str(context.artifacts[match.group(1)]), text)),
@@ -770,6 +782,10 @@ class StackExecutionEngine(BaseExecutionEngine):
                 layer_argument = self._template.substitute(layer_argument, context)
                 resolved_arguments.append(layer_argument)
             layer.arguments = resolved_arguments
+        if layer.command is not None:
+            layer.command = self._template.substitute(layer.command, context)
+        if layer.rule is not None:
+            layer.rule = self._template.substitute(layer.rule, context)
 
 
 __all__ = [

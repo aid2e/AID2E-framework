@@ -2,12 +2,12 @@
 
 This module defines the single source of truth for objectives across AID2E:
 - How objectives are specified in problems (name + direction)
-- How they're executed in workflows (script, inline, or multi-steps/DAG)
+- How they're executed in workflows through one or more script/inline steps
 - How they're optimized by algorithms (directives like "minimize:f1")
 
 Key concepts:
     ObjectiveDirection: MINIMIZE or MAXIMIZE
-    ObjectivePlanSpec: How to compute (script path, inline function, or multi-step plan)
+    ObjectivePlanSpec: How to compute an objective through one or more steps
     ObjectiveDefinition: Complete spec (name + direction + objective plan)
     ObjectivesRegistry: Runtime mapping of objective names to definitions
 
@@ -48,6 +48,11 @@ class ScriptObjective(BaseModel):
         ...     path="scripts/dtlz2_problem.py",
         ...     output_file="objectives_{job_id}.json"
         ... )
+
+Notes:
+    Scripts receive the design-point and output paths through
+    ``--design_params_file`` / ``--output_file`` and the corresponding
+    ``AID2E_PARAMS_FILE`` / ``AID2E_OUTPUT_FILE`` environment variables.
     """
     path: str = Field(..., description="Path to objective computation script")
     output_file: str = Field(..., description="Output file pattern (e.g., objectives_*.json)")
@@ -55,34 +60,33 @@ class ScriptObjective(BaseModel):
 
 
 class InlineObjective(BaseModel):
-    """Objective computed via inline Python function.
+    """
+    Objective computed via inline Python function.
     
-    The entrypoint should reference a callable that accepts design parameters
-    and returns the objective value.
+   The entrypoint should reference a callable that accepts objective-step
+   keyword arguments and returns a scalar value or metric mapping.
     
     Attributes:
         entrypoint: Module and function reference (format: "module.path:function_name").
         
-    Example:
-        >>> inline = InlineObjective(entrypoint="my_objectives:compute_f1")
-        >>> # Expects function: def compute_f1(design_params: Dict[str, float]) -> float
-        
-    Notes:
-        - The function is imported at runtime (lazy loading).
-        - Must accept design_params: Dict[str, float] as argument.
-        - Must return a single float value.
+   Example:
+    >>> inline = InlineObjective(entrypoint="my_objectives:compute_f1")
+    >>> # def compute_f1(*, design_point, inputs, outputs,
+    >>> #                extra_args, xcom, work_dir, output_dir):
+    >>> #     return {"f1": 0.5}
     """
+
     entrypoint: str = Field(
         ...,
-        description="Module:function reference (e.g., 'my_objectives:compute_f1')"
+        description="Module path and function reference (e.g., 'my_objectives:compute_f1')"
     )
     
     @field_validator('entrypoint')
     @classmethod
     def validate_entrypoint_format(cls, v: str) -> str:
-        """Validate entrypoint has 'module:function' format."""
+        """Validate entrypoint has 'module.path:function_name' format."""
         if ':' not in v or v.count(':') != 1:
-            raise ValueError("entrypoint must be 'module:function' format")
+            raise ValueError("entrypoint must be 'module.path:function_name' format")
         module_part, func_part = v.split(':')
         if not module_part or not func_part:
             raise ValueError("entrypoint module and function names cannot be empty")
@@ -93,12 +97,12 @@ class InlineObjective(BaseModel):
         return v
 
 
-class MultiStepStage(BaseModel):
-    """Single stage within a multi-step objective plan.
+class StepStage(BaseModel):
+    """Single stage within an objective step plan.
 
     Each stage executes either a script or an inline function, can declare
     inputs/outputs/extra_args, and may depend on upstream stages. If a plan has
-    only one step, it is represented as a single-element multi-step list.
+    only one step, it is represented as a single-element step list.
 
     Attributes:
         name: Unique stage identifier.
@@ -114,7 +118,7 @@ class MultiStepStage(BaseModel):
 
     model_config = ConfigDict(populate_by_name=True)
 
-    name: str = Field(..., description="Stage name (unique within multi-steps)")
+    name: str = Field(..., description="Stage name (unique within steps)")
     description: Optional[str] = Field(default=None, description="Stage description")
     script: Optional[ScriptObjective] = Field(default=None, description="Script execution for this stage")
     inline: Optional[InlineObjective] = Field(default=None, description="Inline callable for this stage")
@@ -125,7 +129,7 @@ class MultiStepStage(BaseModel):
     depends_on: List[str] = Field(default_factory=list, description="Upstream stage dependencies")
 
     @model_validator(mode="after")
-    def validate_action(self) -> "MultiStepStage":
+    def validate_action(self) -> "StepStage":
         """Ensure stage has a valid execution definition.
         
         A stage must choose exactly one execution method: script or inline.
@@ -150,11 +154,11 @@ class MultiStepStage(BaseModel):
         return depends_on
 
 
-class MultiStepPlanSpec(BaseModel):
-    """DAG-style multi-step plan for an objective.
+class StepPlanSpec(BaseModel):
+    """DAG-style step plan for an objective.
 
-    Replaces the earlier "branch" terminology with a clearer "multi-steps"
-    concept. A multi-step plan is a small DAG of stages where exactly
+    Replaces the earlier "branch" terminology with a clearer "steps"
+    concept. A step plan is a small DAG of stages where exactly
     one stage must produce the objective value.
 
     Attributes:
@@ -165,7 +169,7 @@ class MultiStepPlanSpec(BaseModel):
 
     model_config = ConfigDict(populate_by_name=True)
 
-    stages: List[MultiStepStage] = Field(..., min_items=1, description="Stages composing the computation DAG")
+    stages: List[StepStage] = Field(..., min_items=1, description="Stages composing the computation DAG")
     produces_from_stage: Optional[str] = Field(
         default=None,
         description="Explicit stage name that emits the objective (overrides flag)",
@@ -173,11 +177,11 @@ class MultiStepPlanSpec(BaseModel):
     )
 
     @model_validator(mode="after")
-    def validate_stages(self) -> "MultiStepPlanSpec":
+    def validate_stages(self) -> "StepPlanSpec":
         """Ensure unique names, valid dependencies, and single producer."""
         names = [stage.name for stage in self.stages]
         if len(set(names)) != len(names):
-            raise ValueError("Stage names within multi-steps must be unique")
+            raise ValueError("Stage names within steps must be unique")
 
         for stage in self.stages:
             for dep in stage.depends_on:
@@ -207,16 +211,14 @@ class MultiStepPlanSpec(BaseModel):
 
 
 class ObjectivePlanSpec(BaseModel):
-    """Plan for executing an objective (always modeled as multi-steps).
+    """Plan for executing an objective (always modeled as steps).
 
-    The canonical form is a multi-step plan with one or more stages. As a
-    convenience, users may supply a single script or inline definition; it will
-    be wrapped into a single-step multi-step plan automatically.
+    The canonical form is a step plan with one or more stages.
     """
 
     model_config = ConfigDict(populate_by_name=True)
 
-    multi_steps: MultiStepPlanSpec = Field(
+    steps: StepPlanSpec = Field(
         ...,
         description="DAG-style multi-stage plan for the objective",
     )
@@ -226,38 +228,43 @@ class ObjectivePlanSpec(BaseModel):
         """Reject retired objective plan schema variants."""
         if not isinstance(values, dict):
             return values
-        if "multi-steps" in values:
+        if "multi-steps" in values or "multi_steps" in values:
             raise ValueError(
-                "Legacy key 'multi-steps' is no longer supported. Use 'multi_steps'."
+                "Legacy objective plan step keys are no longer supported. Use 'steps'."
             )
         if "script" in values or "inline" in values:
             raise ValueError(
                 "Single-step objective plans are no longer supported. Wrap the "
-                "step under 'multi_steps.stages'."
+                "step under 'steps.stages'."
             )
         return values
 
-    def is_multi_steps(self) -> bool:
-        """Return True if this plan is a multi-step DAG (always true for canonical form)."""
-        return self.multi_steps is not None
+    def is_steps(self) -> bool:
+        """Return True if this plan is a step DAG."""
+        return self.steps is not None
+
 
 class ObjectiveDefinition(BaseModel):
     """Complete objective specification: name, direction, and objective plan.
 
     This is the unified model used across problem, optimization, and workflow layers.
     It combines what to optimize (name + direction) with how to execute it
-    (script, inline function, or multi-step DAG).
+    through one or more script/inline steps.
 
     Attributes:
         name: Unique objective identifier (e.g., "f1", "efficiency").
         direction: Optimization direction (minimize or maximize).
-        objective_plan: How to execute (script, inline, or multi-steps).
-        scheduler: Optional objective-level scheduler default (cascades to stages).
+        objective_plan: How to execute the objective through steps.
+        scheduler: Reserved objective-level scheduler default. The current runtime
+            executes objective plans inside the DAG executor after workflow
+            stages complete; scheduled objective work should be represented as
+            workflow stages.
         metrics_keys: Optional keys to extract from plan output when it returns a dict.
             Useful when one plan produces multiple metrics.
             Example: plan outputs {"f1": 0.5, "f2": 0.3, "runtime": 10.2},
                     metrics_keys=["f1"] extracts only f1.
     """
+
     name: str = Field(..., description="Objective name (e.g., 'f1', 'efficiency')")
     direction: ObjectiveDirection = Field(
         ...,
@@ -265,11 +272,11 @@ class ObjectiveDefinition(BaseModel):
     )
     objective_plan: Optional[ObjectivePlanSpec] = Field(
         default=None,
-        description="How to execute the objective (script, inline, or multi-steps)",
+        description="How to execute the objective through steps",
     )
     scheduler: Optional[SchedulerConfiguration] = Field(
         default=None,
-        description="Default scheduler for this objective; cascades to its stages",
+        description="Reserved objective-level scheduler default",
     )
     metrics_keys: List[str] = Field(
         default_factory=list,
@@ -302,7 +309,7 @@ class ObjectiveDefinition(BaseModel):
         
         Args:
             directive: String in format "minimize:name" or "maximize:name".
-            objective_plan: Optional ObjectivePlanSpec (script, inline, or multi-steps).
+            objective_plan: Optional objective step plan.
             
         Returns:
             ObjectiveDefinition with parsed direction and name.

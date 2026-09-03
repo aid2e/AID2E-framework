@@ -550,13 +550,35 @@ class BaseOptimizer(ABC):
         self._trial_counter = max(self._trial_counter, trial_index + 1)
         return trial
 
-    def get_optimization_results(self) -> Dict[str, Any]:
+    def mark_trial_failed(
+        self,
+        trial_index: int,
+        *,
+        parameters: Optional[Dict[str, Any]] = None,
+        reason: Optional[str] = None,
+    ) -> Trial:
+        """Record a failed evaluation without objective values."""
+        return self.set_trial_status(
+            trial_index,
+            TRIAL_STATUS_FAILED,
+            parameters=parameters,
+            metadata={"reason": reason} if reason else None,
+        )
+
+    def get_optimization_results(
+        self,
+        errors_by_trial: Optional[Dict[int, Dict[str, float]]] = None,
+    ) -> Dict[str, Any]:
         """Return a normalized optimization-results payload.
+
+        Args:
+            errors_by_trial: Optional uncertainty/error fields keyed by trial index.
 
         Returns:
             Dictionary containing objective names and trial records with
             parameters, metrics, and both raw and display status labels.
         """
+        errors_by_trial = errors_by_trial or {}
         trials_payload: List[Dict[str, Any]] = []
         for trial in self.get_trials():
             trials_payload.append(
@@ -569,6 +591,7 @@ class BaseOptimizer(ABC):
                     ),
                     "design_parameters": dict(trial.parameters or {}),
                     "objectives": dict(trial.metrics or {}),
+                    "objective_errors": dict(errors_by_trial.get(trial.index, {})),
                     "metadata": dict(trial.metadata or {}),
                 }
             )
@@ -580,21 +603,47 @@ class BaseOptimizer(ABC):
             "trials": trials_payload,
         }
 
-    def save_optimization_results(self, output_path: Union[str, Path]) -> Path:
+    def save_optimization_results(
+        self,
+        output_path: Union[str, Path],
+        *,
+        errors_by_trial: Optional[Dict[int, Dict[str, float]]] = None,
+    ) -> Dict[str, Path]:
         """Write optimization results to disk as pretty-printed JSON.
 
         Args:
-            output_path: Target JSON path.
+            output_path: Directory where optimizer result files are written.
+            errors_by_trial: Optional uncertainty/error fields keyed by trial index.
 
         Returns:
-            Resolved path of the written file.
+            Paths of the written result files.
         """
-        path = Path(output_path)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        payload = self.get_optimization_results()
-        with path.open("w", encoding="utf-8") as handle:
+        output_dir = Path(output_path)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        results_path = output_dir / "optimization_results.json"
+        pareto_path = output_dir / "pareto_front.json"
+
+        payload = self.get_optimization_results(errors_by_trial=errors_by_trial)
+        with results_path.open("w", encoding="utf-8") as handle:
             json.dump(payload, handle, indent=2, sort_keys=True)
-        return path
+
+        errors_by_trial = errors_by_trial or {}
+        pareto_payload = [
+            {
+                "trial_index": trial.index,
+                "design_parameters": dict(trial.parameters or {}),
+                "objectives": dict(trial.metrics or {}),
+                "objective_errors": dict(errors_by_trial.get(trial.index, {})),
+                "metadata": dict(trial.metadata or {}),
+            }
+            for trial in self.get_pareto_front()
+        ]
+        with pareto_path.open("w", encoding="utf-8") as handle:
+            json.dump(pareto_payload, handle, indent=2)
+        return {
+            "optimization_results": results_path,
+            "pareto_front": pareto_path,
+        }
 
     def seed_from_trials(
         self,

@@ -64,19 +64,27 @@ problem:
     - name: "tracking_efficiency"
       direction: "maximize"
       computation:
-        script:
-          path: "scripts/run_epic_simulation.py"
-          output_file: "metrics_{job_id}.json"
-          timeout_sec: 3600
+        steps:
+          stages:
+            - name: "evaluate_tracking_efficiency"
+              script:
+                path: "scripts/run_epic_simulation.py"
+                output_file: "metrics_{job_id}.json"
+                timeout_sec: 3600
+              produces_objective: true
       metrics_keys: ["efficiency"]
     
     - name: "ghost_rate"
       direction: "minimize"
       computation:
-        script:
-          path: "scripts/run_epic_simulation.py"
-          output_file: "metrics_{job_id}.json"
-          timeout_sec: 3600
+        steps:
+          stages:
+            - name: "evaluate_ghost_rate"
+              script:
+                path: "scripts/run_epic_simulation.py"
+                output_file: "metrics_{job_id}.json"
+                timeout_sec: 3600
+              produces_objective: true
       metrics_keys: ["ghosts"]
   
   design_space:

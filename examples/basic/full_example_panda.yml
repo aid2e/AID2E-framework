@@ -3,7 +3,7 @@
 
 problem:
   name: "DTLZ2 Multi-Objective Optimization with PanDA iDDS"
-  type: "toy"
+  problem_type: "toy"
   output_location: "/tmp"
   work_location: "/tmp"
 
@@ -11,22 +11,29 @@ problem:
     - name: "f1"
       direction: "minimize"
       computation:
-        script:
-          path: "scripts/dtlz2_problem.py"
-          output_file: "objectives_{job_id}.json"
-          timeout_sec: 600
+        steps:
+          stages:
+            - name: "evaluate_f1"
+              script:
+                path: "scripts/dtlz2_problem.py"
+                output_file: "objectives_{job_id}.json"
+                timeout_sec: 600
+              produces_objective: true
       metrics_keys: ["f1"]
     - name: "f2"
       direction: "minimize"
       computation:
-        script:
-          path: "scripts/dtlz2_problem.py"
-          output_file: "objectives_{job_id}.json"
-          timeout_sec: 600
+        steps:
+          stages:
+            - name: "evaluate_f2"
+              script:
+                path: "scripts/dtlz2_problem.py"
+                output_file: "objectives_{job_id}.json"
+                timeout_sec: 600
+              produces_objective: true
       metrics_keys: ["f2"]
 
-  design_space:
-    path: "design.params"
+  design_parameters_file: "design.params"
 
 optimizer:
   name: "ax"
@@ -42,19 +49,11 @@ optimizer:
 # Scheduler configuration for distributed execution using PanDA iDDS
 scheduler:
   runner_type: "PanDAiDDSRunner"
-  panda:
-    campaign_name: "aid2e_dtlz2_distributed"
-    processing_type: "optimization"
-    vo: "atlas"  # Virtual organization
-    cloud: null  # null means auto-select best available site
-    n_workers: 20  # Number of worker processes
-    max_concurrent_tasks: 50  # Maximum concurrent tasks across sites
-    timeout_per_task: 7200  # 2 hour timeout per task
-    retry_policy: "exponential"  # Exponential backoff on retries
-    max_retries: 5
-    additional_params:
-      enable_tracing: true
-      notification_email: "user@example.com"
+  parameters:
+    job_name_prefix: "aid2e_dtlz2"
+    cloud: null
+    task_type: "optimization"
+    max_walltime: 7200  # 2 hour timeout per task
   max_retries: 5
   output_location: "./panda_output"
   monitor_interval: 120  # Check distributed job status every 120 seconds

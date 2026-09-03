@@ -159,6 +159,8 @@ class StageDefinition(BaseModel):
         scheduler: Stage-level scheduler (optional, inherits global if not set).
         parallelism: Parallelism policy for this stage.
         outputs: Output artifact specs produced by this stage.
+        objective_plan: Optional plan that computes or collects objective values
+            after stage jobs complete.
         
     Example:
         >>> stage = StageDefinition(
@@ -187,6 +189,10 @@ class StageDefinition(BaseModel):
     scheduler: Optional[SchedulerConfiguration] = Field(default=None, description="Stage-level scheduler override")
     parallelism: ParallelismPolicy = Field(default_factory=ParallelismPolicy, description="Parallelism policy")
     outputs: List[ArtifactSpec] = Field(default_factory=list, description="Output artifacts")
+    objective_plan: Optional[ObjectivePlanSpec] = Field(
+        default=None,
+        description="Plan that computes or collects objective values after this stage",
+    )
 
 
 class BranchDefinition(BaseModel):

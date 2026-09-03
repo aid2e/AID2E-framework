@@ -15,15 +15,19 @@ problem:
     - name: "f1"
       direction: "minimize"
       computation:
-        script:
-          path: "./examples/basic/scripts/dtlz2_problem.py"
-          output_file: "objectives_{job_id}.json"
-          timeout_sec: 300
+        steps:
+          stages:
+            - name: "evaluate_f1"
+              script:
+                path: "./examples/basic/scripts/dtlz2_problem.py"
+                output_file: "objectives_{job_id}.json"
+                timeout_sec: 300
+              produces_objective: true
       metrics_keys: ["f1"]
     - name: "f2"
       direction: "minimize"
       computation:
-        multi-steps:
+        steps:
           stages:
             - name: "prepare"
               jobs:

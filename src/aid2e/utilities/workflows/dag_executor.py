@@ -455,10 +455,6 @@ class DAGExecutor:
             f"Starting stage: {stage.name}",
             context={"stage_name": stage.name},
         )
-
-        # TEST
-        print(f"CHECK--0 executing stage {stage.name}")
-
         # Create stage context
         stage_context = StageContext(
             stage_id=stage.name,
@@ -468,11 +464,6 @@ class DAGExecutor:
         
         # Expand jobs from job_factory (if provided)
         jobs = self._expand_jobs(stage)
-
-        # TEST
-        print(f"CHECK--1 expanded jobs")
-        print(f"  {jobs}")
- 
         self.logger.log_info(f"Stage {stage.name} has {len(jobs)} jobs to execute")
         
         if self.scheduler_config_resolver is not None:
@@ -483,12 +474,10 @@ class DAGExecutor:
         # Use scheduler to execute stage if configured,
         # otherwise execute directly
         if jobs and scheduler_config:
-            print(f"  CHECK--2A executing stage with scheduler")
             self._execute_stage_with_scheduler(
                 stage, jobs, stage_context, design_point, scheduler_config
             )
         else:
-            print(f"  CHECK--2B executing stage directly")
             jobs_seen = []
             for job in jobs:
                 job_id = job.name
@@ -542,14 +531,11 @@ class DAGExecutor:
             scheduler = self.scheduler
         else:
             scheduler = self._create_scheduler(scheduler_config)
-        print("CHECK--3 set up scheduler")
 
         # Convert jobs to scheduler format
-        print("CHECK--4 setting up jobs")
         job_definitions = []
         jobs_seen = []
         for job_idx, job in enumerate(jobs):
-            print(f"  >> job = {job.name}")
             job_id = job.name
             n_seen = jobs_seen.count(job_id)
             jobs_seen.append(job_id)
@@ -558,10 +544,6 @@ class DAGExecutor:
                 job.name = job_id
             task_id = f"{stage.name}:{job_id}"
             execution_dir, output_dir = self._build_job_directories(stage.name, job_id)
-            print(f"CHECK--4.5 job index = {job_idx}")
-
-            # TEST
-            print("    0) build job directories")
 
             # Create job context for this job
             job_context = JobContext(
@@ -579,15 +561,12 @@ class DAGExecutor:
                 problem_config=self.problem_config,
                 workflow_context=self.workflow_context,
             )
-            print("    1) created job context")
             
             # Convert to scheduler job definition format
             scheduler_job = self._convert_job_to_scheduler_format(
                 job, job_id, job_context, scheduler_config
             )
             job_definitions.append(scheduler_job)
-
-            print("    2) converted job to scheduler")
 
         # Prepare parallelism policy from stage config
         parallelism_policy = {
@@ -600,9 +579,6 @@ class DAGExecutor:
         stage_working_dir = self.scheduler_submit_dir / stage.name
         stage_working_dir.mkdir(parents=True, exist_ok=True)
 
-        # TEST
-        print(f"CHECK--5 created work directory")
-
         # Execute stage via scheduler
         try:
             result = scheduler.run_stage(
@@ -611,11 +587,9 @@ class DAGExecutor:
                 parallelism_policy=parallelism_policy,
                 working_dir=str(stage_working_dir),
             )
-            print(f"CHECK--6 ran job")
 
             # Process results and update XCom
             self._process_scheduler_results(result, jobs, stage.name)
-            print(f"CHECK--7 processed results")
 
             with open(f"/w/eic-scshelf2104/users/dereka/aid2e/dev/ForBICInFW/AID2E-framework/examples/epic/{stage.name}.xcom", 'w') as xfile:
                 json.dump(job_context.xcom, xfile, indent=4)
@@ -728,22 +702,18 @@ class DAGExecutor:
         job_context: JobContext,
     ) -> Tuple[str, List[Dict[str, Any]]]:
         """Build a command for stack jobs submitted through schedulers."""
-        print("CHECK---0")
         stack_type = job.payload.get("stack_type") or self.workflow.stack_type
         if not stack_type:
             raise ValueError(
                 f"Job {job_id} specifies evaluator_type='stack' but is missing 'stack_type'"
             )
 
-        print(f"CHECK---1 got stack type: {stack_type}")
         layers = self._resolve_stack_layers(job, job_id)
         engine = StackExecutionEngine(
             engine_id=job_id,
             stack_type=stack_type,
             layers=layers,
         )
-        print(f"CHECK---2 retrieved layers:")
-        print(f"  {layers}")
 
         for layer in engine.layers:
             engine._apply_template_substitution(layer, job_context)
@@ -751,7 +721,6 @@ class DAGExecutor:
             job_context.xcom_push(f'{layer.name}:inputs', layer.inputs)
             job_context.xcom_push(f'{layer.name}:outputs', layer.outputs)
             job_context.xcom_push(f'{layer.name}:arguments', layer.arguments)
-        print(f"CHECK---3 resolved layers")
 
         stack = engine.stack_class()
         preparations = stack.prepare_for_execution(context=job_context)
@@ -762,7 +731,6 @@ class DAGExecutor:
             preparations=preparations,
             context=job_context,
         )
-        print(f"CHECK---4 made driver script at {driver}")
         return stack.make_driver_command(str(driver)), []
 
     def _resolve_stack_layers(

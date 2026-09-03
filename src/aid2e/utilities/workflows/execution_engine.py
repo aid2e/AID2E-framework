@@ -687,7 +687,6 @@ class StackExecutionEngine(BaseExecutionEngine):
         self.layers = layers
         self.stack_type = stack_type
         self.stack_class = StackRegistry.get_experimental_stack(self.stack_type)
-        print(f"CHECK-0 initializing stack engine {engine_id}")
         if not self.stack_class:
             raise ValueError(f"Unknown stack type: {stack_type}")
 
@@ -708,37 +707,15 @@ class StackExecutionEngine(BaseExecutionEngine):
             to XCom for retrieval downstream.
         """
         stack = self.stack_class()
-        print(f"CHECK-1 executing stack w/ {stack}")
 
         # Do any preparations ahead of execution
         preparations = stack.prepare_for_execution(context = context)
-        print(f"CHECK-2 did stack preparations")
 
         # Substitute templates in each layer's inputs/outputs/args and
         # push info to XCom for downstream tasks
         for layer in self.layers:
             self._apply_template_substitution(layer, context)
-
-            # TEST
-            print("CHECK0")
-            print("  inputs:")
-            for layer_in in layer.inputs:
-                print(f"  {layer_in}")
-            print("  outputs:")
-            for layer_out in layer.outputs:
-                print(f"  {layer_out}")
-
             self._resolve_relative_paths(layer)
-
-            # TEST
-            print("CHECK2")
-            print("  inputs:")
-            for layer_in in layer.inputs:
-                print(f"  {layer_in}")
-            print("  outputs:")
-            for layer_out in layer.outputs:
-                print(f"  {layer_out}")
-
             context.xcom_push(f'{layer.name}:inputs', layer.inputs)
             context.xcom_push(f'{layer.name}:outputs', layer.outputs)
             context.xcom_push(f'{layer.name}:arguments', layer.arguments)
@@ -828,18 +805,13 @@ class StackExecutionEngine(BaseExecutionEngine):
         Args:
             layer: The layer config to apply substitutions to
         """
-        # TEST
-        print("CHECK1")
-        print("  inputs:")
         resolved_inputs = list()
         for layer_input in layer.inputs:
             path = Path(layer_input)
             if not path.is_absolute():
                 resolved_inputs.append(str(path.resolve()))
-                print(f"    resolving {layer_input} >> {path.resolve()}")
             else:
                 resolved_inputs.append(str(path))
-                print(f"    not resolving {layer_input}")
         layer.inputs = resolved_inputs
 
         resolved_outputs = list()

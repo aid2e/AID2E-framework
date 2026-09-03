@@ -26,8 +26,7 @@ problem:
   epic_environment:
 
     # Option A: Use eic-shell script
-    #eic_shell: "/path/to/my/eic-shell"
-    eic_shell: "/home/dereka/.bin/eic-shell"
+    eic_shell: "/path/to/my/eic-shell"
 
     # Option B: Or use singularity image
     # singularity_image: "/path/to/my/eic_xl-nightly.sif"
@@ -162,8 +161,8 @@ optimizer:
     objective_thresholds:
       phi_resolution: 1.0
 
-    n_initial_samples: 1 # number of initialization trials
-    n_iterations: 1      # total number of trials to run
+    n_initial_samples: 2 # number of initialization trials
+    n_iterations: 5      # total number of trials to run
     batch_size: 1        # (optional) max number of trials to run in parallel
     seed: 999            # (optional) seed to use for random number generation
 
@@ -171,20 +170,10 @@ optimizer:
 # Global scheduler defaults (can be overridden at workflow/branch/stage level)
 # =============================================================================
 scheduler:
-  runner_type: "JobLibRunner"
+  runner_type: "JobLibRunner" # Or "SlurmRunner" for Slurm
   parameters:
     n_jobs: 4       # Use 4 parallel jobs by default
     backend: "loky" # Use process-based parallelism (default)
-    #account: "eic"
-    #partition: "ifarm"
-    #nodes: 1
-    #ntasks: 1
-    #cpus_per_task: 1
-    #mem: 4G
-    #time: "04:00:00"
-    #poll_interval: 10
-    #capture_stdout: true
-    #capture_stderr: true
 
 # SECTION 3: WORKFLOW EXECUTION
 # How to execute the optimization (stages, parallelism, etc.)
@@ -375,5 +364,5 @@ workflows:
                         entrypoint: "scripts.extract_objective:ExtractObjective"
                       extra_args:
                         key: "phi_resolution"
-                        file: "{{outputs[merge_rec_ana:merge_rec_ana_job:ana_reso](0)}}"
+                        file: "{{outputs[merge_rec_ana:merge_rec_ana_job:ana_reso](0)}}" # FIXME use artifacts instead
                       produces_objective: true

@@ -1,0 +1,69 @@
+# Minimal DTLZ2 + Ax + PanDA input for `aid2e optimize input-panda.yml`.
+#
+# This is intentionally canonical and callable-based. The PanDA runner currently
+# submits Python callable jobs through iDDS/PanDA and falls back to local
+# execution for command jobs, so this smoke avoids command jobs.
+
+problem:
+  name: "DTLZ2 CLI PanDA Smoke Test"
+  problem_type: "DTLZ2"
+  output_location: "/tmp"
+  work_location: "/tmp"
+  design_parameters_file: "examples/optimizers/dtlz2_design.params"
+  objectives:
+    - name: "f1"
+      direction: "minimize"
+    - name: "f2"
+      direction: "minimize"
+
+optimizer:
+  name: "ax"
+  type: "bayesian"
+  parameters:
+    initialization_strategy: "sobol"
+    generator: "BOTORCH_MODULAR"
+    n_initial_samples: 1
+    n_iterations: 4
+    batch_size: 2
+    seed: 7
+
+scheduler:
+  runner_type: "PanDAiDDSRunner"
+  parameters:
+    cloud: "US"
+    queue: "BNL_PanDA_1"
+    source_dir: "."
+    source_dir_parent_level: 1
+    exclude_source_files:
+      - "(^|/)\\..*"  # Hidden files
+      - ".*\\.log"
+      - ".*\\.json"
+      - "__pycache__"
+      - "work"
+      - "OUTDIR"
+    init_env_file: "panda-init-env.yml"
+    max_walltime: 1800
+    core_count: 1
+    total_memory: 4000
+  max_retries: 1
+  output_location: "./aid2e_panda_scheduler_output"
+  monitor_interval: 5
+
+workflows:
+  workflows:
+    - name: "dtlz2_panda_eval"
+      description: "Evaluate DTLZ2 objectives through a PanDA/iDDS Python callable workflow."
+      branches:
+        - name: "main"
+          stages:
+            - name: "evaluate"
+              parallelism:
+                max_concurrent: 1
+                retry_max: 0
+                timeout_sec: 300
+              jobs:
+                - name: "dtlz2"
+                  command: ""
+                  payload:
+                    evaluator_type: "python"
+                    python_callable: "examples.evaluators.dtlz2:evaluate_qualified_both_objectives"

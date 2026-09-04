@@ -423,9 +423,6 @@ class PanDAMultiStepJob:
         params.update(copy.deepcopy(step.get("params") or {}))
         params.update(copy.deepcopy(child.get("op_kwargs") or {}))
         params.update(copy.deepcopy(child.get("params") or {}))
-        params.setdefault("design_point", self.payload.get("design_point", {}))
-        params.setdefault("step_name", step["name"])
-        params.setdefault("child_key", child_key)
         if parent_results is not None:
             parent_key = step.get("parent_results_key") or step.get("parent_result_parameter_name")
             params[parent_key or "parent_results"] = parent_results

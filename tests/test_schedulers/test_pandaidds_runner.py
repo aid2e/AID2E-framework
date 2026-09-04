@@ -1607,8 +1607,8 @@ def test_panda_multistep_n_simreco_one_ana_then_local_final(monkeypatch, tmp_pat
     assert [child["step"] for child in child_metrics] == ["simreco", "simreco", "ana", "final"]
     assert [child["execution"] for child in child_metrics] == ["panda", "panda", "panda", "local"]
 
-def test_dtlz2_dataset_simreco_writes_expected_panda_output_files(tmp_path, monkeypatch):
-    from examples.evaluators.dtlz2 import panda_multistep_simreco
+def test_dtlz2_dataset_simreco_writes_message_output_file(tmp_path, monkeypatch):
+    from examples.evaluators.dtlz2_panda import panda_stage_simreco
 
     context = types.SimpleNamespace(
         design_point={
@@ -1621,7 +1621,7 @@ def test_dtlz2_dataset_simreco_writes_expected_panda_output_files(tmp_path, monk
     )
     monkeypatch.chdir(tmp_path)
 
-    result = panda_multistep_simreco(
+    result = panda_stage_simreco(
         context,
         particle="pi+",
         eta_point=0.1,
@@ -1632,7 +1632,36 @@ def test_dtlz2_dataset_simreco_writes_expected_panda_output_files(tmp_path, monk
     )
 
     assert result["particle"] == "pi+"
-    assert (tmp_path / "my_test.txt").is_file()
+    assert "simreco produced xyz=" in result["message"]
+    output_path = tmp_path / "my_test.txt"
+    assert output_path.is_file()
+
+    import json
+
+    data = json.loads(output_path.read_text())
+    assert data["xyz"] == result["xyz"]
+    assert data["message"] == result["message"]
+    assert data["particle"] == "pi+"
+    assert data["eta_point"] == 0.1
     assert not (tmp_path / "user.test.aid2e.dtlz2.simreco.eta_0p1_pi_000001.my_test.txt").exists()
     assert not (tmp_path / "user.test.aid2e.dtlz2.simreco.eta_0p1_pi_000002.my_test.txt").exists()
+
+
+def test_dtlz2_dataset_ana_reads_and_prints_simreco_messages(tmp_path, capsys):
+    from examples.evaluators.dtlz2_panda import panda_stage_ana
+
+    first = tmp_path / "first.json"
+    second = tmp_path / "second.json"
+    first.write_text('{"xyz": 1.25, "message": "first simreco message"}\n')
+    second.write_text('{"xyz": 2.75, "message": "second simreco message"}\n')
+
+    result = panda_stage_ana(
+        types.SimpleNamespace(design_point={}),
+        input_file_names=[str(first), str(second)],
+    )
+
+    captured = capsys.readouterr()
+    assert result == {"xyz": 4.0, "n_inputs": 2}
+    assert f"ana read from {first}: first simreco message" in captured.out
+    assert f"ana read from {second}: second simreco message" in captured.out
 

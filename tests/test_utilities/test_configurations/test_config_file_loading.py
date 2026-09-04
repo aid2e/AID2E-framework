@@ -660,14 +660,14 @@ def test_input_panda_multistep_config_loads_and_resolves_callables():
     assert job.payload["evaluator_type"] == "panda_multistep"
     steps = job.payload["steps"]
     assert steps[0]["name"] == "simreco"
-    assert steps[0]["python_callable"].__name__ == "panda_multistep_simreco"
+    assert steps[0]["python_callable"].__name__ == "panda_stage_simreco"
     assert steps[1]["name"] == "ana"
-    assert steps[1]["python_callable"].__name__ == "panda_multistep_ana"
+    assert steps[1]["python_callable"].__name__ == "panda_stage_ana"
     assert steps[1]["depends_on"] == "simreco"
     assert steps[1]["dep_type"] == "results"
     assert steps[1]["dep_map"] == "all2one"
     assert steps[2]["name"] == "final"
-    assert steps[2]["python_callable"].__name__ == "panda_multistep_final"
+    assert steps[2]["python_callable"].__name__ == "panda_stage_final"
     assert steps[2]["runner"] == "local"
     assert steps[2]["depends_on"] == "ana"
 
@@ -685,9 +685,9 @@ def test_input_panda_multistep_datasets_config_loads_and_resolves_callables():
 
     job = executor.workflow.branches[0].stages[0].jobs[0]
     steps = job.payload["steps"]
-    assert steps[0]["python_callable"].__name__ == "panda_multistep_simreco"
+    assert steps[0]["python_callable"].__name__ == "panda_stage_simreco"
     assert steps[0]["with_output_dataset"] is True
-    assert steps[1]["python_callable"].__name__ == "panda_multistep_ana"
+    assert steps[1]["python_callable"].__name__ == "panda_stage_ana"
     assert steps[1]["with_input_datasets"] is True
     assert steps[1]["depends_on"] == "simreco"
     assert steps[1]["dep_type"] == "datasets"

@@ -79,6 +79,7 @@ class Info:
         layer: most upstream layer with hits
         vector: 3D position/momentum of hit/particle
     """
+
     energy: float = -999.0
     angle: float = -999.0
     perp: float = -999.0
@@ -297,7 +298,7 @@ def CalculateHitAngReso(opts: Options = DEFAULT_OPTS) -> Dict[str, float]:
     metrics = {f"{opts.angle}_resolution" : fdiff.GetParameter(2)}
     js_out  = opts.ofile.replace(".root", ".json")
     with open(js_out, 'w') as o:
-       json.dump(metrics, o)
+       json.dump(metrics, o, ensure_ascii = False)
 
     # and return fit width as resolution
     return {f"{opts.angle}_resolution" : fdiff.GetParameter(2)}

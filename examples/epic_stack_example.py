@@ -41,8 +41,8 @@ from aid2e.utilities.workflows import (
 
 # constants
 CONST = {
-    "test_dir" : "epic_example_test",
-    "exec_dir" : "epic_example_exec",
+    "test_dir" : "test",
+    "exec_dir" : "work",
     "design"   : {
         "epic_design_space" : {
             "epic_design_parameters" : {
@@ -84,9 +84,9 @@ CONST = {
     },
     "enviro" : {
         "epic_environment" : {
-            "epic_install" : "epic_example_test/epic",
+            "epic_install" : "test/epic",
             "epic_config"  : "epic",
-            "eic_shell"    : "/home/dereka/.bin/eic-shell",
+            "eic_shell"    : "/path/to/my/eic-shell",
         },
     },
 }
@@ -199,20 +199,20 @@ def example_configure_layers():
     cfg_sim_A = EpicLayerConfig(
         name = "sim_bin0",
         layer = "sim",
-        inputs = ["inputs/central_photons_bin0.py"],
+        inputs = ["bic/inputs/central_photons_bin0.py"],
         outputs = ["{{execution_dir}}/central_photons_bin0.edm4hep.root"],
         command = "ddsim",
     )
     cfg_sim_B = EpicLayerConfig(
         name = "sim_bin1",
         layer = "sim",
-        inputs = ["inputs/central_photons_bin1.py"],
+        inputs = ["bic/inputs/central_photons_bin1.py"],
         outputs = ["{{execution_dir}}/central_photons_bin1.edm4hep.root"],
     )
     cfg_sim_C = EpicLayerConfig(
         name = "sim_bin2",
         layer = "sim",
-        inputs = ["inputs/central_photons_bin2.py"],
+        inputs = ["bic/inputs/central_photons_bin2.py"],
         outputs = ["{{execution_dir}}/central_photons_bin2.edm4hep.root"],
     )
     cfg_ana_A = EpicLayerConfig(
@@ -316,13 +316,13 @@ def example_generate_driver(layers: List[EpicLayerConfig], configs: Tuple[Proble
     context.xcom = {
 
         # simulation jobs
-        "sim_stage:sim_job_0:sim_bin0:inputs": ["inputs/central_photons_bin0.py"],
+        "sim_stage:sim_job_0:sim_bin0:inputs": ["bic/inputs/central_photons_bin0.py"],
         "sim_stage:sim_job_0:sim_bin0:outputs": [f"{CONST['test_dir']}/central_photons_bin0.edm4hep.root"],
         "sim_stage:sim_job_0:sim_bin0:arguments": [],
-        "sim_stage:sim_job_1:sim_bin1:inputs": ["inputs/central_photons_bin1.py"],
+        "sim_stage:sim_job_1:sim_bin1:inputs": ["bic/inputs/central_photons_bin1.py"],
         "sim_stage:sim_job_1:sim_bin1:outputs": [f"{CONST['test_dir']}/central_photons_bin1.edm4hep.root"],
         "sim_stage:sim_job_1:sim_bin1:arguments": [],
-        "sim_stage:sim_job_2:sim_bin2:inputs": ["inputs/central_photons_bin2.py"],
+        "sim_stage:sim_job_2:sim_bin2:inputs": ["bic/inputs/central_photons_bin2.py"],
         "sim_stage:sim_job_2:sim_bin2:outputs": [f"{CONST['test_dir']}/central_photons_bin2.edm4hep.root"],
         "sim_stage:sim_job_2:sim_bin2:arguments": [],
 

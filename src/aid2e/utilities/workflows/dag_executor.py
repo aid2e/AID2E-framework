@@ -28,11 +28,13 @@ Homepage: https://aid2e.github.io/aid2e-framework
 Repository: https://github.com/aid2e/AID2E-framework.git
 """
 
+from ast import literal_eval
 from typing import Dict, Any, List, Optional, Tuple
 from pathlib import Path
 import importlib
 import json
 import os
+import re
 import subprocess
 import sys
 from datetime import datetime
@@ -453,7 +455,6 @@ class DAGExecutor:
             f"Starting stage: {stage.name}",
             context={"stage_name": stage.name},
         )
-        
         # Create stage context
         stage_context = StageContext(
             stage_id=stage.name,
@@ -463,7 +464,6 @@ class DAGExecutor:
         
         # Expand jobs from job_factory (if provided)
         jobs = self._expand_jobs(stage)
-        
         self.logger.log_info(f"Stage {stage.name} has {len(jobs)} jobs to execute")
         
         if self.scheduler_config_resolver is not None:
@@ -535,7 +535,7 @@ class DAGExecutor:
         # Convert jobs to scheduler format
         job_definitions = []
         jobs_seen = []
-        for job in jobs:
+        for job_idx, job in enumerate(jobs):
             job_id = job.name
             n_seen = jobs_seen.count(job_id)
             jobs_seen.append(job_id)
@@ -544,11 +544,12 @@ class DAGExecutor:
                 job.name = job_id
             task_id = f"{stage.name}:{job_id}"
             execution_dir, output_dir = self._build_job_directories(stage.name, job_id)
-            
+
             # Create job context for this job
             job_context = JobContext(
                 task_id=task_id,
                 job_id=job_id,
+                job_index=n_seen if n_seen > 0 else job_idx,
                 stage_id=stage_context.stage_id,
                 workflow_id=self.workflow.name,
                 design_point=design_point,
@@ -566,7 +567,7 @@ class DAGExecutor:
                 job, job_id, job_context, scheduler_config
             )
             job_definitions.append(scheduler_job)
-        
+
         # Prepare parallelism policy from stage config
         parallelism_policy = {
             "max_concurrent": stage.parallelism.max_concurrent,
@@ -586,15 +587,20 @@ class DAGExecutor:
                 parallelism_policy=parallelism_policy,
                 working_dir=str(stage_working_dir),
             )
-            
+
             # Process results and update XCom
             self._process_scheduler_results(result, jobs, stage.name)
-            
+
+            with open(f"/w/eic-scshelf2104/users/dereka/aid2e/dev/ForBICInFW/AID2E-framework/examples/epic/{stage.name}.xcom", 'w') as xfile:
+                json.dump(job_context.xcom, xfile, indent=4)
+
             if not result.success:
                 raise RuntimeError(
                     f"Stage {stage.name} failed: {result.error_message}"
                 )
-                
+
+
+
         except Exception as e:
             self.logger.checkpoint(
                 "stage_scheduler_error",
@@ -701,14 +707,20 @@ class DAGExecutor:
             raise ValueError(
                 f"Job {job_id} specifies evaluator_type='stack' but is missing 'stack_type'"
             )
+
         layers = self._resolve_stack_layers(job, job_id)
         engine = StackExecutionEngine(
             engine_id=job_id,
             stack_type=stack_type,
             layers=layers,
         )
+
         for layer in engine.layers:
             engine._apply_template_substitution(layer, job_context)
+            engine._resolve_relative_paths(layer)
+            job_context.xcom_push(f'{layer.name}:inputs', layer.inputs)
+            job_context.xcom_push(f'{layer.name}:outputs', layer.outputs)
+            job_context.xcom_push(f'{layer.name}:arguments', layer.arguments)
 
         stack = engine.stack_class()
         preparations = stack.prepare_for_execution(context=job_context)
@@ -1296,6 +1308,7 @@ class DAGExecutor:
             node.node_id for layer in step_order.layers for node in layer
         ]:
             step = steps_by_name[step_name]
+            self._apply_xcom_substitutions(step, self.global_xcom)
             inputs = {
                 dep: step_results[dep]
                 for dep in step.depends_on
@@ -1326,6 +1339,57 @@ class DAGExecutor:
                 f"Objective plan {plan_name} did not produce step {final_step}"
             )
         return payload
+
+    def _apply_xcom_substitutions(self, step, xcom) -> None:
+        """Substitute xcom values to relevant fields in a step"""
+        # FIXME the template class in execution engines requires
+        # specifically a JobContext, and the rule_resolution module
+        # is specifically for resolving rules in the execution
+        # engines. This means neither can apply here.
+        #   - As a workaround, the xcom substitution logic from
+        #     the template class is reproduced here
+        #   - Long term, we need to make sure that (1) all
+        #     substitution logic is centralized and (2) all
+        #     steps across the entire execution chain have
+        #     access to the relevant info
+        substitutions = {
+            "{{xcom[key]}}":
+                (lambda text, xcom:
+                    re.sub(r"{{xcom\[(.*?)\]}}", lambda match: str(xcom[match.group(1)]), text)),
+            "{{xcom[key](acc)}}":
+                (lambda text, xcom:
+                    re.sub(r"{{xcom\[(.*?)\]\((.*?)\)}}",
+                           lambda match: str(xcom[match.group(1)][literal_eval(match.group(2))]),
+                           text)),
+            "{{inputs[key](acc)}}":
+                (lambda text, xcom:
+                    re.sub(r"{{inputs\[(.*?)\]\((.*?)\)}}",
+                           lambda match: str(xcom[match.group(1) + ':inputs'][literal_eval(match.group(2))]),
+                           text)),
+            "{{outputs[key](acc)}}":
+                (lambda text, xcom:
+                    re.sub(r"{{outputs\[(.*?)\]\((.*?)\)}}",
+                           lambda match: str(xcom[match.group(1) + ':outputs'][literal_eval(match.group(2))]),
+                           text)),
+            "{{arguments[key](acc)}}":
+                (lambda text, xcom:
+                    re.sub(r"{{arguments\[(.*?)\]\((.*?)\)}}",
+                    lambda match: str(xcom[match.group(1) + ':arguments'][literal_eval(match.group(2))]),
+                    text)),
+        }
+        def substitute(text) -> str:
+            result = text
+            for template, substitution in substitutions.items():
+                result = substitution(result, xcom)
+            return result
+
+        step.name = substitute(step.name)
+        for key, value in step.inputs.items():
+            step.inputs[key] = substitute(value)
+        for key, value in step.outputs.items():
+            step.outputs[key] = substitute(value)
+        for key, value in step.extra_args.items():
+            step.extra_args[key] = substitute(value)
 
     def _execute_inline_objective_step(
         self,

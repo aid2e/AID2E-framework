@@ -13,10 +13,10 @@
 # ============================================================================
 problem:
   name: "BIC Single-Objective Optimization"
-  problem_type: "EPIC_CALORIMETRY"
+  problem_type: "EPIC_BIC"
   description: "Single-objective optimization of the BIC for angular resolution"
-  output_location: "epic_example_test"
-  work_location: "epic_example_exec"
+  output_location: "./output"
+  work_location: "./work"
 
   # ePIC Environment Configuration
   # ==============================
@@ -38,6 +38,11 @@ problem:
     # Geometry configuration file to use (e.g. epic, epic_full)
     epic_config: "epic"
 
+    # Turn on/off recompilation of eometry after modifying it
+    # in a trial. Options:
+    #   "build" - 
+    geometry_mode: "build"
+
   # ===========================================================================
   # PARAMETERS: Define what we're optimizing
   # ===========================================================================
@@ -54,6 +59,7 @@ problem:
     epic_design_space:
       epic_design_parameters:
         bic:
+          #file_path: "$DETECTOR_PATH/compact/ecal/bic_default.xml"
           file_path: "compact/ecal/bic_default.xml"
           parameters:
 
@@ -110,33 +116,6 @@ problem:
     - name: "phi_resolution"
       direction: "minimize"
 
-      # Objective-level scheduler (applies to this objective's execution)
-      scheduler:
-        runner_type: "JobLibRunner"
-        parameters:
-          n_jobs: -1        # Use all available cores
-          backend: "threading"
-      
-      # Objective plan: HOW to compute eta_resolution
-      # TODO this is the function to extract the objectives
-      #   -- should retrieve value from an output file (e.g. maybe a json file)
-      #      generated during workflow below
-      # FIXME (DMA) the relationship between this and the workflows
-      # isn't clear to me. We might consider renaming this to be
-      # indicative of when to use plan vs. a workflow
-      objective_plan:
-        steps:
-          stages:
-            - name: "evaluate_phi_resolution"
-              script:
-                path: "scripts/test.py"
-                output_file: "photon_phi_resolution.json"
-                timeout_sec: 60  # should take no more than 1 min to extract
-              produces_objective: true
-      
-      # Metrics to extract from the objective plan output
-      metrics_keys: ["phi_resolution"]
-
 # SECTION 1: OPTIMIZER DEFINITION
 # How to optimize the defined problem
 # =============================================================================
@@ -165,15 +144,15 @@ optimizer:
 
     # Options for Modular BoTorch generator
     generator_kwargs:
-      botorch_acqf_class: "qLogNoisyExpectedHypervolumeImprovement"
+      botorch_acqf_class: "qLogNoisyExpectedImprovement"
       acquisition_options:
         prune_baseline: true
 
-    # Generarl generation strategy options
+    # General generation strategy options
     generator_gen_kwargs:
       model_gen_options:
         optimizer_kwargs:
-          sequential: false
+          #sequential: false
           num_restarts: 10
 
     # Minimum (or maximum) value of computed objectives to consider design
@@ -182,10 +161,10 @@ optimizer:
     objective_thresholds:
       phi_resolution: 1.0
 
-    n_initial_samples: 1 # number of initialization trials
-    n_iterations: 2      # total number of trials to run
+    n_initial_samples: 2 # number of initialization trials
+    n_iterations: 5      # total number of trials to run
     batch_size: 1        # (optional) max number of trials to run in parallel
-    seed: 42             # (optional) seed to use for random number generation
+    seed: 999            # (optional) seed to use for random number generation
 
 # SECTION 2: SCHEDULER CONFIGURATION
 # Global scheduler defaults (can be overridden at workflow/branch/stage level)
@@ -195,6 +174,22 @@ scheduler:
   parameters:
     n_jobs: 4       # Use 4 parallel jobs by default
     backend: "loky" # Use process-based parallelism (default)
+
+  # If you were to use Slurm, the configuration
+  # would look like:
+  #runner_type: "SlurmRunner"
+  #parameters:
+  #  account: "<account>"
+  #  partition: "<partition>"
+  #  nodes: 1
+  #  ntasks: 1
+  #  cpus_per_task: 1
+  #  mem: 4G
+  #  time: "04:00:00"
+  #  poll_interval: 10
+  #  capture_stdout: true
+  #  capture_stderr: true
+  #  runtime_working_dir: "/path/to/this/directory" 
 
 # SECTION 3: WORKFLOW EXECUTION
 # How to execute the optimization (stages, parallelism, etc.)
@@ -273,7 +268,7 @@ workflows:
                       inputs:
                         - "{{geometry_dir}}/install/share/epic/epic.xml"
                       outputs:
-                        - "{{execution_dir}}/geo.overlaps.txt"
+                        - "{{output_dir}}/geo.overlaps.txt"
 
             # Stage 2: run Geant4 simulations
             # =================================================================
@@ -291,9 +286,9 @@ workflows:
                     - name: "sim"
                       layer: "sim"
                       inputs:
-                        - "inputs/central_photons_bin{{job_id}}.py" # FIXME job ID might not be what we want here...
+                        - "inputs/central_photons_bin{{job_index}}.py"
                       outputs:
-                        - "{{execution_dir}}/central_photons_bin{{job_id}}.edm4hep.root"
+                        - "{{output_dir}}/central_photons_bin{{job_index}}.edm4hep.root"
 
               # Now we're going to create 3 copies of the job with job IDs
               # 0, 1, 2. These correspond to the 3 kinematic points to run,
@@ -345,7 +340,7 @@ workflows:
                         - "{{outputs[sim:sim_job_1:sim](0)}}"
                         - "{{outputs[sim:sim_job_2:sim](0)}}"
                       outputs:
-                        - "{{execution_dir}}/central_photons.edm4hep.root"
+                        - "{{output_dir}}/central_photons.edm4hep.root"
                       command: "hadd"
                       rule: "{{command}} -f {{outputs}} {{inputs}}"
 
@@ -356,7 +351,7 @@ workflows:
                       inputs:
                         - "{{outputs[merge_rec_ana:merge_rec_ana_job:ana_merge](0)}}"
                       outputs:
-                        - "{{execution_dir}}/central_photons.edm4eic.root"
+                        - "{{output_dir}}/central_photons.edm4eic.root"
                       arguments:
                         - "-Pnthreads=8"
                         - "-Peicrecon:LogLevel=debug"
@@ -366,9 +361,24 @@ workflows:
                       inputs:
                         - "{{outputs[merge_rec_ana:merge_rec_ana_job:rec](0)}}"
                       outputs:
-                        - "{{execution_dir}}/central_photons.hist.root"
+                        - "{{output_dir}}/central_photons.hist.root"
                       arguments:
                         - "-c phi"
                         - "-s 22"
-                      command: "scripts/bic_angular_reso.py"
+                      command: "{{workflow[config_dir]}}/scripts/bic_angular_reso.py"
                       rule: "python {{command}} -i {{inputs}} -o {{outputs}} {{arguments}}"
+
+            # Stage 4: Extract objective from output of merge_rec_ana stage
+            # ==================================================================
+            - name: "extract_objectives"
+              description: "Extract objectives from output"
+              objective_plan:
+                steps:
+                  stages:
+                    - name: "extract"
+                      inline:
+                        entrypoint: "scripts.extract_objective:ExtractObjective"
+                      extra_args:
+                        key: "phi_resolution"
+                        file: "{{outputs[merge_rec_ana:merge_rec_ana_job:ana_reso](0)}}" # FIXME use artifacts instead
+                      produces_objective: true

@@ -16,7 +16,13 @@ import json
 import re
 import time as _time
 
-from aid2e.schedulers.PanDAiDDS.multistep import _work_internal_id
+
+def _work_internal_id(work: Any) -> Optional[str]:
+    for attr in ("internal_id", "internalId", "_internal_id"):
+        value = getattr(work, attr, None)
+        if value is not None:
+            return str(value)
+    return None
 
 
 @dataclass

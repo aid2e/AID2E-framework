@@ -60,6 +60,10 @@ def panda_local_final_from_ana(context=None, **kwargs):
     return {"objective": ana_result.get("total", ana_result.get("analyzed")) + 1}
 
 
+def panda_strict_local_stage(context=None):
+    return {"objective": 1}
+
+
 class DummyContext:
     def __init__(self):
         self.pushed = {}
@@ -580,6 +584,38 @@ def test_panda_multistage_spec_rejects_unknown_dependency_map():
         )
 
 
+def test_panda_multistage_does_not_inject_implicit_stage_kwargs(tmp_path):
+    scheduler = PanDAiDDSScheduler(
+        PanDAiDDSRunnerConfig(name="user.test.panda", source_dir=str(tmp_path))
+    )
+
+    result = scheduler.run_stage(
+        "evaluate",
+        [
+            {
+                "job_id": "logical:strict",
+                "name": "strict_stage_job",
+                "payload": {
+                    "evaluator_type": "panda_multistage",
+                    "stages": [
+                        {
+                            "name": "final",
+                            "python_callable": panda_strict_local_stage,
+                            "runner": "local",
+                            "produces_objective": True,
+                        }
+                    ],
+                },
+            }
+        ],
+        parallelism_policy={"poll_interval": 0},
+        working_dir=str(tmp_path),
+    )
+
+    assert result.success is True
+    assert result.job_statuses[0].outputs == {"objectives": {"objective": 1}}
+
+
 def test_panda_multistage_dataset_dependency_is_managed_by_panda(monkeypatch, tmp_path):
     state = install_fake_idds(
         monkeypatch,
@@ -710,10 +746,8 @@ def test_panda_multistage_one2many_local_to_remote(monkeypatch, tmp_path):
 
     assert result.success is True
     assert len(state["work_kwargs_history"]) == 2
-    assert state["work_params_history"][0]["op_kwargs"]["prepared_result"] == {"prepared": 5}
-    assert state["work_params_history"][1]["op_kwargs"]["prepared_result"] == {"prepared": 5}
-    assert state["work_params_history"][0]["op_kwargs"]["instance_key"] == "a"
-    assert state["work_params_history"][1]["op_kwargs"]["instance_key"] == "b"
+    assert state["work_params_history"][0]["op_kwargs"] == {"value": 1, "prepared_result": {"prepared": 5}}
+    assert state["work_params_history"][1]["op_kwargs"] == {"value": 2, "prepared_result": {"prepared": 5}}
     metrics = result.job_statuses[0].metrics["panda_multistage_stages"]
     assert [item["execution"] for item in metrics] == ["local", "panda", "panda"]
 

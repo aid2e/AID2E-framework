@@ -391,9 +391,6 @@ class PanDAMultiStageJob:
         params.update(copy.deepcopy(stage.get("params") or {}))
         params.update(copy.deepcopy(instance.get("op_kwargs") or {}))
         params.update(copy.deepcopy(instance.get("params") or {}))
-        params.setdefault("design_point", self.payload.get("design_point", {}))
-        params.setdefault("stage_name", stage["name"])
-        params.setdefault("instance_key", instance_key)
         if parent_results is not None:
             parent_key = stage.get("parent_results_key") or stage.get("parent_result_parameter_name")
             params[parent_key or "parent_results"] = parent_results

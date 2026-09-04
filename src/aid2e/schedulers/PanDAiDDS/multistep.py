@@ -313,7 +313,7 @@ class PanDAMultiStepJob:
                 "input_datasets",
             ):
                 if key in source:
-                    payload[key] = self._resolve_dataset_template(source[key], child_key)
+                    payload[key] = self._resolve_dataset_template(source[key], child_key, step["name"])
         if parent_internal_id is not None:
             payload["parent_internal_id"] = parent_internal_id
         return payload
@@ -332,30 +332,59 @@ class PanDAMultiStepJob:
             if key in dataset_payload and key not in params:
                 params[key] = dataset_payload[key]
 
-    def _resolve_dataset_template(self, value: Any, child_key: str) -> Any:
+    def _resolve_dataset_template(self, value: Any, child_key: str, step_name: str) -> Any:
         if isinstance(value, str):
-            safe_child_key = self._rucio_safe_token(child_key)
-            panda_scope = self._panda_user_scope()
-            panda_username = panda_scope.split(".", 1)[1] if panda_scope.startswith("user.") else panda_scope
-            evaluation_id = self._evaluation_id()
+            tokens = self._dataset_template_tokens(child_key, step_name)
+            resolved = value
+            for token, replacement in tokens.items():
+                resolved = resolved.replace(f"{{{token}}}", replacement)
+
+            # Backward-compatible placeholders used by early PanDA smoke configs.
             return (
-                value.replace("#job_id", safe_child_key)
-                .replace("{child_key}", safe_child_key)
-                .replace("#evaluation_id", evaluation_id)
-                .replace("{evaluation_id}", evaluation_id)
-                .replace("#panda_scope", panda_scope)
-                .replace("{panda_scope}", panda_scope)
-                .replace("#panda_username", panda_username)
-                .replace("{panda_username}", panda_username)
+                resolved.replace("#job_id", tokens["child_key"])
+                .replace("#evaluation_id", tokens["evaluation_id"])
+                .replace("#panda_scope", tokens["panda_scope"])
+                .replace("#panda_username", tokens["panda_username"])
             )
         if isinstance(value, dict):
             return {
-                key: self._resolve_dataset_template(item, child_key)
+                key: self._resolve_dataset_template(item, child_key, step_name)
                 for key, item in value.items()
             }
         if isinstance(value, list):
-            return [self._resolve_dataset_template(item, child_key) for item in value]
+            return [self._resolve_dataset_template(item, child_key, step_name) for item in value]
         return value
+
+    def _dataset_template_tokens(self, child_key: str, step_name: str) -> Dict[str, str]:
+        context = self.job_definition.get("job_context")
+        panda_scope = self._panda_user_scope()
+        panda_username = panda_scope.split(".", 1)[1] if panda_scope.startswith("user.") else panda_scope
+        workflow_id = (
+            getattr(context, "workflow_id", None)
+            or getattr(self.scheduler, "workflow_id", None)
+            or "pandaidds"
+        )
+        stage_id = getattr(context, "stage_id", None) or self.stage_name
+        trial_index = (
+            self.payload.get("trial_index")
+            or getattr(context, "trial_index", None)
+            or self.payload.get("design_point", {}).get("trial_index")
+            or self.payload.get("design_point", {}).get("trial_id")
+            or "trial"
+        )
+        evaluation_id = self._evaluation_id()
+        return {
+            "submission_id": self._rucio_safe_token(getattr(self.scheduler, "submission_id", "submission")),
+            "workflow_id": self._rucio_safe_token(workflow_id),
+            "stage_id": self._rucio_safe_token(stage_id),
+            "job_id": self._rucio_safe_token(self.logical_job_id),
+            "step_name": self._rucio_safe_token(step_name),
+            "child_key": self._rucio_safe_token(child_key),
+            "trial_index": self._rucio_safe_token(trial_index),
+            "evaluation_id": evaluation_id,
+            "panda_scope": panda_scope,
+            "panda_username": panda_username,
+        }
 
     def _evaluation_id(self) -> str:
         context = self.job_definition.get("job_context")

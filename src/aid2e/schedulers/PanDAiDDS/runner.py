@@ -22,6 +22,8 @@ import datetime
 import importlib
 import hashlib
 import re
+from pathlib import Path
+from types import SimpleNamespace
 from typing import Dict, Any, List, Optional, Tuple
 
 import threading
@@ -55,6 +57,15 @@ def _resolve_callable_reference(callable_ref: str) -> Any:
 	for attr in qualname.split("."):
 		target = getattr(target, attr)
 	return target
+
+
+class _TrialGraphContext(SimpleNamespace):
+	"""Minimal context used by PanDA trial graph bridge final/local stages."""
+
+	def xcom_push(self, key: str, value: Any) -> None:
+		if not hasattr(self, "xcom") or self.xcom is None:
+			self.xcom = {}
+		self.xcom[key] = value
 
 
 def _remote_python_callable_entrypoint(
@@ -148,6 +159,30 @@ class PanDAiDDSScheduler(BaseScheduler):
 			job_def.setdefault("job_id", job_id)
 			job_id_to_job_def[job_id] = job_def
 
+			trial_graph_job = self._try_build_trial_multistage_graph_job(job_def)
+			if trial_graph_job is not None:
+				try:
+					self.logger.info("Running optimizer trial %s as a PanDA multi-stage graph", job_id)
+					multistage_result = self._run_multistage_graph_job(
+						stage_name,
+						trial_graph_job,
+						working_dir,
+						poll_interval,
+					)
+					local_job_results[job_id] = multistage_result
+					self.completed_jobs[job_id] = multistage_result
+				except Exception as exc:
+					self.logger.exception("Failed to run optimizer trial graph %s: %s", job_id, exc)
+					local_job_results[job_id] = {
+						"status": "failed",
+						"return_code": -1,
+						"stdout": "",
+						"stderr": str(exc),
+						"outputs": {},
+					}
+					all_success = False
+				continue
+
 			if self._is_panda_multistep_job(job_def):
 				try:
 					self.logger.info("Running multi-step function job %s via iDDS/PanDA", job_id)
@@ -161,6 +196,52 @@ class PanDAiDDSScheduler(BaseScheduler):
 					self.completed_jobs[job_id] = multistep_result
 				except Exception as exc:
 					self.logger.exception("Failed to run multi-step function job %s: %s", job_id, exc)
+					local_job_results[job_id] = {
+						"status": "failed",
+						"return_code": -1,
+						"stdout": "",
+						"stderr": str(exc),
+						"outputs": {},
+					}
+					all_success = False
+				continue
+
+			if self._is_panda_multistage_job(job_def):
+				try:
+					self.logger.info("Running multi-stage function job %s via iDDS/PanDA", job_id)
+					multistage_result = self._run_multistage_job(
+						stage_name,
+						job_def,
+						working_dir,
+						poll_interval,
+					)
+					local_job_results[job_id] = multistage_result
+					self.completed_jobs[job_id] = multistage_result
+				except Exception as exc:
+					self.logger.exception("Failed to run multi-stage function job %s: %s", job_id, exc)
+					local_job_results[job_id] = {
+						"status": "failed",
+						"return_code": -1,
+						"stdout": "",
+						"stderr": str(exc),
+						"outputs": {},
+					}
+					all_success = False
+				continue
+
+			if self._is_panda_multistage_graph_job(job_def):
+				try:
+					self.logger.info("Building and running multi-stage graph job %s via iDDS/PanDA", job_id)
+					multistage_result = self._run_multistage_graph_job(
+						stage_name,
+						job_def,
+						working_dir,
+						poll_interval,
+					)
+					local_job_results[job_id] = multistage_result
+					self.completed_jobs[job_id] = multistage_result
+				except Exception as exc:
+					self.logger.exception("Failed to run multi-stage graph job %s: %s", job_id, exc)
 					local_job_results[job_id] = {
 						"status": "failed",
 						"return_code": -1,
@@ -664,9 +745,130 @@ class PanDAiDDSScheduler(BaseScheduler):
 			"internal_id": getattr(work, "internal_id", None),
 		}
 
+	def _try_build_trial_multistage_graph_job(self, job_definition: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+		"""Build a PanDA graph job for optimizer trial wrappers when possible.
+
+		The generic optimizer submits each trial as a callable ``run_trial_workflow``
+		job. For PanDA/iDDS multi-stage workflows, submitting that wrapper as a
+		remote PanDA job would hide the sim/reco -> ana graph inside another job.
+		When the referenced workflow carries PanDA stage dependency metadata, build
+		the graph in this scheduler layer and submit the graph works directly.
+		"""
+		if not self._is_trial_workflow_wrapper(job_definition):
+			return None
+
+		params = dict(job_definition.get("params") or {})
+		config_path = params.get("config_path")
+		trial_index = params.get("trial_index")
+		design_point = dict(params.get("design_point") or {})
+		if config_path is None or trial_index is None:
+			return None
+
+		from aid2e.utilities.configurations import load_config
+		from aid2e.utilities.runtime_builders import select_workflow
+
+		config_path_obj = Path(str(config_path)).resolve()
+		config = load_config(str(config_path_obj))
+		workflow = select_workflow(
+			config.workflows,
+			workflow_name=params.get("workflow_name"),
+		).model_copy(deep=True)
+		if not workflow.branches:
+			return None
+		if len(workflow.branches) != 1:
+			raise ValueError("panda multistage optimizer trial graph currently supports one workflow branch")
+
+		trial_name = f"trial_{trial_index}"
+		run_dir = Path(str(params.get("run_dir") or config.problem.output_location)).resolve()
+		run_work_dir = Path(str(params.get("run_work_dir") or config.problem.work_location)).resolve()
+		trial_payload = {
+			"trial_index": trial_index,
+			"output_dir": str(run_dir / "trials" / trial_name),
+			"config_path": str(config_path_obj),
+		}
+		stage_records = [
+			self._stage_record_for_trial_graph(stage, trial_payload)
+			for stage in workflow.branches[0].stages
+			if stage.jobs
+		]
+		if not self._is_panda_multistage_stage_records(stage_records):
+			return None
+
+		context = _TrialGraphContext(
+			task_id=job_definition.get("job_id") or trial_name,
+			job_id=job_definition.get("job_id") or str(trial_index),
+			stage_id=workflow.branches[0].name,
+			workflow_id=f"{workflow.name}_{trial_name}",
+			design_point=design_point,
+			xcom={},
+			artifacts={},
+			logs=[],
+			execution_dir=str(run_work_dir / "trials" / trial_name),
+			output_dir=str(run_dir / "trials" / trial_name),
+		)
+		return {
+			"job_id": job_definition.get("job_id") or str(trial_index),
+			"name": job_definition.get("name") or trial_name,
+			"payload": {
+				"evaluator_type": "panda_multistage_graph",
+				"stage_records": stage_records,
+				"trial_index": trial_index,
+				"design_point": design_point,
+			},
+			"job_context": context,
+		}
+
+	def _is_trial_workflow_wrapper(self, job_definition: Dict[str, Any]) -> bool:
+		func = job_definition.get("function")
+		return getattr(func, "__name__", None) == "run_trial_workflow"
+
+	def _stage_record_for_trial_graph(self, stage: Any, trial_payload: Dict[str, Any]) -> Dict[str, Any]:
+		record: Dict[str, Any] = {"name": stage.name}
+		stage_scheduler = getattr(stage, "scheduler", None)
+		if getattr(stage_scheduler, "runner_type", None) == "JobLibRunner":
+			record["runner"] = "joblib"
+
+		jobs = []
+		for job in stage.jobs:
+			payload = {**dict(job.payload or {}), **trial_payload}
+			jobs.append({
+				"name": job.name,
+				"payload": payload,
+			})
+		record["jobs"] = jobs
+		return record
+
+	def _is_panda_multistage_stage_records(self, stage_records: List[Dict[str, Any]]) -> bool:
+		graph_keys = {
+			"panda_stage",
+			"panda_job_map",
+			"depends_on",
+			"dep_map",
+			"with_input_datasets",
+			"with_output_dataset",
+			"input_datasets",
+			"output_dataset",
+		}
+		for stage in stage_records:
+			for job in stage.get("jobs", []):
+				payload = job.get("payload") or {}
+				if payload.get("evaluator_type") == "panda_multistage_graph":
+					return True
+				if graph_keys & set(payload):
+					return True
+		return False
+
 	def _is_panda_multistep_job(self, job_definition: Dict[str, Any]) -> bool:
 		payload = job_definition.get("payload") or {}
 		return payload.get("evaluator_type") == "panda_multistep"
+
+	def _is_panda_multistage_job(self, job_definition: Dict[str, Any]) -> bool:
+		payload = job_definition.get("payload") or {}
+		return payload.get("evaluator_type") == "panda_multistage"
+
+	def _is_panda_multistage_graph_job(self, job_definition: Dict[str, Any]) -> bool:
+		payload = job_definition.get("payload") or {}
+		return payload.get("evaluator_type") == "panda_multistage_graph"
 
 	def _run_multistep_job(
 		self,
@@ -685,6 +887,36 @@ class PanDAiDDSScheduler(BaseScheduler):
 			poll_interval=poll_interval,
 		)
 		return job.run()
+
+	def _run_multistage_job(
+		self,
+		stage_name: str,
+		job_definition: Dict[str, Any],
+		working_dir: Optional[str],
+		poll_interval: float,
+	) -> Dict[str, Any]:
+		from aid2e.schedulers.PanDAiDDS.multistage import PanDAMultiStageJob
+
+		job = PanDAMultiStageJob(
+			scheduler=self,
+			stage_name=stage_name,
+			job_definition=job_definition,
+			working_dir=working_dir,
+			poll_interval=poll_interval,
+		)
+		return job.run()
+
+	def _run_multistage_graph_job(
+		self,
+		stage_name: str,
+		job_definition: Dict[str, Any],
+		working_dir: Optional[str],
+		poll_interval: float,
+	) -> Dict[str, Any]:
+		from aid2e.schedulers.PanDAiDDS.multistage_graph import PanDAMultiStageGraphBuilder
+
+		graph_job = PanDAMultiStageGraphBuilder().build_scheduler_job(job_definition)
+		return self._run_multistage_job(stage_name, graph_job, working_dir, poll_interval)
 
 	def submit_job(self, stage_name: str, job_definition: Dict[str, Any], working_dir: Optional[str] = None) -> None:
 		"""Submit a single function-based job to iDDS/PanDA.

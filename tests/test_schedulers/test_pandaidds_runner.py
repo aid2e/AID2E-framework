@@ -3,7 +3,13 @@
 import sys
 import types
 
+import pytest
+
 from aid2e.schedulers.PanDAiDDS.config import PanDAiDDSRunnerConfig
+from aid2e.schedulers.PanDAiDDS.multistage_graph import PanDAMultiStageGraphBuilder
+from aid2e.schedulers.PanDAiDDS.multistage import PanDAMultiStageJob, PanDAMultiStageSpec
+from aid2e.schedulers.PanDAiDDS.multistep import PanDAMultiStepFunctionSpec
+from aid2e.utilities.runtime_builders import run_trial_workflow
 from aid2e.schedulers.PanDAiDDS.runner import (
     PanDAiDDSScheduler,
     _remote_python_callable_entrypoint,
@@ -72,7 +78,12 @@ def install_fake_idds(
     details_sequence=None,
     status_sequence=None,
 ):
-    state = {"work_kwargs_history": [], "work_params_history": [], "result_lookup_history": []}
+    state = {
+        "work_kwargs_history": [],
+        "work_params_history": [],
+        "result_lookup_history": [],
+        "work_history": [],
+    }
     result = {"f1": 1.2, "f2": 0.4} if result is None else result
     details = {"attempt": 1} if details is None else details
 
@@ -171,6 +182,7 @@ def install_fake_idds(
             state["work_params_history"].append(params)
             work = FakeWork(kwargs["name"], index)
             state["work"] = work
+            state["work_history"].append(work)
             return work
 
         return builder
@@ -356,6 +368,157 @@ def test_cancel_job_finds_preserved_job_id(tmp_path):
     assert work.cancelled is True
 
 
+@pytest.mark.parametrize(
+    ("payload", "message"),
+    [
+        ({}, "non-empty 'steps' list"),
+        ({"steps": []}, "non-empty 'steps' list"),
+        ({"steps": ["prepare"]}, "must be a mapping"),
+        ({"steps": [{"python_callable": panda_prepare_evaluator}]}, "missing 'name'"),
+        (
+            {
+                "steps": [
+                    {"name": "prepare", "python_callable": panda_prepare_evaluator},
+                    {"name": "prepare", "python_callable": panda_prepare_evaluator},
+                ]
+            },
+            "Duplicate panda_multistep step name",
+        ),
+        ({"steps": [{"name": "prepare"}]}, "missing 'python_callable'"),
+        (
+            {
+                "steps": [
+                    {"name": "prepare", "python_callable": panda_prepare_evaluator},
+                    {
+                        "name": "evaluate",
+                        "python_callable": panda_evaluate_from_parent,
+                        "depends_on": ["missing"],
+                    },
+                ]
+            },
+            "depends on unknown step",
+        ),
+        (
+            {
+                "steps": [
+                    {
+                        "name": "prepare",
+                        "python_callable": panda_prepare_evaluator,
+                        "dep_type": "files",
+                    }
+                ]
+            },
+            "expected 'results' or 'datasets'",
+        ),
+        (
+            {
+                "steps": [
+                    {
+                        "name": "prepare",
+                        "python_callable": panda_prepare_evaluator,
+                        "dep_map": "many2one",
+                    }
+                ]
+            },
+            "expected 'one2one' or 'all2one'",
+        ),
+        (
+            {
+                "steps": [
+                    {"name": "prepare", "python_callable": panda_prepare_evaluator},
+                    {
+                        "name": "evaluate",
+                        "python_callable": panda_evaluate_from_parent,
+                        "depends_on": ["prepare"],
+                        "dep_type": "datasets",
+                        "dep_map": "all2one",
+                    },
+                ]
+            },
+            "only dep_map='one2one' is supported",
+        ),
+        (
+            {
+                "final": "missing",
+                "steps": [{"name": "prepare", "python_callable": panda_prepare_evaluator}],
+            },
+            "final step 'missing' is not defined",
+        ),
+        (
+            {
+                "steps": [
+                    {
+                        "name": "prepare",
+                        "python_callable": panda_prepare_evaluator,
+                        "produces_objective": True,
+                    },
+                    {
+                        "name": "evaluate",
+                        "python_callable": panda_evaluate_from_parent,
+                        "final": True,
+                    },
+                ]
+            },
+            "exactly one final objective-producing step",
+        ),
+    ],
+)
+def test_panda_multistep_spec_rejects_malformed_payloads(payload, message):
+    with pytest.raises(ValueError, match=message):
+        PanDAMultiStepFunctionSpec.from_payload(payload)
+
+
+def test_panda_multistep_failure_cancels_running_children(monkeypatch, tmp_path):
+    state = install_fake_idds(
+        monkeypatch,
+        status_sequence=["running", "failed"],
+        result_sequence=[{"value": 1}, {"value": 2}],
+    )
+    scheduler = PanDAiDDSScheduler(
+        PanDAiDDSRunnerConfig(name="user.test.panda", source_dir=str(tmp_path))
+    )
+
+    result = scheduler.run_stage(
+        "evaluate",
+        [
+            {
+                "job_id": "logical:cancel",
+                "name": "cancel_multistep",
+                "payload": {
+                    "evaluator_type": "panda_multistep",
+                    "steps": [
+                        {
+                            "name": "simreco",
+                            "python_callable": panda_chunk_evaluator,
+                            "children": [
+                                {"key": "running", "op_kwargs": {"value": 1}},
+                                {"key": "failed", "op_kwargs": {"value": 2}},
+                            ],
+                        },
+                        {
+                            "name": "final",
+                            "python_callable": panda_analyze_chunks,
+                            "depends_on": "simreco",
+                            "dep_type": "results",
+                            "dep_map": "all2one",
+                            "produces_objective": True,
+                        },
+                    ],
+                },
+            }
+        ],
+        parallelism_policy={"poll_interval": 0},
+        working_dir=str(tmp_path),
+    )
+
+    assert result.success is False
+    assert len(state["work_history"]) == 2
+    assert state["work_history"][0].cancelled is True
+    assert state["work_history"][1].cancelled is False
+    child_metrics = result.job_statuses[0].metrics["panda_multistep_children"]
+    assert [child["status"] for child in child_metrics] == ["cancelled", "failed"]
+
+
 def test_remote_python_callable_entrypoint_runs_only_configured_callable():
     result = _remote_python_callable_entrypoint(
         "tests.test_schedulers.test_pandaidds_runner:panda_adapter_test_evaluator",
@@ -398,6 +561,640 @@ def test_remote_python_callable_entrypoint_accepts_idds_injected_kwargs():
     assert result["input_file_names"] == ["a.json", "b.json"]
 
 
+
+
+
+
+def test_panda_multistage_spec_rejects_unknown_dependency_map():
+    with pytest.raises(ValueError, match="expected 'one2one'"):
+        PanDAMultiStageSpec.from_payload(
+            {
+                "stages": [
+                    {
+                        "name": "simreco",
+                        "python_callable": panda_prepare_evaluator,
+                        "dep_map": "scatter",
+                    }
+                ]
+            }
+        )
+
+
+def test_panda_multistage_dataset_dependency_is_managed_by_panda(monkeypatch, tmp_path):
+    state = install_fake_idds(
+        monkeypatch,
+        result_sequence=[{"simreco": "done"}, {"f1": 3, "f2": 4}],
+        details_sequence=[{"stage": "simreco"}, {"stage": "ana"}],
+    )
+    context = DummyContext()
+    scheduler = PanDAiDDSScheduler(
+        PanDAiDDSRunnerConfig(name="user.test.panda", source_dir=str(tmp_path))
+    )
+
+    result = scheduler.run_stage(
+        "evaluate",
+        [
+            {
+                "job_id": "logical:multistage",
+                "name": "dataset_stage_job",
+                "payload": {
+                    "evaluator_type": "panda_multistage",
+                    "stages": [
+                        {
+                            "name": "simreco",
+                            "python_callable": panda_prepare_evaluator,
+                            "with_output_dataset": True,
+                            "output_file": "my_test.txt",
+                            "output_dataset": "user.test.simreco.dataset",
+                            "num_events": 200,
+                            "num_events_per_job": 100,
+                        },
+                        {
+                            "name": "ana",
+                            "python_callable": panda_test_evaluator,
+                            "depends_on": "simreco",
+                            "dep_type": "datasets",
+                            "dep_map": "one2one",
+                            "with_input_datasets": True,
+                            "input_datasets": {
+                                "input_file_names": "user.test.simreco.dataset"
+                            },
+                            "produces_objective": True,
+                        },
+                    ],
+                },
+                "job_context": context,
+            }
+        ],
+        parallelism_policy={"poll_interval": 0},
+        working_dir=str(tmp_path),
+    )
+
+    assert result.success is True
+    assert result.artifacts == {"objectives": {"f1": 3, "f2": 4}}
+    assert result.job_statuses[0].outputs == {"objectives": {"f1": 3, "f2": 4}}
+    assert context.pushed["objectives"] == {"f1": 3, "f2": 4}
+    assert context.pushed["results_details"] == {"stage": "ana"}
+
+    simreco_kwargs = state["work_kwargs_history"][0]
+    ana_kwargs = state["work_kwargs_history"][1]
+    assert simreco_kwargs["output_file_name"] == "my_test.txt"
+    assert simreco_kwargs["output_dataset_name"] == "user.test.simreco.dataset/"
+    assert simreco_kwargs["num_events"] == 200
+    assert simreco_kwargs["num_events_per_job"] == 100
+    assert ana_kwargs["input_datasets"] == {
+        "input_file_names": "user.test.simreco.dataset"
+    }
+    assert ana_kwargs["parent_internal_id"] == "internal-1"
+    assert [kwargs["name"] for kwargs in state["work_kwargs_history"]] == [
+        state["work_kwargs_history"][0]["job_key"],
+        state["work_kwargs_history"][1]["job_key"],
+    ]
+    assert state["result_lookup_history"][-1] == {
+        "name": state["work_kwargs_history"][1]["name"],
+        "key": state["work_kwargs_history"][1]["job_key"],
+        "verbose": True,
+        "with_details": True,
+    }
+
+    metrics = result.job_statuses[0].metrics["panda_multistage_stages"]
+    assert [item["stage"] for item in metrics] == ["simreco", "ana"]
+    assert [item["internal_id"] for item in metrics] == ["internal-1", "internal-2"]
+
+
+def test_panda_multistage_one2many_local_to_remote(monkeypatch, tmp_path):
+    state = install_fake_idds(
+        monkeypatch,
+        result_sequence=[{"child": "a", "f1": 1}, {"child": "b", "f1": 2}],
+    )
+    scheduler = PanDAiDDSScheduler(
+        PanDAiDDSRunnerConfig(name="user.test.panda", source_dir=str(tmp_path))
+    )
+
+    result = scheduler.run_stage(
+        "evaluate",
+        [
+            {
+                "job_id": "logical:one2many",
+                "name": "one2many_stage_job",
+                "payload": {
+                    "evaluator_type": "panda_multistage",
+                    "stages": [
+                        {
+                            "name": "prepare",
+                            "python_callable": panda_prepare_evaluator,
+                            "runner": "local",
+                            "dep_type": "results",
+                            "op_kwargs": {"scale": 5},
+                        },
+                        {
+                            "name": "simreco",
+                            "python_callable": panda_chunk_evaluator,
+                            "depends_on": "prepare",
+                            "dep_type": "results",
+                            "dep_map": "one2many",
+                            "jobs": [
+                                {"key": "a", "op_kwargs": {"value": 1}},
+                                {"key": "b", "op_kwargs": {"value": 2}},
+                            ],
+                            "parent_result_parameter_name": "prepared_result",
+                            "produces_objective": True,
+                        },
+                    ],
+                },
+            }
+        ],
+        parallelism_policy={"poll_interval": 0},
+        working_dir=str(tmp_path),
+    )
+
+    assert result.success is True
+    assert len(state["work_kwargs_history"]) == 2
+    assert state["work_params_history"][0]["op_kwargs"]["prepared_result"] == {"prepared": 5}
+    assert state["work_params_history"][1]["op_kwargs"]["prepared_result"] == {"prepared": 5}
+    assert state["work_params_history"][0]["op_kwargs"]["instance_key"] == "a"
+    assert state["work_params_history"][1]["op_kwargs"]["instance_key"] == "b"
+    metrics = result.job_statuses[0].metrics["panda_multistage_stages"]
+    assert [item["execution"] for item in metrics] == ["local", "panda", "panda"]
+
+
+def test_panda_multistage_submits_remote_children_before_parent_completion(monkeypatch, tmp_path):
+    state = install_fake_idds(monkeypatch, status_sequence=["running", "running", "running"])
+    scheduler = PanDAiDDSScheduler(
+        PanDAiDDSRunnerConfig(name="user.test.panda", source_dir=str(tmp_path))
+    )
+    coordinator = PanDAMultiStageJob(
+        scheduler=scheduler,
+        stage_name="evaluate",
+        job_definition={
+            "job_id": "logical:submit-first",
+            "name": "submit_first",
+            "payload": {
+                "evaluator_type": "panda_multistage",
+                "stages": [
+                    {
+                        "name": "simreco",
+                        "python_callable": panda_prepare_evaluator,
+                        "with_output_dataset": True,
+                        "output_file": "my_test.txt",
+                        "jobs": [
+                            {"key": "a", "output_dataset": "user.test.simreco.a"},
+                            {"key": "b", "output_dataset": "user.test.simreco.b"},
+                        ],
+                    },
+                    {
+                        "name": "ana",
+                        "python_callable": panda_test_evaluator,
+                        "depends_on": "simreco",
+                        "dep_type": "datasets",
+                        "dep_map": "all2one",
+                        "with_input_datasets": True,
+                        "input_datasets": {
+                            "input_file_names": [
+                                "user.test.simreco.a",
+                                "user.test.simreco.b",
+                            ]
+                        },
+                        "produces_objective": True,
+                    },
+                ],
+            },
+        },
+        working_dir=str(tmp_path),
+        poll_interval=0,
+    )
+
+    coordinator._submit_stage(coordinator.spec.stages[0])
+    assert [work.status for work in coordinator.works_by_stage["simreco"]] == ["running", "running"]
+
+    coordinator._submit_stage(coordinator.spec.stages[1])
+
+    assert len(state["work_kwargs_history"]) == 3
+    assert state["work_kwargs_history"][2]["parent_internal_id"] == ["internal-1", "internal-2"]
+    assert state["work_kwargs_history"][2]["input_datasets"] == {
+        "input_file_names": ["user.test.simreco.a", "user.test.simreco.b"]
+    }
+    assert [work.status for work in coordinator.works_by_stage["simreco"]] == ["running", "running"]
+    assert coordinator.works_by_stage["ana"][0].status == "running"
+
+
+
+def test_panda_multistage_all2one_dataset_remote_to_remote(monkeypatch, tmp_path):
+    state = install_fake_idds(
+        monkeypatch,
+        result_sequence=[{"sim": "a"}, {"sim": "b"}, {"f1": 3, "f2": 4}],
+    )
+    scheduler = PanDAiDDSScheduler(
+        PanDAiDDSRunnerConfig(name="user.test.panda", source_dir=str(tmp_path))
+    )
+
+    result = scheduler.run_stage(
+        "evaluate",
+        [
+            {
+                "job_id": "logical:all2one",
+                "name": "all2one_stage_job",
+                "payload": {
+                    "evaluator_type": "panda_multistage",
+                    "stages": [
+                        {
+                            "name": "simreco",
+                            "python_callable": panda_prepare_evaluator,
+                            "with_output_dataset": True,
+                            "output_file": "my_test.txt",
+                            "jobs": [
+                                {"key": "a", "output_dataset": "user.test.simreco.a"},
+                                {"key": "b", "output_dataset": "user.test.simreco.b"},
+                            ],
+                        },
+                        {
+                            "name": "ana",
+                            "python_callable": panda_test_evaluator,
+                            "depends_on": "simreco",
+                            "dep_type": "datasets",
+                            "dep_map": "all2one",
+                            "with_input_datasets": True,
+                            "input_datasets": {
+                                "input_file_names": [
+                                    "user.test.simreco.a",
+                                    "user.test.simreco.b",
+                                ]
+                            },
+                            "produces_objective": True,
+                        },
+                    ],
+                },
+            }
+        ],
+        parallelism_policy={"poll_interval": 0},
+        working_dir=str(tmp_path),
+    )
+
+    assert result.success is True
+    assert result.artifacts == {"objectives": {"f1": 3, "f2": 4}}
+    assert len(state["work_kwargs_history"]) == 3
+    assert state["work_kwargs_history"][0]["output_dataset_name"] == "user.test.simreco.a/"
+    assert state["work_kwargs_history"][1]["output_dataset_name"] == "user.test.simreco.b/"
+    assert state["work_kwargs_history"][2]["input_datasets"] == {
+        "input_file_names": ["user.test.simreco.a", "user.test.simreco.b"]
+    }
+    assert state["work_kwargs_history"][2]["parent_internal_id"] == ["internal-1", "internal-2"]
+    metrics = result.job_statuses[0].metrics["panda_multistage_stages"]
+    assert [item["execution"] for item in metrics] == ["panda", "panda", "panda"]
+
+
+def test_panda_multistage_one2one_result_local_to_remote(monkeypatch, tmp_path):
+    state = install_fake_idds(monkeypatch, result_sequence=[{"f1": 6, "f2": 7}])
+    scheduler = PanDAiDDSScheduler(
+        PanDAiDDSRunnerConfig(name="user.test.panda", source_dir=str(tmp_path))
+    )
+
+    result = scheduler.run_stage(
+        "evaluate",
+        [
+            {
+                "job_id": "logical:one2one-local-remote",
+                "name": "one2one_local_remote",
+                "payload": {
+                    "evaluator_type": "panda_multistage",
+                    "stages": [
+                        {
+                            "name": "prepare",
+                            "python_callable": panda_prepare_evaluator,
+                            "runner": "local",
+                            "dep_type": "results",
+                            "op_kwargs": {"scale": 4},
+                        },
+                        {
+                            "name": "ana",
+                            "python_callable": panda_evaluate_from_parent,
+                            "depends_on": "prepare",
+                            "dep_type": "results",
+                            "dep_map": "one2one",
+                            "produces_objective": True,
+                        },
+                    ],
+                },
+            }
+        ],
+        parallelism_policy={"poll_interval": 0},
+        working_dir=str(tmp_path),
+    )
+
+    assert result.success is True
+    assert state["work_params_history"][0]["op_kwargs"]["parent_results"] == {"prepared": 4}
+    metrics = result.job_statuses[0].metrics["panda_multistage_stages"]
+    assert [item["execution"] for item in metrics] == ["local", "panda"]
+
+
+
+
+def test_panda_multistage_graph_builder_builds_all2one_dataset_payload():
+    payload = PanDAMultiStageGraphBuilder().build_payload(
+        [
+            {
+                "name": "simreco",
+                "jobs": [
+                    {
+                        "name": "sim_a",
+                        "payload": {
+                            "python_callable": panda_prepare_evaluator,
+                            "with_output_dataset": True,
+                            "output_file": "my_test.txt",
+                            "output_dataset": "user.test.sim.a",
+                            "op_kwargs": {"particle": "pi+"},
+                        },
+                    },
+                    {
+                        "name": "sim_b",
+                        "payload": {
+                            "python_callable": panda_prepare_evaluator,
+                            "with_output_dataset": True,
+                            "output_file": "my_test.txt",
+                            "output_dataset": "user.test.sim.b",
+                            "op_kwargs": {"particle": "kaon+"},
+                        },
+                    },
+                ],
+            },
+            {
+                "name": "ana",
+                "jobs": [
+                    {
+                        "name": "ana_all",
+                        "payload": {
+                            "python_callable": panda_test_evaluator,
+                            "depends_on": {"stage": "simreco", "jobs": "*"},
+                            "dep_type": "datasets",
+                            "dep_map": "many2one",
+                            "with_input_datasets": True,
+                            "input_datasets": {
+                                "input_file_names": ["user.test.sim.a", "user.test.sim.b"]
+                            },
+                            "produces_objective": True,
+                        },
+                    }
+                ],
+            },
+        ],
+        final_stage="ana",
+        trial_index=7,
+    )
+
+    assert payload["evaluator_type"] == "panda_multistage"
+    assert payload["final_stage"] == "ana"
+    assert payload["trial_index"] == 7
+    assert [stage["name"] for stage in payload["stages"]] == ["simreco", "ana"]
+    assert payload["stages"][0]["python_callable"] is panda_prepare_evaluator
+    assert payload["stages"][0]["jobs"] == [
+        {
+            "key": "sim_a",
+            "op_kwargs": {"particle": "pi+"},
+            "with_output_dataset": True,
+            "output_file": "my_test.txt",
+            "output_dataset": "user.test.sim.a",
+        },
+        {
+            "key": "sim_b",
+            "op_kwargs": {"particle": "kaon+"},
+            "with_output_dataset": True,
+            "output_file": "my_test.txt",
+            "output_dataset": "user.test.sim.b",
+        },
+    ]
+    assert payload["stages"][1]["depends_on"] == {"stage": "simreco", "jobs": "*"}
+    assert payload["stages"][1]["dep_map"] == "many2one"
+    assert payload["stages"][1]["jobs"] == [
+        {
+            "key": "ana_all",
+            "with_input_datasets": True,
+            "input_datasets": {
+                "input_file_names": ["user.test.sim.a", "user.test.sim.b"]
+            },
+        }
+    ]
+
+
+
+def test_panda_runner_converts_optimizer_trial_wrapper_to_multistage_graph(monkeypatch, tmp_path):
+    design_file = tmp_path / "design.params"
+    design_file.write_text(
+        "design_space:\n"
+        "  design_parameters:\n"
+        "    test_variables:\n"
+        "      parameters:\n"
+        "        x1:\n"
+        "          value: 0.5\n"
+        "          bounds: [0.0, 1.0]\n"
+    )
+    config_file = tmp_path / "trial_graph.yml"
+    config_file.write_text(
+        f"""
+problem:
+  name: "trial graph smoke"
+  problem_type: "DTLZ2"
+  output_location: "{tmp_path / 'out'}"
+  work_location: "{tmp_path / 'work'}"
+  design_parameters_file: "{design_file}"
+  objectives:
+    - name: "objective"
+      direction: "minimize"
+
+optimizer:
+  name: "ax"
+  type: "bayesian"
+  parameters:
+    n_iterations: 1
+    n_initial_samples: 1
+    batch_size: 1
+
+scheduler:
+  runner_type: "PanDAiDDSRunner"
+  parameters:
+    name: "user.test.panda"
+    source_dir: "{tmp_path}"
+
+workflows:
+  workflows:
+    - name: "trial_graph_eval"
+      branches:
+        - name: "main"
+          stages:
+            - name: "simreco"
+              jobs:
+                - name: "sim_a"
+                  command: ""
+                  payload:
+                    evaluator_type: "python"
+                    python_callable: "tests.test_schedulers.test_pandaidds_runner:panda_prepare_evaluator"
+                    panda_stage: "simreco"
+                    with_output_dataset: true
+                    output_file: "my_test.txt"
+                    output_dataset: "user.test.trial.sim.a"
+                - name: "sim_b"
+                  command: ""
+                  payload:
+                    evaluator_type: "python"
+                    python_callable: "tests.test_schedulers.test_pandaidds_runner:panda_prepare_evaluator"
+                    panda_stage: "simreco"
+                    with_output_dataset: true
+                    output_file: "my_test.txt"
+                    output_dataset: "user.test.trial.sim.b"
+            - name: "ana"
+              jobs:
+                - name: "ana_all"
+                  command: ""
+                  payload:
+                    evaluator_type: "python"
+                    python_callable: "tests.test_schedulers.test_pandaidds_runner:panda_test_evaluator"
+                    depends_on: "simreco"
+                    dep_type: "datasets"
+                    dep_map: "all2one"
+                    with_input_datasets: true
+                    input_datasets:
+                      input_file_names:
+                        - "user.test.trial.sim.a"
+                        - "user.test.trial.sim.b"
+            - name: "final"
+              scheduler:
+                runner_type: "JobLibRunner"
+                parameters:
+                  n_jobs: 1
+              jobs:
+                - name: "final_objective"
+                  command: ""
+                  payload:
+                    evaluator_type: "python"
+                    python_callable: "tests.test_schedulers.test_pandaidds_runner:panda_local_final_from_ana"
+                    depends_on: "ana"
+                    dep_type: "results"
+                    dep_map: "one2one"
+                    parent_result_parameter_name: "ana_result"
+                    final: true
+"""
+    )
+    state = install_fake_idds(
+        monkeypatch,
+        result_sequence=[{"sim": "a"}, {"sim": "b"}, {"total": 5}],
+    )
+    scheduler = PanDAiDDSScheduler(
+        PanDAiDDSRunnerConfig(name="user.test.panda", source_dir=str(tmp_path))
+    )
+
+    result = scheduler.run_stage(
+        "optimizer_batch_1_trials",
+        [
+            {
+                "job_id": "0",
+                "name": "trial_0",
+                "function": run_trial_workflow,
+                "params": {
+                    "config_path": str(config_file),
+                    "run_dir": str(tmp_path / "out"),
+                    "run_work_dir": str(tmp_path / "work"),
+                    "trial_index": 0,
+                    "design_point": {"x1": 0.2},
+                    "workflow_name": None,
+                    "log_level": "WARNING",
+                },
+            }
+        ],
+        parallelism_policy={"poll_interval": 0},
+        working_dir=str(tmp_path / "work"),
+    )
+
+    assert result.success is True
+    assert result.job_statuses[0].outputs == {"objectives": {"objective": 6}}
+    assert len(state["work_kwargs_history"]) == 3
+    assert state["work_kwargs_history"][0]["output_dataset_name"] == "user.test.trial.sim.a/"
+    assert state["work_kwargs_history"][1]["output_dataset_name"] == "user.test.trial.sim.b/"
+    assert state["work_kwargs_history"][2]["parent_internal_id"] == ["internal-1", "internal-2"]
+    assert state["work_kwargs_history"][2]["input_datasets"] == {
+        "input_file_names": ["user.test.trial.sim.a", "user.test.trial.sim.b"]
+    }
+
+
+def test_panda_multistage_graph_job_runs_stage_records(monkeypatch, tmp_path):
+    state = install_fake_idds(
+        monkeypatch,
+        result_sequence=[{"sim": "a"}, {"sim": "b"}, {"f1": 8, "f2": 9}],
+    )
+    scheduler = PanDAiDDSScheduler(
+        PanDAiDDSRunnerConfig(name="user.test.panda", source_dir=str(tmp_path))
+    )
+
+    result = scheduler.run_stage(
+        "evaluate",
+        [
+            {
+                "job_id": "logical:graph",
+                "name": "graph_job",
+                "payload": {
+                    "evaluator_type": "panda_multistage_graph",
+                    "final_stage": "ana",
+                    "stage_records": [
+                        {
+                            "name": "simreco",
+                            "jobs": [
+                                {
+                                    "name": "sim_a",
+                                    "payload": {
+                                        "python_callable": panda_prepare_evaluator,
+                                        "with_output_dataset": True,
+                                        "output_file": "my_test.txt",
+                                        "output_dataset": "user.test.graph.sim.a",
+                                    },
+                                },
+                                {
+                                    "name": "sim_b",
+                                    "payload": {
+                                        "python_callable": panda_prepare_evaluator,
+                                        "with_output_dataset": True,
+                                        "output_file": "my_test.txt",
+                                        "output_dataset": "user.test.graph.sim.b",
+                                    },
+                                },
+                            ],
+                        },
+                        {
+                            "name": "ana",
+                            "jobs": [
+                                {
+                                    "name": "ana_all",
+                                    "payload": {
+                                        "python_callable": panda_test_evaluator,
+                                        "depends_on": "simreco",
+                                        "dep_type": "datasets",
+                                        "dep_map": "all2one",
+                                        "with_input_datasets": True,
+                                        "input_datasets": {
+                                            "input_file_names": [
+                                                "user.test.graph.sim.a",
+                                                "user.test.graph.sim.b",
+                                            ]
+                                        },
+                                        "produces_objective": True,
+                                    },
+                                }
+                            ],
+                        },
+                    ],
+                },
+            }
+        ],
+        parallelism_policy={"poll_interval": 0},
+        working_dir=str(tmp_path),
+    )
+
+    assert result.success is True
+    assert result.artifacts == {"objectives": {"f1": 8, "f2": 9}}
+    assert len(state["work_kwargs_history"]) == 3
+    assert state["work_kwargs_history"][2]["parent_internal_id"] == ["internal-1", "internal-2"]
+    assert state["work_kwargs_history"][2]["input_datasets"] == {
+        "input_file_names": ["user.test.graph.sim.a", "user.test.graph.sim.b"]
+    }
+    metrics = result.job_statuses[0].metrics["panda_multistage_stages"]
+    assert [item["stage"] for item in metrics] == ["simreco", "simreco", "ana"]
 
 
 def test_panda_multistep_two_step_results_handoff(monkeypatch, tmp_path):
@@ -625,6 +1422,86 @@ def test_panda_multistep_dataset_one2one_passes_parent_internal_id(monkeypatch, 
             "with_details": True,
         }
     ]
+
+
+
+def test_panda_multistep_dataset_templates_resolve_aid2e_tokens(monkeypatch, tmp_path):
+    state = install_fake_idds(
+        monkeypatch,
+        result_sequence=[{"prepared": 2}, {"f1": 3, "f2": 4}],
+    )
+    context = types.SimpleNamespace(
+        workflow_id="workflow:alpha",
+        stage_id="stage:evaluate",
+        task_id="task:001",
+        job_id="ctx:job",
+        execution_dir=str(tmp_path),
+        output_dir=str(tmp_path),
+        design_point={"x": 0.2},
+        xcom={},
+        artifacts={},
+        logs=[],
+    )
+    scheduler = PanDAiDDSScheduler(
+        PanDAiDDSRunnerConfig(name="user.test.panda", source_dir=str(tmp_path))
+    )
+    scheduler.submission_id = "submission:001"
+
+    result = scheduler.run_stage(
+        "evaluate",
+        [
+            {
+                "job_id": "logical:dataset:tokens",
+                "name": "dataset_tokens",
+                "payload": {
+                    "evaluator_type": "panda_multistep",
+                    "trial_index": 7,
+                    "steps": [
+                        {
+                            "name": "simreco",
+                            "python_callable": panda_prepare_evaluator,
+                            "return_func_results": False,
+                            "output_file": "result-{step_name}-{child_key}.json",
+                            "output_dataset": (
+                                "{panda_scope}.aid2e.{submission_id}.{workflow_id}."
+                                "{stage_id}.{job_id}.{step_name}.{child_key}.{trial_index}"
+                            ),
+                            "children": [{"key": "eta:0.1/pi+"}],
+                        },
+                        {
+                            "name": "ana",
+                            "python_callable": panda_evaluate_from_parent,
+                            "depends_on": "simreco",
+                            "dep_type": "datasets",
+                            "dep_map": "one2one",
+                            "input_datasets": {
+                                "input_file_names": (
+                                    "{panda_scope}.aid2e.{submission_id}.{workflow_id}."
+                                    "{stage_id}.{job_id}.simreco.{child_key}.{trial_index}"
+                                )
+                            },
+                            "produces_objective": True,
+                        },
+                    ],
+                },
+                "job_context": context,
+            }
+        ],
+        parallelism_policy={"poll_interval": 0},
+        working_dir=str(tmp_path),
+    )
+
+    assert result.success is True
+    simreco_kwargs = state["work_kwargs_history"][0]
+    ana_kwargs = state["work_kwargs_history"][1]
+    expected_dataset = (
+        "user.test.aid2e.submission_001.workflow_alpha.stage_evaluate."
+        "logical_dataset_tokens.simreco.eta_0.1_pi.7"
+    )
+    assert simreco_kwargs["output_file_name"] == "result-simreco-eta_0.1_pi.json"
+    assert simreco_kwargs["output_dataset_name"] == f"{expected_dataset}/"
+    assert ana_kwargs["input_datasets"] == {"input_file_names": expected_dataset}
+    assert ana_kwargs["parent_internal_id"] == "internal-1"
 
 
 def test_panda_multistep_rejects_dataset_all2one_until_later(monkeypatch, tmp_path):

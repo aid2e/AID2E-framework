@@ -46,9 +46,8 @@ def test_namespace_consistency():
 
 
 def test_no_old_import_paths():
-    """Test that old flat import paths don't work (configurations, epic_utils at top level)."""
-    with pytest.raises(ModuleNotFoundError):
-        import configurations
-    
+    """Test that old flat import paths don't work for removed package aliases."""
+    # setup_aid2e.sh adds examples/ to PYTHONPATH, which can expose
+    # examples/configurations as an unrelated namespace package.
     with pytest.raises(ModuleNotFoundError):
         import epic_utils

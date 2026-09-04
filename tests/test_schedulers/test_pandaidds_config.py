@@ -13,8 +13,9 @@ class TestPanDAiDDSRunnerConfig:
     def test_name_auto_generation_from_system_username(self):
         """Test that name is auto-generated from system username."""
         with patch("getpass.getuser", return_value="testuser"):
-            config = PanDAiDDSRunnerConfig()
-            assert config.name == "user.testuser.aid2e_job"
+            with patch.dict(os.environ, {"PANDA_USERNAME": "", "PANDA_SOURCE_DIR": ""}):
+                config = PanDAiDDSRunnerConfig()
+                assert config.name == "user.testuser.aid2e_job"
     
     def test_name_auto_generation_from_env_variable(self):
         """Test that PANDA_USERNAME env variable overrides system username."""
@@ -58,12 +59,9 @@ class TestPanDAiDDSRunnerConfig:
     
     def test_other_fields_defaults(self):
         """Test that other fields have expected defaults."""
-        config = PanDAiDDSRunnerConfig()
-        init_env_list = [
-            "source setup_aid2e.sh;",
-            "bash install_aid2e_dependencies.sh;",
-        ]
-        assert config.init_env == " ".join(init_env_list) + " "
+        with patch.dict(os.environ, {"PANDA_USERNAME": "", "PANDA_SOURCE_DIR": ""}):
+            config = PanDAiDDSRunnerConfig()
+        assert config.init_env is None
         assert config.cloud is None
         assert config.queue is None
         assert config.source_dir is not None  # Auto-set to project root
@@ -92,10 +90,12 @@ class TestPanDAiDDSRunnerConfig:
     
     def test_source_dir_auto_set_to_project_root(self):
         """Test that source_dir defaults to the project root."""
-        config = PanDAiDDSRunnerConfig()
-        expected = os.path.abspath(
+        with patch.dict(os.environ, {"PANDA_USERNAME": "", "PANDA_SOURCE_DIR": ""}):
+            config = PanDAiDDSRunnerConfig()
+        repo_root = os.path.abspath(
             os.path.join(os.path.dirname(__file__), "..", "..")
         )
+        expected = os.path.join(repo_root, "src")
         assert config.source_dir == expected
     
     def test_source_dir_from_env_variable(self):

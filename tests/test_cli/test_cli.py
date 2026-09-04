@@ -74,20 +74,17 @@ workflows:
         encoding="utf-8",
     )
 
-    class Result:
-        run_dir = str(output_dir / "run-1")
-        completed_trials = 1
-        failed_trials = 0
-        pareto_front = []
-
     calls = []
 
-    def fake_run(config, options):
-        calls.append((config, options))
-        return Result()
+    def fake_run(config, config_file, **kwargs):
+        calls.append((config, config_file, kwargs))
+        return {
+            "run_dir": output_dir / "run-1",
+            "optimization_results": output_dir / "run-1" / "optimization_results.json",
+        }
 
     monkeypatch.setattr(
-        "aid2e.cli.workflow_commands.run_optimization_from_config",
+        "aid2e.cli.workflow_commands.run_optimization",
         fake_run,
     )
 
@@ -106,5 +103,6 @@ workflows:
     assert result.exit_code == 0
     assert "Optimization completed" in result.output
     assert len(calls) == 1
-    assert calls[0][1].workflow_name == "generic_eval"
-    assert calls[0][1].run_id == "run-1"
+    assert calls[0][1] == str(config_path)
+    assert calls[0][2]["workflow_name"] == "generic_eval"
+    assert calls[0][2]["run_id"] == "run-1"

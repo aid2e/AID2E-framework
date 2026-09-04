@@ -416,7 +416,7 @@ def test_full_config_rejects_legacy_scheduler_shape(tmp_path):
     (tmp_path / "output").mkdir()
     (tmp_path / "work").mkdir()
 
-    with pytest.raises(ValueError, match="missing keys: parameters"):
+    with pytest.raises(ValueError, match="Extra inputs are not permitted|joblib"):
         load_config(str(config_path))
 
 
@@ -575,7 +575,7 @@ def test_full_config_adds_config_dir_for_workflow_callable_imports(tmp_path, mon
 
 def test_full_config_adds_config_dir_for_panda_multistep_callable_imports(tmp_path, monkeypatch):
     """PanDA multi-step callables beside the config should import without PYTHONPATH."""
-    package_dir = tmp_path / "local_examples"
+    package_dir = tmp_path / "local_multistep_examples"
     package_dir.mkdir()
     (package_dir / "__init__.py").write_text("", encoding="utf-8")
     (package_dir / "evaluator.py").write_text(
@@ -604,11 +604,11 @@ def test_full_config_adds_config_dir_for_panda_multistep_callable_imports(tmp_pa
                                             "steps": [
                                                 {
                                                     "name": "prepare",
-                                                    "python_callable": "local_examples.evaluator:prepare",
+                                                    "python_callable": "local_multistep_examples.evaluator:prepare",
                                                 },
                                                 {
                                                     "name": "evaluate",
-                                                    "python_callable": "local_examples.evaluator:evaluate",
+                                                    "python_callable": "local_multistep_examples.evaluator:evaluate",
                                                     "depends_on": ["prepare"],
                                                     "produces_objective": True,
                                                 },
@@ -640,7 +640,7 @@ def test_full_config_adds_config_dir_for_panda_multistep_callable_imports(tmp_pa
 
     payload = executor.workflow.branches[0].stages[0].jobs[0].payload
     steps = payload["steps"]
-    assert steps[0]["python_callable"].__module__ == "local_examples.evaluator"
+    assert steps[0]["python_callable"].__module__ == "local_multistep_examples.evaluator"
     assert steps[1]["python_callable"].__name__ == "evaluate"
     assert steps[1]["depends_on"] == ["prepare"]
 

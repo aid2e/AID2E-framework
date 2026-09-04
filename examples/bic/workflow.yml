@@ -170,10 +170,26 @@ optimizer:
 # Global scheduler defaults (can be overridden at workflow/branch/stage level)
 # =============================================================================
 scheduler:
-  runner_type: "JobLibRunner" # Or "SlurmRunner" for Slurm
+  runner_type: "JobLibRunner"
   parameters:
     n_jobs: 4       # Use 4 parallel jobs by default
     backend: "loky" # Use process-based parallelism (default)
+
+  # If you were to use Slurm, the configuration
+  # would look like:
+  #runner_type: "SlurmRunner"
+  #parameters:
+  #  account: "<account>"
+  #  partition: "<partition>"
+  #  nodes: 1
+  #  ntasks: 1
+  #  cpus_per_task: 1
+  #  mem: 4G
+  #  time: "04:00:00"
+  #  poll_interval: 10
+  #  capture_stdout: true
+  #  capture_stderr: true
+  #  runtime_working_dir: "/path/to/this/directory" 
 
 # SECTION 3: WORKFLOW EXECUTION
 # How to execute the optimization (stages, parallelism, etc.)

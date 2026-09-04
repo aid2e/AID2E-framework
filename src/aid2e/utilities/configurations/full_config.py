@@ -30,7 +30,7 @@ def _ensure_config_import_path(base_dir: Path) -> None:
     """Allow workflow callables to be imported from beside the config file."""
     resolved = str(base_dir.resolve())
     if resolved not in sys.path:
-        sys.path.insert(0, resolved)
+        sys.path.append(resolved)
 
 
 def _load_init_env_file(file_path: str, base_dir: Path) -> str:

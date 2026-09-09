@@ -58,6 +58,30 @@ def evaluate_both_objectives_wrapper(context: JobContext) -> Dict[str, float]:
         raise ValueError(f"evaluate_both_objectives_wrapper: Missing objectives {missing} in result dict. Got: {objectives}")
     return objectives
 
+def evaluate_qualified_both_objectives(context: JobContext) -> Dict[str, float]:
+    """Evaluate DTLZ2 objectives from canonical qualified design keys."""
+    design_point = context.design_point
+    keys = [
+        "DTLZ2_variables.x1",
+        "DTLZ2_variables.x2",
+        "DTLZ2_variables.x3",
+        "DTLZ2_variables.x4",
+        "DTLZ2_variables.x5",
+    ]
+    missing = [key for key in keys if key not in design_point]
+    if missing:
+        raise ValueError(
+            "evaluate_qualified_both_objectives: missing design keys "
+            f"{missing}; got {list(design_point.keys())}"
+        )
+
+    x = [float(design_point[key]) for key in keys]
+    objectives = dtlz2_both_objectives(x)
+    context.add_log(f"Qualified design point: {x}")
+    context.add_log(f"Objectives: {objectives}")
+    context.xcom_push("objectives", objectives)
+    return objectives
+
 def evaluate_f1_wrapper(context: JobContext) -> float:
     """Wrapper to evaluate f1 from JobContext."""
     design_point = context.design_point

@@ -1,0 +1,87 @@
+# Minimal DTLZ2 + Ax + JobLib input for `aid2e optimize input.yml`.
+#
+# This is intentionally small so it can be used as the first CLI smoke test.
+# Uses a top-level workflow so it can run through the generic CLI runner.
+
+problem:
+  name: "DTLZ2 CLI JobLib Smoke Test"
+  problem_type: "DTLZ2"
+  output_location: "/tmp"
+  work_location: "/tmp"
+  design_parameters_file: "examples/optimizers/dtlz2_design.params"
+  objectives:
+    - name: "f1"
+      direction: "minimize"
+      computation:
+        multi_steps:
+          stages:
+            - name: "evaluate_dtlz2"
+              script:
+                path: "examples/complete/scripts/slurm_dtlz2_from_cli.py"
+                output_file: "objectives.json"
+                timeout_sec: 300
+              produces_objective: true
+      metrics_keys: ["f1"]
+    - name: "f2"
+      direction: "minimize"
+      computation:
+        multi_steps:
+          stages:
+            - name: "evaluate_dtlz2"
+              script:
+                path: "examples/complete/scripts/slurm_dtlz2_from_cli.py"
+                output_file: "objectives.json"
+                timeout_sec: 300
+              produces_objective: true
+      metrics_keys: ["f2"]
+
+optimizer:
+  name: "ax"
+  type: "bayesian"
+  parameters:
+    initialization_strategy: "sobol"
+    generator: "BOTORCH_MODULAR"
+    n_initial_samples: 1
+    n_iterations: 20
+    batch_size: 1
+    seed: 7
+
+scheduler:
+  runner_type: "JobLibRunner"
+  parameters:
+    n_jobs: 1
+    backend: "threading"
+    timeout: 300
+    verbose: 0
+  max_retries: 1
+  output_location: "/tmp/aid2e_scheduler_output"
+  monitor_interval: 5
+
+workflows:
+  workflows:
+    - name: "dtlz2_joblib_eval"
+      description: "Evaluate DTLZ2 objectives through a generic JobLib-backed command workflow."
+      branches:
+        - name: "main"
+          stages:
+            - name: "evaluate"
+              parallelism:
+                max_concurrent: 1
+                retry_max: 0
+                timeout_sec: 300
+              jobs:
+                - name: "dtlz2"
+                  command: >-
+                    {{python_executable}} {{repo_root}}/examples/complete/scripts/slurm_dtlz2_from_cli.py
+                    --x1 {{design_point[DTLZ2_variables.x1]}}
+                    --x2 {{design_point[DTLZ2_variables.x2]}}
+                    --x3 {{design_point[DTLZ2_variables.x3]}}
+                    --x4 {{design_point[DTLZ2_variables.x4]}}
+                    --x5 {{design_point[DTLZ2_variables.x5]}}
+                    --output {{output_dir}}/objectives.json
+                    --repeat 1
+                  payload:
+                    evaluator_type: "bash"
+                  outputs:
+                    - path: "{{output_dir}}/objectives.json"
+                      format: "json"

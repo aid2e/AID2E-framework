@@ -1,0 +1,107 @@
+# Minimal two-stage PanDA/iDDS dataset file smoke.
+#
+# Intended command:
+#
+#   aid2e optimize input-panda-multistage-file-smoke.yml
+#
+# This submits one sim/reco PanDA work that writes my_test.txt, then one ana
+# PanDA work that consumes the dataset-backed file list and prints the message
+# read from my_test.txt. The ana stage is marked final for this smoke and returns
+# the optimizer metrics directly: xyz and n_inputs.
+
+problem:
+  name: "DTLZ2 CLI PanDA Multi-Stage File Smoke Test"
+  problem_type: "DTLZ2"
+  output_location: "/tmp"
+  work_location: "/tmp"
+  design_parameters_file: "examples/optimizers/dtlz2_design.params"
+  objectives:
+    - name: "xyz"
+      direction: "minimize"
+    - name: "n_inputs"
+      direction: "minimize"
+
+optimizer:
+  name: "ax"
+  type: "bayesian"
+  parameters:
+    initialization_strategy: "sobol"
+    generator: "BOTORCH_MODULAR"
+    n_initial_samples: 1
+    n_iterations: 1
+    batch_size: 1
+    seed: 7
+
+scheduler:
+  runner_type: "PanDAiDDSRunner"
+  parameters:
+    cloud: "US"
+    queue: "BNL_PanDA_1"
+    source_dir: "."
+    source_dir_parent_level: 1
+    exclude_source_files:
+      - '(^|/)\..*'
+      - '.*\.log'
+      - '.*\.json'
+      - "__pycache__"
+      - "work"
+      - "OUTDIR"
+    init_env_file: "panda-init-env.yml"
+    max_walltime: 1800
+    core_count: 1
+    total_memory: 4000
+  max_retries: 1
+  output_location: "./aid2e_panda_scheduler_output"
+  monitor_interval: 5
+
+workflows:
+  workflows:
+    - name: "dtlz2_panda_multistage_file_smoke"
+      description: "Two-stage PanDA/iDDS file smoke: simreco writes my_test.txt and ana reads/prints it."
+      branches:
+        - name: "main"
+          stages:
+            - name: "simreco"
+              parallelism:
+                max_concurrent: 1
+                retry_max: 0
+                timeout_sec: 600
+              jobs:
+                - name: "eta_0p1_pi"
+                  command: ""
+                  payload:
+                    evaluator_type: "python"
+                    python_callable: "examples.evaluators.dtlz2_panda:panda_stage_simreco"
+                    panda_stage: "simreco"
+                    panda_job_map: "one"
+                    with_output_dataset: true
+                    output_file: "my_test.txt"
+                    output_dataset: "{panda_scope}.aid2e.dtlz2.file_smoke.{submission_id}.{workflow_id}.{stage_id}.{job_id}"
+                    num_events: 100
+                    num_events_per_job: 100
+                    op_kwargs:
+                      particle: "pi+"
+                      eta_point: 0.1
+
+            - name: "ana"
+              parallelism:
+                max_concurrent: 1
+                retry_max: 0
+                timeout_sec: 600
+              jobs:
+                - name: "eta_0p1_pi"
+                  command: ""
+                  payload:
+                    evaluator_type: "python"
+                    python_callable: "examples.evaluators.dtlz2_panda:panda_stage_ana"
+                    panda_stage: "ana"
+                    depends_on:
+                      stage: "simreco"
+                      jobs: "*"
+                    dep_type: "datasets"
+                    dep_map: "one2one"
+                    with_input_datasets: true
+                    input_datasets:
+                      input_file_names: "{panda_scope}.aid2e.dtlz2.file_smoke.{submission_id}.{workflow_id}.simreco.{job_id}"
+                    produces_objective: true
+                    final: true

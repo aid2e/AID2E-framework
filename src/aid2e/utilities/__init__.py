@@ -10,6 +10,13 @@ from .runtime_builders import (
     build_scheduler_from_config,
     build_workflow_executor_from_config,
 )
+from .optimization_runner import (
+    OptimizationRunOptions,
+    OptimizationRunResult,
+    TrialRecord,
+    WorkflowCandidateEvaluator,
+    run_optimization_from_config,
+)
 
 __version__ = __MAIN_VERSION__
 __all__ = [
@@ -20,4 +27,9 @@ __all__ = [
     "build_scheduler_runtime_config",
     "build_scheduler_from_config",
     "build_workflow_executor_from_config",
+    "OptimizationRunOptions",
+    "OptimizationRunResult",
+    "TrialRecord",
+    "WorkflowCandidateEvaluator",
+    "run_optimization_from_config",
 ]

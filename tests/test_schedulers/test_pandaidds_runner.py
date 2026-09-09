@@ -765,8 +765,6 @@ def test_panda_multistage_one2one_result_local_to_remote(monkeypatch, tmp_path):
     assert [item["execution"] for item in metrics] == ["local", "panda"]
 
 
-
-
 def test_panda_multistage_graph_builder_builds_all2one_dataset_payload():
     payload = PanDAMultiStageGraphBuilder().build_payload(
         [

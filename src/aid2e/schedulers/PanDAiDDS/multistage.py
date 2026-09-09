@@ -1,9 +1,7 @@
 """AID2E-owned PanDA/iDDS multi-stage dependency coordinator.
 
-This module models the issue-61 stage-native transition using the two dependency
-families discussed in issue 60. Dataset-backed dependencies are submitted with
-PanDA/iDDS metadata so PanDA can manage release. Result-backed/local edges are
-kept as coordinator metadata for mixed local/remote stage maps.
+The AID2E-framework provides the DAG information (stages, jobs, outputs), multistage_graph.py creates a dependency graph that PanDA can ingest. 
+Runner uses this dependency information to submit job via multistage.py 
 """
 
 from __future__ import annotations

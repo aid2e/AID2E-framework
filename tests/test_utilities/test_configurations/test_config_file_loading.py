@@ -570,6 +570,3 @@ def test_full_config_adds_config_dir_for_workflow_callable_imports(tmp_path, mon
 
     fn = executor.workflow.branches[0].stages[0].jobs[0].payload["python_callable"]
     assert fn.__module__ == "local_examples.evaluator"
-
-
-

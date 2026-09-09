@@ -553,5 +553,3 @@ def tmp_path():
     tmp_dir = Path(tempfile.mkdtemp())
     yield tmp_dir
     shutil.rmtree(tmp_dir)
-
-

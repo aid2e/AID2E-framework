@@ -413,10 +413,6 @@ def test_remote_python_callable_entrypoint_accepts_idds_injected_kwargs():
     assert result["input_file_names"] == ["a.json", "b.json"]
 
 
-
-
-
-
 def test_panda_multistage_spec_rejects_unknown_dependency_map():
     with pytest.raises(ValueError, match="expected 'one2one'"):
         PanDAMultiStageSpec.from_payload(

@@ -15,7 +15,7 @@ The DTLZ2 example is a full configuration with an optimizer (Ax), a
 scheduler (JobLib), and an inline objective evaluator:
 
 ```bash
-aid2e describe examples/dtlz2/dtlz2_optimization.yml
+aid2e describe examples/dtlz2/configurations/dtlz2_ax_joblib.yml
 ```
 
 ## Validate the Configuration
@@ -23,13 +23,13 @@ aid2e describe examples/dtlz2/dtlz2_optimization.yml
 Validate the complete optimization configuration without executing it:
 
 ```bash
-aid2e optimize examples/dtlz2/dtlz2_optimization.yml --validate-only
+aid2e optimize examples/dtlz2/configurations/dtlz2_ax_joblib.yml --validate-only
 ```
 
 ## Run the Optimization
 
 ```bash
-aid2e optimize examples/dtlz2/dtlz2_optimization.yml
+aid2e optimize examples/dtlz2/configurations/dtlz2_ax_joblib.yml
 ```
 
 For this Ax example, `n_iterations` controls the total number of trial

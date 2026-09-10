@@ -293,7 +293,7 @@ def test_ax_optimizer_serialize_deserialize():
         generator_kwargs={"botorch_acqf_class": "qLogNoisyExpectedImprovement"},
     )
     search_space = SearchSpace(
-        parameters={"x": {"type": "range", "value": 0.5, "bounds": [0.0, 1.0]}}
+        parameters={"x": {"value": 0.5, "bounds": [0.0, 1.0]}}
     )
 
     optimizer = AxOptimizer(

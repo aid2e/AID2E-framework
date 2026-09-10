@@ -1,0 +1,150 @@
+# ============================================================================
+# DTLZ2 Multi-Objective Optimization with Combined Objectives
+# ============================================================================
+# This example shows:
+#   1. Combined objective: single computation produces multiple metrics (f1, f2)
+#   2. Scheduler cascade: global → workflow → branch → stage
+#   3. Clean separation: problem definition → workflow execution
+# ============================================================================
+
+# SECTION 1: PROBLEM DEFINITION
+# What to optimize (objectives) and design space
+# ============================================================================
+problem:
+  name: "DTLZ2 MOBO Example with Objective Collection"
+  problem_type: "toy"
+  description: "Two-objective DTLZ2 test problem with combined evaluation"
+  output_location: "./output/objective_collection"
+  work_location: "./work/objective_collection"
+  design_parameters_file: "../dtlz2_design.params"
+
+  # ========================================================================
+  # OBJECTIVES: Define what we're optimizing for
+  # ========================================================================
+  objectives:
+    - name: "f1"
+      direction: "minimize"
+    - name: "f2"
+      direction: "minimize"
+
+# SECTION 2: OPTIMIZER CONFIGURATION
+# How candidates are generated and updated from the collected metrics
+# ============================================================================
+optimizer:
+  name: "ax"
+  type: "bayesian"
+  parameters:
+    initialization_strategy: "sobol"
+    generator: "BOTORCH_MODULAR"
+    n_initial_samples: 24
+    n_iterations: 100
+    batch_size: 4
+    seed: 42
+
+# SECTION 3: SCHEDULER CONFIGURATION
+# How to run computations (global defaults)
+# ============================================================================
+scheduler:
+  runner_type: "JobLibRunner"
+  parameters:
+    n_jobs: 4          # Use 4 parallel jobs by default
+    backend: "loky"    # Use process-based parallelism
+
+# SECTION 4: WORKFLOW EXECUTION AND OBJECTIVE COLLECTION
+# How to execute the optimization (stages, parallelism, etc.)
+# ============================================================================
+workflows:
+  workflows:
+    - name: "dtlz2_optimization"
+      description: "DTLZ2 evaluation workflow"
+
+      # Workflow-level scheduler (overrides global scheduler)
+      scheduler:
+        runner_type: "JobLibRunner"
+        parameters:
+          n_jobs: 8      # Use 8 jobs for this workflow
+          backend: "loky"
+
+      # Branches: parallel execution paths
+      branches:
+        - name: "main"
+          description: "Main evaluation branch"
+
+          # Branch-level scheduler (overrides workflow scheduler)
+          scheduler:
+            runner_type: "JobLibRunner"
+            parameters:
+              n_jobs: 2      # Use 2 jobs for this branch
+              backend: "loky"
+
+          # Stages: sequential computation steps
+          stages:
+            - name: "evaluate_objectives"
+              description: "Evaluate DTLZ2 objectives for design points"
+
+              # Individual jobs for this stage
+              jobs:
+                - name: "dtlz2_eval"
+                  command: "python"
+                  rule: >-
+                    PYTHONPATH={{repo_root}} {{command}} -c
+                    "from examples.dtlz2.dtlz2_evaluator import objective_payload;
+                    import json;
+                    design_point = json.load(open('{{design_file}}'));
+                    json.dump(objective_payload(design_point=design_point),
+                    open('{{output_dir}}/objectives.json', 'w'))"
+                  outputs:
+                    - path: "{{output_dir}}/objectives.json"
+                      format: "json"
+
+              # Job factory: expand one job into many parallel copies
+              # Creates 4 parallel job instances (one per design point)
+              job_factory:
+                type: "range"
+                params:
+                  n: 4
+
+              # Parallelism policies for this stage
+              parallelism:
+                max_concurrent: 4      # Run max 4 jobs in parallel
+                retry_max: 2           # Retry failed jobs up to 2 times
+                timeout_sec: 300       # Kill job if it takes >300 seconds
+
+              # Stage-level scheduler (overrides branch scheduler)
+              scheduler:
+                runner_type: "JobLibRunner"
+                parameters:
+                  n_jobs: 4            # Stage can override branch's n_jobs=2
+                  backend: "loky"
+
+              # Output artifacts
+              outputs:
+                - path: "{{output_dir}}/objectives.json"
+                  format: "json"
+
+      # This is a COMBINED objective: one execution produces BOTH f1 and f2
+      # The callable outputs: {"f1": value1, "f2": value2}
+      # We extract each metric via "metric_key"
+      combined_objectives:
+        - name: "dtlz2_pareto"
+
+          # Objective plan: HOW to compute the objective(s)
+          objective_plan:
+            steps:
+              stages:
+                - name: "evaluate_objectives"
+                  inline:
+                    entrypoint: "examples.dtlz2.dtlz2_evaluator:objective_payload"
+                  produces_objective: true
+
+          # Metrics: Extract multiple values from ONE objective_plan execution
+          # Instead of running the callable twice (once for f1, once for f2),
+          # we run it once and extract both metrics from the output
+          metrics:
+            - name: "f1"
+              direction: "minimize"
+              metric_key: "f1"  # Extract the "f1" key from output JSON
+
+            - name: "f2"
+              direction: "minimize"
+              metric_key: "f2"  # Extract the "f2" key from output JSON

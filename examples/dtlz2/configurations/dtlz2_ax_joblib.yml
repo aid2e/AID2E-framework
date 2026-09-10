@@ -1,0 +1,126 @@
+# ============================================================================
+# DTLZ2 Multi-Objective Optimization with Ax and JobLib
+# ============================================================================
+# This example shows:
+#   Multi-objective optimization setup with Ax optimizer and JobLib scheduler.
+#   Benchmark problem with 10 variables and 2 objectives
+#   Optimization with Ax (Sobol warmup + BO)
+#   JobLib scheduler configuration for local parallel execution
+#   Inline DTLZ2 objective evaluation
+# ============================================================================
+
+# SECTION 1: PROBLEM DEFINITION
+# What to optimize (objectives) and the design parameter search space
+# ============================================================================
+problem:
+  name: "DTLZ2 MOBO Example with Ax and JobLib"
+  problem_type: "toy"
+  output_location: "./output/ax_joblib"
+  work_location: "./work/ax_joblib"
+
+  # Design parameters are defined inline for a self-contained quick start.
+  # Alternative: replace the inline_design section below with:
+  # design_parameters_file: "../dtlz2_design.params"
+  inline_design:
+    design_space:
+      design_parameters:
+        DTLZ2_variables:
+          parameters:
+            x1:
+              value: 0.5
+              bounds: [0.0, 1.0]
+            x2:
+              value: 0.5
+              bounds: [0.0, 1.0]
+            x3:
+              value: 0.5
+              bounds: [0.0, 1.0]
+            x4:
+              value: 0.5
+              bounds: [0.0, 1.0]
+            x5:
+              value: 0.5
+              bounds: [0.0, 1.0]
+            x6:
+              value: 0.5
+              bounds: [0.0, 1.0]
+            x7:
+              value: 0.5
+              bounds: [0.0, 1.0]
+            x8:
+              value: 0.5
+              bounds: [0.0, 1.0]
+            x9:
+              value: 0.5
+              bounds: [0.0, 1.0]
+            x10:
+              value: 0.5
+              bounds: [0.0, 1.0]
+
+  # Both DTLZ2 objectives are minimized.
+  objectives:
+    - name: "f1"
+      direction: "minimize"
+    - name: "f2"
+      direction: "minimize"
+
+# SECTION 2: OPTIMIZER CONFIGURATION
+# How candidates are generated and updated from objective results
+# ============================================================================
+optimizer:
+  name: "ax"
+  type: "bayesian"
+  parameters:
+    initialization_strategy: "sobol"
+    generator: "BOTORCH_MODULAR"
+    # Optional: customize the Ax acquisition function.
+    generator_kwargs:
+      botorch_acqf_class: "qLogNoisyExpectedHypervolumeImprovement"
+      acquisition_options:
+        prune_baseline: true
+    # Optional: customize candidate-generation behavior.
+    generator_gen_kwargs:
+      model_gen_options:
+        optimizer_kwargs:
+          sequential: false
+          num_restarts: 10
+    # Optional: provide reference points for multi-objective optimization.
+    objective_thresholds:
+      f1: 1.0
+      f2: 1.0
+    n_initial_samples: 20
+    n_iterations: 100
+    batch_size: 4
+    seed: 42
+
+# SECTION 3: SCHEDULER CONFIGURATION
+# How optimization trial batches execute locally
+# ============================================================================
+# Scheduler configuration for local parallel execution using JobLib
+scheduler:
+  runner_type: "JobLibRunner"
+  parameters:
+    n_jobs: 2
+    # Use "loky" for process-based parallelism
+    # Use "threading" for thread-based parallelism
+    backend: "threading"
+
+# SECTION 4: WORKFLOW EXECUTION
+# How each candidate is evaluated to produce f1 and f2
+# ============================================================================
+workflows:
+  workflows:
+    - name: "dtlz2_eval"
+      description: "DTLZ2 objective evaluation"
+      branches:
+        - name: "main"
+          stages:
+            - name: "evaluate"
+              # The inline callable returns both declared objective values.
+              objective_plan:
+                steps:
+                  stages:
+                    - name: "evaluate"
+                      inline:
+                        entrypoint: "examples.dtlz2.dtlz2_evaluator:objective_payload"
+                      produces_objective: true

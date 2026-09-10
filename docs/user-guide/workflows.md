@@ -574,7 +574,7 @@ Scheduler retry and timeout limitations are documented in the
 
 Current full-configuration examples include:
 
-- [DTLZ2](https://github.com/aid2e/AID2E-framework/blob/main/examples/dtlz2/dtlz2_optimization.yml): one-stage
+- [DTLZ2](https://github.com/aid2e/AID2E-framework/blob/main/examples/dtlz2/configurations/dtlz2_ax_joblib.yml): one-stage
   objective evaluation with JobLib.
 - [dRICH](https://github.com/aid2e/AID2E-framework/blob/main/examples/epic/drich/workflow.yml): scheduler cascade, payload job
   factories, EpicStack stages, and objective aggregation.
@@ -679,5 +679,5 @@ EpicStack supplies geo, sim, rec, and ana layer behavior
 For more information:
 - See the [API reference](../api-reference/utilities.md) for detailed API docs
 - Check the [workflow integration tests](https://github.com/aid2e/AID2E-framework/tree/main/tests/test_utilities/test_workflows) for integration tests
-- Review the [DTLZ2](https://github.com/aid2e/AID2E-framework/blob/main/examples/dtlz2/dtlz2_optimization.yml) and
+- Review the [DTLZ2](https://github.com/aid2e/AID2E-framework/blob/main/examples/dtlz2/configurations/dtlz2_ax_joblib.yml) and
   [dRICH](https://github.com/aid2e/AID2E-framework/blob/main/examples/epic/drich/workflow.yml) YAML examples for current usage

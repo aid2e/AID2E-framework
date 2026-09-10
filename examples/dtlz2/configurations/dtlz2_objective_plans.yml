@@ -1,0 +1,84 @@
+# ============================================================================
+# DTLZ2 Multi-Objective Optimization with Objective Plans
+# ============================================================================
+# This example shows:
+#   1. Each objective computed through its own objective plan
+#   2. A script objective plan for f1
+#   3. A multi-step inline objective plan for f2
+#   4. The evaluate step depending on values produced by the prepare step
+# ============================================================================
+
+# SECTION 1: PROBLEM DEFINITION AND OBJECTIVE PLANS
+# What to optimize and how each objective is computed independently
+# ============================================================================
+problem:
+  name: "DTLZ2 MOBO Example with Objective Plans"
+  problem_type: "toy"
+  output_location: "./output/objective_plans"
+  work_location: "./work/objective_plans"
+  design_parameters_file: "../dtlz2_design.params"
+  objectives:
+    # f1 uses a script objective plan. AID2E runs the evaluator script and
+    # reads its objective mapping from the configured output file.
+    - name: "f1"
+      direction: "minimize"
+      objective_plan:
+        steps:
+          stages:
+            - name: "evaluate_f1"
+              script:
+                path: "../dtlz2_evaluator.py"
+                output_file: "objectives_{job_id}.json"
+                timeout_sec: 600
+              produces_objective: true
+      # The evaluator returns both DTLZ2 metrics; select f1 for this objective.
+      metrics_keys: ["f1"]
+
+    # f2 uses a multi-step inline objective plan. The prepare step returns
+    # ordered parameter values that are passed to the dependent evaluate step.
+    - name: "f2"
+      direction: "minimize"
+      objective_plan:
+        steps:
+          stages:
+            - name: "prepare"
+              inline:
+                entrypoint: "examples.dtlz2.dtlz2_evaluator:prepare_objective_inputs"
+            - name: "evaluate"
+              depends_on: ["prepare"]
+              inline:
+                entrypoint: "examples.dtlz2.dtlz2_evaluator:evaluate_prepared_objective"
+              produces_objective: true
+      # Select f2 from the final inline step's objective mapping.
+      metrics_keys: ["f2"]
+
+# SECTION 2: OPTIMIZER CONFIGURATION
+# How candidates are generated and updated from objective results
+# ============================================================================
+optimizer:
+  name: "ax"
+  type: "bayesian"
+  parameters:
+    initialization_strategy: "sobol"
+    generator: "BOTORCH_MODULAR"
+    n_initial_samples: 24
+    n_iterations: 100
+    batch_size: 4
+    seed: 42
+
+# SECTION 3: SCHEDULER CONFIGURATION
+# How optimization trial batches execute locally
+# ============================================================================
+scheduler:
+  runner_type: "JobLibRunner"
+  parameters:
+    n_jobs: 4
+    backend: "loky"
+
+# SECTION 4: WORKFLOW EXECUTION
+# The workflow is intentionally empty because problem-level plans compute f1 and f2
+# ============================================================================
+workflows:
+  workflows:
+    - name: "dtlz2_objective_plans"
+      description: "Compute DTLZ2 objectives with separate script and multi-step inline plans"

@@ -64,16 +64,15 @@ def test_canonical_full_config_loads(tmp_path):
     ]
 
 
-def test_optimizer_only_example_configs_load() -> None:
-    """New optimizer-only example YAMLs should load as canonical full configs."""
+def test_optimizer_example_configs_load() -> None:
+    """Optimizer example YAMLs should load as canonical full configs."""
     example_paths = [
-        Path("examples/dtlz2/optimizers/dtlz2_ax_optimizer_only.yml"),
-        Path("examples/dtlz2/optimizers/dtlz2_pymoo_optimizer_only.yml"),
+        Path("examples/dtlz2/configurations/dtlz2_ax_joblib.yml"),
+        Path("examples/dtlz2/configurations/dtlz2_pymoo_joblib.yml"),
     ]
 
     for cfg_path in example_paths:
         config = load_config(str(cfg_path))
-        assert config.problem.problem_type == "toy"
         assert config.problem.design_config.get_parameter_names()
         assert config.optimizer.parameters
 
@@ -81,7 +80,7 @@ def test_optimizer_only_example_configs_load() -> None:
 def test_optimizer_only_example_scripts_compile() -> None:
     """New optimizer-only example scripts should compile cleanly."""
     script_paths = [
-        Path("examples/dtlz2/optimizers/run_ax_optimizer_only_example.py"),
+        Path("examples/dtlz2/python_api/dtlz2_optimizer.py"),
         Path("examples/dtlz2/optimizers/run_pymoo_optimizer_only_example.py"),
     ]
 

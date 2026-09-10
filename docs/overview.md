@@ -44,9 +44,9 @@ python -m pip install -e ".[dev,docs]"
 ### Contribution Workflow
 
 1. **Create a branch** for your changes:
-   ```bash
+```bash
    git checkout -b feature/your-feature-name
-   ```
+```
 
 2. **Make changes** in `src/aid2e/`. Keep imports under the `aid2e` namespace.
 
@@ -54,7 +54,7 @@ python -m pip install -e ".[dev,docs]"
    and fixtures when changing configuration schemas.
 
 4. **Run tests**:
-   ```bash
+```bash
    # Run all tests
    pytest tests/
 
@@ -63,25 +63,25 @@ python -m pip install -e ".[dev,docs]"
 
    # Run a specific test file
    pytest tests/test_cli/test_cli.py
-   ```
+```
 
    Example fixtures live in `tests/test_utilities/fixtures/dtlz2/`
    (`design.params`, `problem.config`).
 
 5. **Format and lint** the code:
-   ```bash
+```bash
    black src/ tests/
    isort src/ tests/
    flake8 src/ tests/
    mypy src/
-   ```
+```
 
 6. **Commit and push**:
-   ```bash
+```bash
    git add .
    git commit -m "Description of changes"
    git push origin feature/your-feature-name
-   ```
+```
 
 7. **Open a pull request** on GitHub.
 

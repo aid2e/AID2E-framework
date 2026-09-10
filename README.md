@@ -58,7 +58,7 @@ installation, configuration, and usage.
 
 **Validated examples**
 
-- [DTLZ2 framework example](examples/dtlz2/dtlz2_optimization.yml)
+- [DTLZ2 framework example](examples/dtlz2/configurations/dtlz2_ax_joblib.yml)
 - [dRICH ePIC workflow example](examples/epic/drich/)
 
 ## Known Limitations

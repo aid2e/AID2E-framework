@@ -572,7 +572,7 @@ from aid2e.utilities.configurations import load_config
 from aid2e.utilities.runtime_builders import build_scheduler_from_config
 
 # Load a complete configuration including its scheduler
-config = load_config("examples/dtlz2/dtlz2_optimization.yml")
+config = load_config("examples/dtlz2/configurations/dtlz2_ax_joblib.yml")
 
 # Access and validate the scheduler configuration
 scheduler_cfg = config.scheduler
@@ -606,5 +606,5 @@ a runtime-builder branch. Calling `register()` alone is not sufficient.
 - [Configuration Guide](configuration.md)
 - [Workflow Guide](workflows.md)
 - [Optimizer Guide](optimizers.md)
-- DTLZ2 configuration: `examples/dtlz2/dtlz2_optimization.yml`
+- DTLZ2 configuration: `examples/dtlz2/configurations/dtlz2_ax_joblib.yml`
 - dRICH workflow: `examples/epic/drich/workflow.yml`

@@ -1,0 +1,209 @@
+# ============================================================================
+# DTLZ2 Multi-Objective Optimization with Ax and Slurm
+# ============================================================================
+# This example shows:
+#   Multi-objective optimization setup with Ax optimizer and Slurm scheduler.
+#   Benchmark problem with 10 variables and 2 objectives
+#   Optimization with Ax (Sobol warmup + BO)
+#   Slurm scheduler configuration for distributed execution
+#   Slurm command execution using a generated design file or direct arguments
+# ============================================================================
+
+# SECTION 1: PROBLEM DEFINITION
+# What to optimize (objectives) and the design parameter search space
+# ============================================================================
+problem:
+  name: "DTLZ2 MOBO Example with Ax and Slurm"
+  problem_type: "toy"
+  output_location: "./output/ax_slurm"
+  work_location: "./work/ax_slurm"
+
+  # Design parameters are defined inline for comparison with the JobLib baseline.
+  # Alternative: replace the inline_design section below with:
+  # design_parameters_file: "../dtlz2_design.params"
+  inline_design:
+    design_space:
+      design_parameters:
+        DTLZ2_variables:
+          parameters:
+            x1:
+              value: 0.5
+              bounds: [0.0, 1.0]
+            x2:
+              value: 0.5
+              bounds: [0.0, 1.0]
+            x3:
+              value: 0.5
+              bounds: [0.0, 1.0]
+            x4:
+              value: 0.5
+              bounds: [0.0, 1.0]
+            x5:
+              value: 0.5
+              bounds: [0.0, 1.0]
+            x6:
+              value: 0.5
+              bounds: [0.0, 1.0]
+            x7:
+              value: 0.5
+              bounds: [0.0, 1.0]
+            x8:
+              value: 0.5
+              bounds: [0.0, 1.0]
+            x9:
+              value: 0.5
+              bounds: [0.0, 1.0]
+            x10:
+              value: 0.5
+              bounds: [0.0, 1.0]
+
+  # Both DTLZ2 objectives are minimized.
+  objectives:
+    - name: "f1"
+      direction: "minimize"
+    - name: "f2"
+      direction: "minimize"
+
+# SECTION 2: OPTIMIZER CONFIGURATION
+# How candidates are generated and updated from objective results
+# ============================================================================
+optimizer:
+  name: "ax"
+  type: "bayesian"
+  parameters:
+    initialization_strategy: "sobol"
+    generator: "BOTORCH_MODULAR"
+    # Optional: customize the Ax acquisition function.
+    generator_kwargs:
+      botorch_acqf_class: "qLogNoisyExpectedHypervolumeImprovement"
+      acquisition_options:
+        prune_baseline: true
+    # Optional: customize candidate-generation behavior.
+    generator_gen_kwargs:
+      model_gen_options:
+        optimizer_kwargs:
+          sequential: false
+          num_restarts: 10
+    # Optional: provide reference points for multi-objective optimization.
+    objective_thresholds:
+      f1: 1.0
+      f2: 1.0
+    n_initial_samples: 20
+    n_iterations: 100
+    batch_size: 4
+    seed: 42
+
+# SECTION 3: SCHEDULER CONFIGURATION
+# How optimization trial batches and workflow jobs run through Slurm
+# ============================================================================
+# Scheduler configuration for distributed execution using Slurm
+scheduler:
+  runner_type: "SlurmRunner"
+  parameters:
+    partition: "gpu"  # SLURM queue/partition name
+    ntasks: 1
+    cpus_per_task: 8  # Use 8 CPUs per task
+    mem: "32GB"  # Allocate 32 GB memory per task
+    time: "12:00:00"  # 12 hour wall clock limit
+    gres: "gpu:1"  # Request 1 GPU per task
+    constraint: "gpu:v100"  # Specific GPU constraint
+    job_name_prefix: "aid2e_dtlz2"
+    runtime_working_dir: "."
+    setup_commands:
+      - "module load miniforge3/24.9.2-0"
+      - "conda activate env_AID2E"
+    poll_interval: 2
+  max_retries: 3
+  output_location: "./slurm_output"
+  monitor_interval: 60  # Check job status every 60 seconds
+
+# SECTION 4: WORKFLOW EXECUTION
+# How command jobs evaluate each candidate and expose f1 and f2
+# ============================================================================
+workflows:
+  workflows:
+    - name: "dtlz2_slurm_eval"
+      description: "Canonical global-scheduler Slurm workflow example"
+      branches:
+        - name: "main"
+          stages:
+            - name: "evaluate"
+              jobs:
+                - name: "compute_dtlz2"
+                  command: "python"
+                  # Use the framework-generated design JSON for evaluation and
+                  # an inline payload for job-specific values.
+                  rule: >-
+                    {{command}}
+                    {{repo_root}}/examples/dtlz2/dtlz2_evaluator.py
+                    --design {{design_file}}
+                    --output {{payload[output_file]}}
+                    --label {{payload[label]}}
+                    --sleep-sec {{payload[sleep_sec]}}
+                    --repeat {{payload[repeat]}}
+                  payload:
+                    output_file: "{{output_dir}}/objectives.json"
+                    label: "dtlz2-x1-{{design_point[DTLZ2_variables.x1]}}"
+                    sleep_sec: 0.3
+                    repeat: 2
+                  outputs:
+                    - path: "{{payload[output_file]}}"
+                      format: "json"
+              parallelism:
+                max_concurrent: 1
+                retry_max: 1
+                timeout_sec: 300
+
+    # Optional alternative: pass each design parameter as a direct CLI
+    # argument instead of using the framework-generated design JSON.
+    # Select with:
+    #   aid2e optimize examples/dtlz2/configurations/dtlz2_ax_slurm.yml \
+    #     --workflow dtlz2_slurm_direct_args
+    - name: "dtlz2_slurm_direct_args"
+      description: "Optional Slurm workflow using direct design-parameter arguments"
+      branches:
+        - name: "main"
+          stages:
+            - name: "evaluate"
+              jobs:
+                - name: "compute_dtlz2_direct_args"
+                  command: "python"
+                  rule: >-
+                    {{command}}
+                    {{repo_root}}/examples/dtlz2/dtlz2_evaluator.py
+                    --x1 {{payload[x1]}}
+                    --x2 {{payload[x2]}}
+                    --x3 {{payload[x3]}}
+                    --x4 {{payload[x4]}}
+                    --x5 {{payload[x5]}}
+                    --x6 {{payload[x6]}}
+                    --x7 {{payload[x7]}}
+                    --x8 {{payload[x8]}}
+                    --x9 {{payload[x9]}}
+                    --x10 {{payload[x10]}}
+                    --output {{payload[output_file]}}
+                    --label {{payload[label]}}
+                    --sleep-sec {{payload[sleep_sec]}}
+                    --repeat {{payload[repeat]}}
+                  payload:
+                    x1: "{{design_point[DTLZ2_variables.x1]}}"
+                    x2: "{{design_point[DTLZ2_variables.x2]}}"
+                    x3: "{{design_point[DTLZ2_variables.x3]}}"
+                    x4: "{{design_point[DTLZ2_variables.x4]}}"
+                    x5: "{{design_point[DTLZ2_variables.x5]}}"
+                    x6: "{{design_point[DTLZ2_variables.x6]}}"
+                    x7: "{{design_point[DTLZ2_variables.x7]}}"
+                    x8: "{{design_point[DTLZ2_variables.x8]}}"
+                    x9: "{{design_point[DTLZ2_variables.x9]}}"
+                    x10: "{{design_point[DTLZ2_variables.x10]}}"
+                    output_file: "{{output_dir}}/objectives.json"
+                    label: "dtlz2-direct-args"
+                    sleep_sec: 0.3
+                    repeat: 2
+                  outputs:
+                    - path: "{{payload[output_file]}}"
+                      format: "json"
+              parallelism:
+                max_concurrent: 1
+                retry_max: 1
+                timeout_sec: 300

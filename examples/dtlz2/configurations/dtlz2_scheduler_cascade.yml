@@ -1,0 +1,131 @@
+# ============================================================================
+# DTLZ2 Optimization with Scheduler Cascade
+# ============================================================================
+# This example shows:
+#   Single-objective optimization setup with PyMOO optimizer and JobLib local scheduler.
+#   Benchmark problem with 10 variables and 1 objective
+#   Optimization with PyMOO
+#   JobLib scheduler configuration for local parallel execution
+#   Scheduler cascade from global to workflow, branch, and stage
+# ============================================================================
+
+# SECTION 1: PROBLEM DEFINITION
+# What to optimize and the external design parameter search space
+# ============================================================================
+problem:
+  name: "DTLZ2 Single Objective Optimization Example with Scheduler Cascade"
+  problem_type: "toy"
+  description: "Single-objective DTLZ2 test problem with scheduler cascade"
+  output_location: "./output/scheduler_cascade"
+  work_location: "./work/scheduler_cascade"
+  # Design space parameters
+  design_parameters_file: "../dtlz2_design.params"
+
+  # ========================================================================
+  # OBJECTIVES: Define what we're optimizing for
+  # ========================================================================
+  # This is a SINGLE objective: f1 only (minimize)
+  objectives:
+    - name: "f1"
+      direction: "minimize"
+      
+ 
+# SECTION 2: OPTIMIZER CONFIGURATION
+# How evolutionary candidates are generated and updated from objective results
+# ============================================================================
+optimizer:
+  name: "pymoo"
+  type: "evolutionary"
+  parameters:
+    pop_size: 8
+    n_offsprings: 8
+    crossover_prob: 0.9
+    crossover_eta: 15.0
+    mutation_eta: 20.0
+    n_iterations: 4
+    seed: 42
+    verbose: false
+
+# SECTION 3: SCHEDULER CONFIGURATION
+# Global scheduler defaults (can be overridden at workflow/branch/stage level)
+# ============================================================================
+scheduler:
+  runner_type: "JobLibRunner"
+  parameters:
+    n_jobs: 4          # Use 4 parallel jobs by default
+    backend: "loky"    # Use process-based parallelism (default)
+
+# SECTION 4: WORKFLOW EXECUTION
+# How to execute the optimization (stages, parallelism, etc.)
+# NOTE: When objectives are simple (single script call), workflows are optional
+# ============================================================================
+workflows:
+  workflows:
+    - name: "dtlz2_single_eval"
+      description: "Single objective evaluation workflow"
+    
+    # Workflow-level scheduler (OVERRIDES global scheduler)
+    # PRECEDENCE: workflow scheduler > global scheduler
+      scheduler:
+        runner_type: "JobLibRunner"
+        parameters:
+          n_jobs: 8          # 8 jobs at workflow level
+          backend: "threading"
+    
+      branches:
+        - name: "main"
+          description: "Main evaluation branch"
+        
+        # Branch-level scheduler (OVERRIDES workflow scheduler)
+        # PRECEDENCE: branch scheduler > workflow scheduler > global scheduler
+          scheduler:
+            runner_type: "JobLibRunner"
+            parameters:
+              n_jobs: 2      # 2 jobs at branch level
+              backend: "loky"
+        
+          stages:
+            - name: "evaluate"
+              description: "Evaluate objective f1 for design points"
+            
+            # Jobs: individual computational tasks
+              jobs:
+                - name: "compute_f1"
+                  command: "python"
+                  rule: >-
+                    PYTHONPATH={{repo_root}}/src {{command}}
+                    {{repo_root}}/examples/dtlz2/dtlz2_evaluator.py
+                    --design {{design_file}}
+                    --output {{payload[output_file]}}
+                    --repeat 0
+                  payload:
+                    output_file: "{{output_dir}}/objectives.json"
+                  outputs:
+                    - path: "{{payload[output_file]}}"
+                      format: "json"
+            
+            # Job factory: parallelize the job across design points
+            # Creates 4 copies of the job (one per design point)
+              job_factory:
+                type: "range"
+                params:
+                  n: 4
+            
+            # Parallelism policies
+              parallelism:
+                max_concurrent: 4      # Max 4 jobs running simultaneously
+                retry_max: 2           # Retry failed jobs up to 2 times
+                timeout_sec: 300       # Kill job if it exceeds 300 seconds
+            
+            # Stage-level scheduler (OVERRIDES branch scheduler)
+            # PRECEDENCE: stage scheduler > branch scheduler > workflow scheduler > global scheduler
+              scheduler:
+                runner_type: "JobLibRunner"
+                parameters:
+                  n_jobs: 4            # 4 jobs at stage level
+                  backend: "loky"
+            
+            # Output artifacts produced by this stage
+              outputs:
+                - path: "{{output_dir}}/objectives.json"
+                  format: "json"

@@ -45,7 +45,7 @@ print(cfg.design_config.get_parameter_names())
 ```
 
 - The complete DTLZ2 example is defined in
-  `examples/dtlz2/dtlz2_optimization.yml`.
+  `examples/dtlz2/configurations/dtlz2_ax_joblib.yml`.
 
 ### Load a Full Configuration
 
@@ -53,7 +53,7 @@ print(cfg.design_config.get_parameter_names())
 from aid2e.utilities.configurations import load_config
 
 # Load a full configuration
-config = load_config("examples/dtlz2/dtlz2_optimization.yml")
+config = load_config("examples/dtlz2/configurations/dtlz2_ax_joblib.yml")
 
 # Access configuration components
 print(config.problem)
@@ -182,7 +182,7 @@ cascade, jobs, and objective plans.
 ### DTLZ2 Example
 
 This abbreviated example follows the checked-in
-`examples/dtlz2/dtlz2_optimization.yml` structure:
+`examples/dtlz2/configurations/dtlz2_ax_joblib.yml` structure:
 
 ```yaml
 problem:

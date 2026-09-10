@@ -159,10 +159,10 @@ The CLI is organized into modules under `src/aid2e/cli/`:
 
 ```bash
 aid2e --help
-aid2e describe examples/dtlz2/dtlz2_optimization.yml
-aid2e inspect examples/dtlz2/dtlz2_optimization.yml
-aid2e validate examples/dtlz2/dtlz2_optimization.yml
-aid2e optimize examples/dtlz2/dtlz2_optimization.yml --validate-only
+aid2e describe examples/dtlz2/configurations/dtlz2_ax_joblib.yml
+aid2e inspect examples/dtlz2/configurations/dtlz2_ax_joblib.yml
+aid2e validate examples/dtlz2/configurations/dtlz2_ax_joblib.yml
+aid2e optimize examples/dtlz2/configurations/dtlz2_ax_joblib.yml --validate-only
 aid2e list
 aid2e version
 ```

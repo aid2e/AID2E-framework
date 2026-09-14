@@ -1,0 +1,115 @@
+problem:
+  name: "ePIC B0 Geometry Optimization"
+  problem_type: "EPIC_B0"
+
+  output_location: "./output/ax_joblib"
+  work_location: "./work/ax_joblib"
+  epic_environment:
+    eic_shell: "/home/cua/eic/eic-shell"
+    epic_install: "/home/cua/eic/epic"
+    epic_config: "epic"
+    geometry_mode: "build"
+
+  inline_design:
+    epic_design_space:
+      epic_design_parameters:
+
+        b0_tracker:
+          file_path: "$EPIC_INSTALL/compact/far_forward/B0_tracker.xml"
+
+          parameters:
+
+            z1:
+              value: -50.0
+              bounds: [-50.0, -30.0]
+              xml_path: ".//constant[@name='B0TrackerLayer1_zstart']"
+              attribute: "value"
+              unit: "cm"
+
+            z2:
+              value: -20.0
+              bounds: [-20.0, -5.0]
+              xml_path: ".//constant[@name='B0TrackerLayer2_zstart']"
+              attribute: "value"
+              unit: "cm"
+
+            z3:
+              value: 0.0
+              bounds: [0.0, 20.0]
+              xml_path: ".//constant[@name='B0TrackerLayer3_zstart']"
+              attribute: "value"
+              unit: "cm"
+
+            z4:
+              value: 30.0
+              bounds: [30.0, 40.0]
+              xml_path: ".//constant[@name='B0TrackerLayer4_zstart']"
+              attribute: "value"
+              unit: "cm"
+
+      optimization_groups:
+        default:
+          - "b0_tracker.z1"
+          - "b0_tracker.z2"
+          - "b0_tracker.z3"
+          - "b0_tracker.z4"
+
+  objectives:
+    - name: "lever_arm"
+      direction: "maximize"
+
+optimizer:
+  name: "ax"
+  type: "bayesian"
+  parameters:
+    initialization_strategy: "sobol"
+    generator: "BOTORCH_MODULAR"
+    n_initial_samples: 1
+    n_iterations: 2
+    batch_size: 1
+    seed: 42
+
+scheduler:
+  runner_type: "JobLibRunner"
+  parameters:
+    n_jobs: 1
+    backend: "threading"
+
+workflows:
+  workflows:
+    - name: "b0_geometry_validation"
+      description: "Validate B0 geometry modification with a placeholder objective"
+      stack_type: "epic"
+
+      branches:
+        - name: "main"
+
+          stages:
+
+            - name: "geo"
+              description: "Prepare and validate modified B0 geometry"
+
+              jobs:
+                - name: "geo_job"
+
+                  payload:
+                    evaluator_type: "stack"
+                    stack_type: "epic"
+                    job_id: "geo"
+
+                  layers:
+                    - name: "geo"
+                      layer: "geo"
+                      inputs:
+                        - "{{geometry_dir}}/install/share/epic/epic.xml"
+                      outputs:
+                        - "{{output_dir}}/geo.overlaps.txt"
+
+            - name: "evaluate"
+              objective_plan:
+                steps:
+                  stages:
+                    - name: "evaluate_b0"
+                      inline:
+                        entrypoint: "examples.epic.b0.b0_evaluator:objective_payload"
+                      produces_objective: true

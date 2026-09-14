@@ -4,8 +4,8 @@
 problem:
   name: "ePIC B0 Trackers Optimization"
   problem_type: "EPIC_B0"
-  output_location: "./output"
-  work_location: "./work"
+  output_location: "./output/ax_joblib"
+  work_location: "./work/ax_joblib"
 
   epic_configuration:
     singularity_image: "/path/to/epic/singularity/image.sif" # PLACEHOLDER

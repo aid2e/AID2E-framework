@@ -22,6 +22,7 @@ from ._helpers import (
     inspect_full_config,
     inspect_problem_config,
     inspect_design_config,
+    format_optimizer_config,
 )
 
 
@@ -92,15 +93,32 @@ def inspect(config_file: str, section: str):
         elif config_type == "problem":
             from aid2e.utilities.configurations import ProblemConfigLoader
             config = ProblemConfigLoader.load(config_file)
-            inspect_problem_config(config)
+            if section in {"all", "problem"}:
+                inspect_problem_config(config)
+            if section in {"all", "design"}:
+                inspect_design_config(config.design_config)
+            if section == "optimizer":
+                raise ValueError(
+                    "Section 'optimizer' is not available in a problem configuration"
+                )
         elif config_type == "design":
             from aid2e.utilities.configurations import DesignConfigLoader
             config = DesignConfigLoader.load(config_file)
+            if section not in {"all", "design"}:
+                raise ValueError(
+                    f"Section '{section}' is not available in a design configuration"
+                )
             inspect_design_config(config)
+        elif config_type == "optimizer":
+            from aid2e.utilities.configurations import OptimizerConfiguration
+            if section not in {"all", "optimizer"}:
+                raise ValueError(
+                    f"Section '{section}' is not available in an optimizer configuration"
+                )
+            config = OptimizerConfiguration(**raw_data.get("optimizer", raw_data))
+            format_optimizer_config(config.model_dump(), compact=False)
         else:
-            # Fallback to raw display
-            click.echo(click.style(f"Configuration Type: {config_type}", bold=True))
-            click.echo(yaml.dump(raw_data, default_flow_style=False))
+            raise ValueError("Unknown configuration type")
             
     except Exception as e:
         click.echo(click.style(f"✗ Error: {e}", fg="red"), err=True)
@@ -142,9 +160,7 @@ def validate(config_file: str):
             opt = data.get("optimizer", data)
             config = OptimizerConfiguration(**opt)
         else:
-            click.echo(click.style("⚠ Unknown configuration type, performing basic YAML validation only", fg="yellow"))
-            click.echo(click.style("✓ YAML syntax is valid", fg="green"))
-            return
+            raise ValueError("Unknown configuration type")
         
         click.echo(click.style("✓ Configuration is valid!", fg="green", bold=True))
         click.echo(f"  Type: {config_type}")

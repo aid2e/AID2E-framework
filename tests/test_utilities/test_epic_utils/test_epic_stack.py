@@ -1,5 +1,11 @@
 """Tests for epic stack utilities."""
 
+import subprocess
+from types import SimpleNamespace
+
+import pytest
+
+import aid2e.utilities.epic_utils.epic_stack as epic_stack_module
 from aid2e.utilities.epic_utils.epic_stack import (
     EpicGeoLayer,
     EpicSimLayer,
@@ -7,6 +13,37 @@ from aid2e.utilities.epic_utils.epic_stack import (
     EpicAnaLayer,
     EpicStack
 )
+
+
+def test_epic_geometry_build_failure_is_not_marked_compiled(tmp_path, monkeypatch):
+    """A failed geometry build should not create compiled.log."""
+    class FakeDesignConfig:
+        def get_xml_modifications(self, _design_point):
+            return {}
+
+    template_dir = tmp_path / "template"
+    template_dir.mkdir()
+    workflow_dir = tmp_path / "workflow"
+    problem_config = SimpleNamespace(
+        design_config=FakeDesignConfig(),
+        environment_config=SimpleNamespace(
+            geometry_mode="build",
+            epic_install=str(template_dir),
+        ),
+    )
+    stack = EpicStack()
+    monkeypatch.setattr(epic_stack_module, "EpicDesignConfig", FakeDesignConfig)
+    monkeypatch.setattr(stack, "make_driver_command", lambda _script: "false")
+
+    with pytest.raises(subprocess.CalledProcessError):
+        stack.prepare_workflow_geometry(
+            workflow_dir=str(workflow_dir),
+            design_point={},
+            problem_config=problem_config,
+            workflow_id="test",
+        )
+
+    assert not (workflow_dir / template_dir.name / "compiled.log").exists()
 
 
 def _make_epic_stack_payload() -> dict:

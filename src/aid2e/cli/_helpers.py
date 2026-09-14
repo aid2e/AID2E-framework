@@ -101,7 +101,7 @@ def format_full_config(data: dict, compact: bool):
     if "design_parameters_file" in problem:
         click.echo(f"  Design: {problem['design_parameters_file']} (file)")
     elif "inline_design" in problem:
-        design = problem["inline_design"]
+        design = problem["inline_design"].get("design_space", problem["inline_design"])
         param_count = count_parameters(design.get("design_parameters", {}))
         click.echo(f"  Design: inline ({param_count} parameters)")
     elif "design_space" in problem:
@@ -114,7 +114,8 @@ def format_full_config(data: dict, compact: bool):
     if not compact and objectives:
         for obj in objectives[:3]:  # Show first 3
             if isinstance(obj, dict):
-                click.echo(f"    - {obj.get('name')}: {'minimize' if obj.get('minimize', True) else 'maximize'}")
+                direction = obj.get("direction", "minimize" if obj.get("minimize", True) else "maximize")
+                click.echo(f"    - {obj.get('name')}: {direction}")
             else:
                 click.echo(f"    - {obj}")
         if len(objectives) > 3:
@@ -147,12 +148,14 @@ def format_problem_config(data: dict, compact: bool):
     if not compact and objectives:
         for obj in objectives:
             if isinstance(obj, dict):
-                click.echo(f"  - {obj.get('name')}: {'minimize' if obj.get('minimize', True) else 'maximize'}")
+                direction = obj.get("direction", "minimize" if obj.get("minimize", True) else "maximize")
+                click.echo(f"  - {obj.get('name')}: {direction}")
     
     if "design_parameters_file" in problem:
         click.echo(f"Design Source: {problem['design_parameters_file']}")
     elif "inline_design" in problem:
-        param_count = count_parameters(problem["inline_design"].get("design_parameters", {}))
+        design = problem["inline_design"].get("design_space", problem["inline_design"])
+        param_count = count_parameters(design.get("design_parameters", {}))
         click.echo(f"Design Source: inline ({param_count} parameters)")
 
 

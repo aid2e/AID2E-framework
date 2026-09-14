@@ -1,0 +1,96 @@
+# ============================================================================
+# DTLZ2 Multi-Objective Optimization with Ax Constraints
+# ============================================================================
+# This example shows:
+#   Multi-objective optimization setup with Ax optimizer and JobLib scheduler.
+#   Benchmark problem with 10 variables and 2 objectives
+#   Optimization with Ax (Sobol warmup + BO)
+#   JobLib scheduler configuration for local parallel execution 
+#   External design parameters from dtlz2_design_constraints.params
+#   Ax design-parameter constraints
+#   Separate script objective plans for f1 and f2
+# ============================================================================
+
+# SECTION 1: PROBLEM DEFINITION
+# What to optimize and an external, constrained design parameter search space
+# ============================================================================
+problem:
+  name: "DTLZ2 MOBO Example with Ax Constraints"
+  problem_type: "toy"
+  output_location: "./output/ax_constraints"
+  work_location: "./work/ax_constraints"
+
+  # Each objective uses a separate script objective plan.
+  objectives:
+    - name: "f1"
+      direction: "minimize"
+      objective_plan:
+        steps:
+          stages:
+            - name: "evaluate_f1"
+              script:
+                path: "../dtlz2_evaluator.py"
+                output_file: "objectives_{job_id}.json"
+                timeout_sec: 600
+              produces_objective: true
+      metrics_keys: ["f1"]
+    - name: "f2"
+      direction: "minimize"
+      objective_plan:
+        steps:
+          stages:
+            - name: "evaluate_f2"
+              script:
+                path: "../dtlz2_evaluator.py"
+                output_file: "objectives_{job_id}.json"
+                timeout_sec: 600
+              produces_objective: true
+      metrics_keys: ["f2"]
+
+  # This external design file defines all ten parameters and Ax constraints.
+  design_parameters_file: "../dtlz2_design_constraints.params"
+
+# SECTION 2: OPTIMIZER CONFIGURATION
+# How Ax candidates are generated within the constrained search space
+# ============================================================================
+optimizer:
+  name: "ax"
+  type: "bayesian"
+  parameters:
+    initialization_strategy: "sobol"
+    generator: "BOTORCH_MODULAR"
+    n_initial_samples: 24
+    n_iterations: 100
+    batch_size: 4
+    seed: 42
+
+# SECTION 3: SCHEDULER CONFIGURATION
+# How optimization trial batches execute locally
+# ============================================================================
+# Scheduler configuration for local execution using JobLib
+scheduler:
+  runner_type: "JobLibRunner"
+  parameters:
+    n_jobs: -1  # Use all available processors
+    backend: "loky"  # Use loky backend for robust multiprocessing
+    timeout: 3600  # 1 hour timeout per job
+    verbose: 1
+  max_retries: 3
+  output_location: "./joblib_output"
+  monitor_interval: 30
+
+# SECTION 4: WORKFLOW EXECUTION
+# Objective computation is supplied by the plans under problem.objectives
+# ============================================================================
+workflows:
+  workflows:
+    - name: "dtlz2_eval"
+      description: "DTLZ2 objective evaluation"
+
+# OPTIONAL METADATA
+# Descriptive project information retained with the configuration
+# ============================================================================
+metadata:
+  project: "AID2E"
+  description: "AI assisted Detector Design for EIC"
+  version: "0.0.1"

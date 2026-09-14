@@ -1,0 +1,110 @@
+# ============================================================================
+# DTLZ2 Multi-Objective Optimization with PyMOO and JobLib
+# ============================================================================
+# This example shows:
+#   Multi-objective optimization setup with PyMOO optimizer and JobLib local scheduler.
+#   Benchmark problem with 10 variables and 2 objectives
+#   Optimization with PyMOO
+#   JobLib scheduler configuration for local parallel execution
+#   Inline DTLZ2 objective evaluation
+# ============================================================================
+
+# SECTION 1: PROBLEM DEFINITION
+# What to optimize (objectives) and the design parameter search space
+# ============================================================================
+problem:
+  name: "DTLZ2 MOBO Example with PyMOO and JobLib"
+  problem_type: "toy"
+  output_location: "./output/pymoo_joblib"
+  work_location: "./work/pymoo_joblib"
+
+  # Design parameters are defined inline for comparison with the Ax baseline.
+  # Alternative: replace the inline_design section below with:
+  # design_parameters_file: "../dtlz2_design.params"
+  inline_design:
+    design_space:
+      design_parameters:
+        DTLZ2_variables:
+          parameters:
+            x1:
+              value: 0.5
+              bounds: [0.0, 1.0]
+            x2:
+              value: 0.5
+              bounds: [0.0, 1.0]
+            x3:
+              value: 0.5
+              bounds: [0.0, 1.0]
+            x4:
+              value: 0.5
+              bounds: [0.0, 1.0]
+            x5:
+              value: 0.5
+              bounds: [0.0, 1.0]
+            x6:
+              value: 0.5
+              bounds: [0.0, 1.0]
+            x7:
+              value: 0.5
+              bounds: [0.0, 1.0]
+            x8:
+              value: 0.5
+              bounds: [0.0, 1.0]
+            x9:
+              value: 0.5
+              bounds: [0.0, 1.0]
+            x10:
+              value: 0.5
+              bounds: [0.0, 1.0]
+
+  # Both DTLZ2 objectives are minimized.
+  objectives:
+    - name: "f1"
+      direction: "minimize"
+    - name: "f2"
+      direction: "minimize"
+
+# SECTION 2: OPTIMIZER CONFIGURATION
+# How evolutionary candidates are generated and updated from objective results
+# ============================================================================
+optimizer:
+  name: "pymoo"
+  type: "evolutionary"
+  parameters:
+    pop_size: 8
+    n_offsprings: 8
+    crossover_prob: 0.9
+    crossover_eta: 15.0
+    mutation_eta: 20.0
+    n_iterations: 4
+    seed: 42
+    verbose: false
+
+# SECTION 3: SCHEDULER CONFIGURATION
+# How optimization trial batches execute locally
+# ============================================================================
+scheduler:
+  runner_type: "JobLibRunner"
+  parameters:
+    n_jobs: 2
+    backend: "threading"
+
+# SECTION 4: WORKFLOW EXECUTION
+# How each candidate is evaluated to produce f1 and f2
+# ============================================================================
+workflows:
+  workflows:
+    - name: "dtlz2_eval"
+      description: "DTLZ2 objective evaluation"
+      branches:
+        - name: "main"
+          stages:
+            - name: "evaluate"
+              # The inline callable returns both declared objective values.
+              objective_plan:
+                steps:
+                  stages:
+                    - name: "evaluate"
+                      inline:
+                        entrypoint: "examples.dtlz2.dtlz2_evaluator:objective_payload"
+                      produces_objective: true

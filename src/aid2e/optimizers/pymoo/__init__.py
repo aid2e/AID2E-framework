@@ -5,16 +5,14 @@ library, integrated with the AID2E ``BaseOptimizer`` interface using PyMOO's
 ask/tell protocol for external evaluation.
 
 ``PyMOOProblem`` is the public PyMOO Problem class for this search space and
-is structural-only for ask/tell workflows in AID2E. ``AID2EProblem`` remains
-available as a deprecated compatibility alias for one iteration.
+is structural-only for ask/tell workflows in AID2E.
 """
 
 from .config import PyMOOOptimizerConfig
-from .optimizer import AID2EProblem, PyMOOOptimizer, PyMOOProblem
+from .optimizer import PyMOOOptimizer, PyMOOProblem
 
 __all__ = [
     "PyMOOProblem",
-    "AID2EProblem",
     "PyMOOOptimizer",
     "PyMOOOptimizerConfig",
 ]

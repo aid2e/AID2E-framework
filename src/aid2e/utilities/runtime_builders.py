@@ -312,7 +312,9 @@ def run_optimization(
     run_name = run_id or datetime.now().strftime("%Y%m%d_%H%M")
     run_dir = output_root / run_name
     run_work_dir = Path(config.problem.work_location).resolve() / run_name
-    run_dir.mkdir(parents=True, exist_ok=True)
+    if run_dir.exists() or run_work_dir.exists():
+        raise FileExistsError(f"Run ID '{run_name}' already exists")
+    run_dir.mkdir(parents=True)
     outputs = {
         "run_dir": run_dir,
         "optimization_results": run_dir / "optimization_results.json",

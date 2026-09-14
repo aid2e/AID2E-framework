@@ -17,22 +17,16 @@ class BaseParameter(BaseModel):
 
 class RangeParameter(BaseParameter):
     """Continuous parameter with min/max bounds."""
+    type: Literal["range"] = "range"
     value: float
     bounds: Tuple[float, float]
-
-    @property
-    def type(self) -> Literal["range"]:
-        return "range"
 
 
 class ChoiceParameter(BaseParameter):
     """Categorical parameter with discrete choices."""
+    type: Literal["choice"] = "choice"
     value: Union[str, int]
     choices: Union[List[str], List[int]]
-
-    @property
-    def type(self) -> Literal["choice"]:
-        return "choice"
 
     @model_validator(mode='after')
     def check_value_choices_consistency(self) -> "ChoiceParameter":

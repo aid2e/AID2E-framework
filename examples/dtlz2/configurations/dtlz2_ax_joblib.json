@@ -1,0 +1,106 @@
+{
+  "problem": {
+    "name": "DTLZ2 MOBO Example with Ax and JobLib",
+    "problem_type": "toy",
+    "output_location": "./output/ax_joblib_json",
+    "work_location": "./work/ax_joblib_json",
+    "inline_design": {
+      "design_space": {
+        "design_parameters": {
+          "DTLZ2_variables": {
+            "parameters": {
+              "x1": {"value": 0.5, "bounds": [0.0, 1.0]},
+              "x2": {"value": 0.5, "bounds": [0.0, 1.0]},
+              "x3": {"value": 0.5, "bounds": [0.0, 1.0]},
+              "x4": {"value": 0.5, "bounds": [0.0, 1.0]},
+              "x5": {"value": 0.5, "bounds": [0.0, 1.0]},
+              "x6": {"value": 0.5, "bounds": [0.0, 1.0]},
+              "x7": {"value": 0.5, "bounds": [0.0, 1.0]},
+              "x8": {"value": 0.5, "bounds": [0.0, 1.0]},
+              "x9": {"value": 0.5, "bounds": [0.0, 1.0]},
+              "x10": {"value": 0.5, "bounds": [0.0, 1.0]}
+            }
+          }
+        }
+      }
+    },
+    "objectives": [
+      {
+        "name": "f1",
+        "direction": "minimize"
+      },
+      {
+        "name": "f2",
+        "direction": "minimize"
+      }
+    ]
+  },
+  "optimizer": {
+    "name": "ax",
+    "type": "bayesian",
+    "parameters": {
+      "initialization_strategy": "sobol",
+      "generator": "BOTORCH_MODULAR",
+      "generator_kwargs": {
+        "botorch_acqf_class": "qLogNoisyExpectedHypervolumeImprovement",
+        "acquisition_options": {
+          "prune_baseline": true
+        }
+      },
+      "generator_gen_kwargs": {
+        "model_gen_options": {
+          "optimizer_kwargs": {
+            "sequential": false,
+            "num_restarts": 10
+          }
+        }
+      },
+      "objective_thresholds": {
+        "f1": 1.0,
+        "f2": 1.0
+      },
+      "n_initial_samples": 20,
+      "n_iterations": 100,
+      "batch_size": 4,
+      "seed": 42
+    }
+  },
+  "scheduler": {
+    "runner_type": "JobLibRunner",
+    "parameters": {
+      "n_jobs": 2,
+      "backend": "threading"
+    }
+  },
+  "workflows": {
+    "workflows": [
+      {
+        "name": "dtlz2_eval",
+        "description": "DTLZ2 objective evaluation",
+        "branches": [
+          {
+            "name": "main",
+            "stages": [
+              {
+                "name": "evaluate",
+                "objective_plan": {
+                  "steps": {
+                    "stages": [
+                      {
+                        "name": "evaluate",
+                        "inline": {
+                          "entrypoint": "examples.dtlz2.dtlz2_evaluator:objective_payload"
+                        },
+                        "produces_objective": true
+                      }
+                    ]
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

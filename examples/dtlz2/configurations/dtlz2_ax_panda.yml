@@ -1,0 +1,137 @@
+# ============================================================================
+# DTLZ2 Multi-Objective Optimization with Ax and PanDA/iDDS
+# ============================================================================
+# This example shows:
+#   Multi-objective optimization setup with Ax optimizer and PanDA scheduler.
+#   Benchmark problem with 10 variables and 2 objectives
+#   Optimization with Ax (Sobol warmup + BO)
+#   PanDA scheduler configuration for distributed execution
+#   Inline DTLZ2 objective evaluation
+# ============================================================================
+
+# SECTION 1: PROBLEM DEFINITION
+# What to optimize (objectives) and the design parameter search space
+# ============================================================================
+problem:
+  name: "DTLZ2 MOBO Example with Ax and PanDA"
+  problem_type: "toy"
+  output_location: "./output/ax_panda"
+  work_location: "./work/ax_panda"
+
+  # Design parameters are defined inline for comparison with the JobLib baseline.
+  # Alternative: replace the inline_design section below with:
+  # design_parameters_file: "../dtlz2_design.params"
+  inline_design:
+    design_space:
+      design_parameters:
+        DTLZ2_variables:
+          parameters:
+            x1:
+              value: 0.5
+              bounds: [0.0, 1.0]
+            x2:
+              value: 0.5
+              bounds: [0.0, 1.0]
+            x3:
+              value: 0.5
+              bounds: [0.0, 1.0]
+            x4:
+              value: 0.5
+              bounds: [0.0, 1.0]
+            x5:
+              value: 0.5
+              bounds: [0.0, 1.0]
+            x6:
+              value: 0.5
+              bounds: [0.0, 1.0]
+            x7:
+              value: 0.5
+              bounds: [0.0, 1.0]
+            x8:
+              value: 0.5
+              bounds: [0.0, 1.0]
+            x9:
+              value: 0.5
+              bounds: [0.0, 1.0]
+            x10:
+              value: 0.5
+              bounds: [0.0, 1.0]
+
+  # Both DTLZ2 objectives are minimized.
+  objectives:
+    - name: "f1"
+      direction: "minimize"
+    - name: "f2"
+      direction: "minimize"
+
+# SECTION 2: OPTIMIZER CONFIGURATION
+# How candidates are generated and updated from objective results
+# ============================================================================
+optimizer:
+  name: "ax"
+  type: "bayesian"
+  parameters:
+    initialization_strategy: "sobol"
+    generator: "BOTORCH_MODULAR"
+    # Optional: customize the Ax acquisition function.
+    generator_kwargs:
+      botorch_acqf_class: "qLogNoisyExpectedHypervolumeImprovement"
+      acquisition_options:
+        prune_baseline: true
+    # Optional: customize candidate-generation behavior.
+    generator_gen_kwargs:
+      model_gen_options:
+        optimizer_kwargs:
+          sequential: false
+          num_restarts: 10
+    # Optional: provide reference points for multi-objective optimization.
+    objective_thresholds:
+      f1: 1.0
+      f2: 1.0
+    n_initial_samples: 20
+    n_iterations: 100
+    batch_size: 4
+    seed: 42
+
+# SECTION 3: SCHEDULER CONFIGURATION
+# How optimization trial batches are submitted for distributed execution
+# ============================================================================
+# Scheduler configuration for distributed execution using PanDA iDDS
+scheduler:
+  runner_type: "PanDAiDDSRunner"
+  parameters:
+    name: null  # Auto-generate the PanDA job name
+    cloud: null
+    task_type: "optimization"
+    max_walltime: 7200  # 2 hour timeout per task
+  max_retries: 5
+  output_location: "./panda_output"
+  monitor_interval: 120  # Check distributed job status every 120 seconds
+
+# SECTION 4: WORKFLOW EXECUTION
+# How each candidate is evaluated to produce f1 and f2
+# ============================================================================
+workflows:
+  workflows:
+    - name: "dtlz2_eval"
+      description: "DTLZ2 objective evaluation"
+      branches:
+        - name: "main"
+          stages:
+            - name: "evaluate"
+              # The inline callable returns both declared objective values.
+              objective_plan:
+                steps:
+                  stages:
+                    - name: "evaluate"
+                      inline:
+                        entrypoint: "examples.dtlz2.dtlz2_evaluator:objective_payload"
+                      produces_objective: true
+
+# OPTIONAL METADATA
+# Descriptive project information retained with the configuration
+# ============================================================================
+metadata:
+  project: "AID2E"
+  description: "AI assisted Detector Design for EIC - Distributed Execution"
+  version: "0.0.1"

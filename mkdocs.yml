@@ -28,12 +28,16 @@ markdown_extensions:
   - pymdownx.snippets
 
 nav:
-  - Home: README.md
-  - Docs Guide: docs-guide.md
-  - Optimizer Architecture: optimizer-architecture.md
+  - Home: overview.md
+  - Getting Started:
+    - Installation: getting-started/installation.md
+    - Quick Start: getting-started/quick-start.md
   - User Guide:
-    - Overview: user-guide/overview.md
-    - Constraint Handling: CONSTRAINT_HANDLING.md
+    - Configuration: user-guide/configuration.md
+    - Workflows: user-guide/workflows.md
+    - Optimizers: user-guide/optimizers.md
+    - Schedulers: user-guide/schedulers.md
+    - CLI: user-guide/cli.md
   - API Reference:
     - CLI: api-reference/cli.md
     - Optimizers: api-reference/optimizers.md

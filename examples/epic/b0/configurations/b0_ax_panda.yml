@@ -1,0 +1,273 @@
+# ============================================================================
+# ePIC B0 Far-Forward Tracker Optimization with Ax and PanDA/iDDS
+# ============================================================================
+#
+# Geometry-only validation example:
+#   - 4 B0 tracker disk z positions
+#   - Ax optimization
+#   - PanDA/iDDS distributed execution
+#   - ePIC geometry workflow
+#   - placeholder lever-arm objective
+#
+# ============================================================================
+
+
+# ============================================================================
+# SECTION 1: PROBLEM DEFINITION
+# ============================================================================
+
+problem:
+  name: "ePIC B0 Geometry Optimization with Ax and PanDA"
+  problem_type: "EPIC_B0"
+
+  output_location: "./output/ax_panda"
+  work_location: "./work/ax_panda"
+
+  # --------------------------------------------------------------------------
+  # ePIC environment on PanDA workers
+  #
+  # The PanDA worker setup below initializes the EIC software environment
+  # through CVMFS. EIC_SOFTWARE is expected to be defined by that environment.
+  # --------------------------------------------------------------------------
+
+  epic_environment:
+    singularity_image: "/cvmfs/singularity.opensciencegrid.org/eic/eic_ci:nightly"
+    epic_install: "$EIC_SOFTWARE"
+    epic_config: "epic"
+    geometry_mode: "no_build"
+
+  # --------------------------------------------------------------------------
+  # B0 detector design space
+  # --------------------------------------------------------------------------
+
+  inline_design:
+    epic_design_space:
+      epic_design_parameters:
+
+        b0_tracker:
+
+          # Installed ePIC geometry on the worker
+          file_path: "$EIC_SOFTWARE/share/epic/compact/far_forward/B0_tracker.xml"
+
+          parameters:
+
+            z1:
+              value: -50.0
+              bounds: [-50.0, -30.0]
+              xml_path: ".//constant[@name='B0TrackerLayer1_zstart']"
+              attribute: "value"
+              unit: "cm"
+
+            z2:
+              value: -20.0
+              bounds: [-20.0, -5.0]
+              xml_path: ".//constant[@name='B0TrackerLayer2_zstart']"
+              attribute: "value"
+              unit: "cm"
+
+            z3:
+              value: 0.0
+              bounds: [0.0, 20.0]
+              xml_path: ".//constant[@name='B0TrackerLayer3_zstart']"
+              attribute: "value"
+              unit: "cm"
+
+            z4:
+              value: 30.0
+              bounds: [30.0, 40.0]
+              xml_path: ".//constant[@name='B0TrackerLayer4_zstart']"
+              attribute: "value"
+              unit: "cm"
+
+      optimization_groups:
+        default:
+          - "b0_tracker.z1"
+          - "b0_tracker.z2"
+          - "b0_tracker.z3"
+          - "b0_tracker.z4"
+
+  # Placeholder geometry objective
+  objectives:
+    - name: "lever_arm"
+      direction: "maximize"
+
+
+# ============================================================================
+# SECTION 2: OPTIMIZER CONFIGURATION
+# ============================================================================
+#
+# Keep this deliberately tiny for the first PanDA validation.
+# ============================================================================
+
+optimizer:
+  name: "ax"
+  type: "bayesian"
+
+  parameters:
+    initialization_strategy: "sobol"
+    generator: "BOTORCH_MODULAR"
+
+    n_initial_samples: 1
+    n_iterations: 2
+    batch_size: 1
+
+    seed: 42
+
+
+# ============================================================================
+# SECTION 3: PANDA / iDDS SCHEDULER
+# ============================================================================
+
+scheduler:
+  runner_type: "PanDAiDDSRunner"
+
+  parameters:
+
+    # PanDA task identification
+    name: "user.wguan.b0_geometry_optimization"
+
+    cloud: "US"
+    queue: "BNL_PanDA_1"
+
+    task_type: "optimization"
+
+    # ------------------------------------------------------------------------
+    # Worker environment
+    #
+    # This reproduces the environment initialization used by the previous
+    # B0_FarForward PanDA optimization.
+    # ------------------------------------------------------------------------
+
+    init_env: >
+      source /cvmfs/unpacked.cern.ch/gitlab-registry.cern.ch/wguan/mlcontainer:py311_1.0/opt/conda/setup_mamba.sh;
+      source /cvmfs/unpacked.cern.ch/gitlab-registry.cern.ch/wguan/mlcontainer:py311_1.0/opt/conda/dRICH-MOBO/MOBO-tools/setup_new.sh;
+      command -v singularity &> /dev/null ||
+      export SINGULARITY=/cvmfs/oasis.opensciencegrid.org/mis/singularity/current/bin/singularity;
+      unset SINGULARITY_BINDPATH;
+      export AIDE_HOME=$(pwd);
+      export PWD_PATH=$(pwd);
+      export EPIC_SHARE_LOCAL="$PWD/epic_share_no_colon";
+      mkdir -p "$EPIC_SHARE_LOCAL";
+      if [ ! -e "$EPIC_SHARE_LOCAL/epic" ]; then
+        ln -s "${DETECTOR_PATH}" "$EPIC_SHARE_LOCAL/epic";
+      fi;
+      export SIF=/cvmfs/singularity.opensciencegrid.org/eic/eic_ci:nightly;
+      env;
+
+    # Package the current AID2E source tree with the task
+    source_dir: '.'
+    source_dir_parent_level: 1
+
+    exclude_source_files:
+      - "(^|/)\\.[^/]+"
+      - "doc*"
+      - "DTLZ2*"
+      - ".*json"
+      - ".*log"
+      - "work"
+      - "log"
+      - "OUTDIR"
+      - "calibrations"
+      - "fieldmaps"
+      - "gdml"
+      - "EICrecon-drich-mobo"
+      - "eic-software"
+      - "epic-geom-drich-mobo"
+      - "irt"
+      - "share"
+      - "back*"
+      - "__pycache__"
+      - "events"
+      - "checkpoints"
+
+    # Keep values modest for this validation test
+    max_walltime: 7200
+    core_count: 1
+    total_memory: 4000
+
+    enable_separate_log: true
+    job_dir: null
+
+  max_retries: 5
+
+  output_location: "./panda_output"
+
+  # Poll PanDA every two minutes
+  monitor_interval: 120
+
+
+# ============================================================================
+# SECTION 4: WORKFLOW
+# ============================================================================
+
+workflows:
+  workflows:
+
+    - name: "b0_geometry_validation"
+      description: "Validate distributed B0 geometry modification with PanDA/iDDS"
+
+      stack_type: "epic"
+
+      branches:
+
+        - name: "main"
+
+          stages:
+
+            # ----------------------------------------------------------------
+            # Stage 1: Geometry
+            # ----------------------------------------------------------------
+
+            - name: "geo"
+              description: "Prepare and validate modified B0 geometry"
+
+              jobs:
+
+                - name: "geo_job"
+
+                  payload:
+                    evaluator_type: "stack"
+                    stack_type: "epic"
+                    job_id: "geo"
+
+                  layers:
+
+                    - name: "geo"
+                      layer: "geo"
+
+                      inputs:
+                        - "{{geometry_dir}}/epic.xml"
+
+                      outputs:
+                        - "{{output_dir}}/geo.overlaps.txt"
+
+
+            # ----------------------------------------------------------------
+            # Stage 2: Placeholder objective
+            # ----------------------------------------------------------------
+
+            - name: "evaluate"
+
+              objective_plan:
+
+                steps:
+
+                  stages:
+
+                    - name: "evaluate_b0"
+
+                      inline:
+                        entrypoint: "examples.epic.b0.b0_evaluator:objective_payload"
+
+                      produces_objective: true
+
+
+# ============================================================================
+# OPTIONAL METADATA
+# ============================================================================
+
+metadata:
+  project: "AID2E"
+  detector: "ePIC B0 Far-Forward Tracker"
+  description: "B0 geometry optimization using Ax and PanDA/iDDS"
+  version: "0.0.1"

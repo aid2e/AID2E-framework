@@ -90,7 +90,7 @@ all = [
 ]
 
 [project.urls]
-Homepage = "https://aid2e.github.io/aid2e"
+Homepage = "https://aid2e.github.io/AID2E-framework"
 Documentation = "https://aid2e.github.io/AID2E-framework"
 Repository = "https://github.com/aid2e/AID2E-framework.git"
 Issues = "https://github.com/aid2e/AID2E-framework/issues"
@@ -98,9 +98,9 @@ Issues = "https://github.com/aid2e/AID2E-framework/issues"
 [project.scripts]
 aid2e = "aid2e.cli.aid2e_cli:cli"
 
-[tool.setuptools]
-packages = ["aid2e", "aid2e.cli", "aid2e.optimizers", "aid2e.optimizers.ax", "aid2e.optimizers.pymoo", "aid2e.schedulers", "aid2e.utilities", "aid2e.utilities.configurations", "aid2e.utilities.epic_utils"]
-package-dir = {"" = "src"}
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["aid2e*"]
 
 [tool.setuptools.package-data]
 "aid2e" = ["py.typed"]

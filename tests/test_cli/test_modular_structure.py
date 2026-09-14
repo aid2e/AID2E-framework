@@ -4,12 +4,22 @@ Unit tests for modular CLI structure.
 Tests command registration, imports, and modular organization.
 """
 
+from pathlib import Path
+
 import pytest
 from click.testing import CliRunner
 
 # Test both import patterns
 from aid2e.cli.aid2e_cli import cli as cli_direct
 from aid2e.cli import cli as cli_package
+
+
+DTLZ2_CONFIG = (
+    Path(__file__).parents[2]
+    / "examples"
+    / "dtlz2"
+    / "dtlz2_optimization.yml"
+)
 
 
 class TestCLIStructure:
@@ -90,16 +100,43 @@ class TestConfigCommands:
         self.runner = CliRunner()
     
     def test_describe_command_exists(self):
-        """Describe command should be accessible."""
+        """Describe command should be accessible and read canonical designs."""
         result = self.runner.invoke(cli_direct, ["describe", "--help"])
         assert result.exit_code == 0
         assert "Describe the contents" in result.output
+
+        result = self.runner.invoke(cli_direct, ["describe", str(DTLZ2_CONFIG)])
+        assert result.exit_code == 0
+        assert "Design: inline (10 parameters)" in result.output
     
-    def test_inspect_command_exists(self):
-        """Inspect command should be accessible."""
+    def test_inspect_command_exists(self, tmp_path):
+        """Inspect command should be accessible and apply section filters."""
         result = self.runner.invoke(cli_direct, ["inspect", "--help"])
         assert result.exit_code == 0
         assert "detailed information" in result.output
+
+        config_path = tmp_path / "optimizer.yml"
+        config_path.write_text(
+            "optimizer:\n"
+            "  name: ax\n"
+            "  type: bayesian\n"
+            "  parameters:\n"
+            "    n_iterations: 5\n"
+        )
+        result = self.runner.invoke(
+            cli_direct,
+            ["inspect", str(config_path), "--section", "optimizer"],
+        )
+        assert result.exit_code == 0
+        assert "Algorithm: ax (bayesian)" in result.output
+        assert "n_iterations: 5" in result.output
+
+        result = self.runner.invoke(
+            cli_direct,
+            ["inspect", str(config_path), "--section", "design"],
+        )
+        assert result.exit_code == 1
+        assert "not available in an optimizer configuration" in result.output
     
     def test_validate_command_exists(self):
         """Validate command should be accessible."""
@@ -112,10 +149,16 @@ class TestConfigCommands:
         result = self.runner.invoke(cli_direct, ["describe", "nonexistent.yml"])
         assert result.exit_code != 0
     
-    def test_validate_missing_file(self):
-        """Validate should error on missing file."""
+    def test_validate_missing_file(self, tmp_path):
+        """Validate should reject missing files and unknown structures."""
         result = self.runner.invoke(cli_direct, ["validate", "nonexistent.yml"])
         assert result.exit_code != 0
+
+        config_path = tmp_path / "unknown.yml"
+        config_path.write_text("unknown:\n  value: 1\n")
+        result = self.runner.invoke(cli_direct, ["validate", str(config_path)])
+        assert result.exit_code == 1
+        assert "Unknown configuration type" in result.output
 
 
 class TestWorkflowCommands:
@@ -136,10 +179,24 @@ class TestWorkflowCommands:
         result = self.runner.invoke(cli_direct, ["optimize", "--help"])
         assert "--validate-only" in result.output
     
-    def test_optimize_has_verbosity_option(self):
-        """Optimize should have -v/--verbosity option."""
+    def test_optimize_has_verbosity_option(self, tmp_path):
+        """Optimize should expose verbosity and write configured logs."""
         result = self.runner.invoke(cli_direct, ["optimize", "--help"])
         assert "--verbosity" in result.output or "-v" in result.output
+
+        log_path = tmp_path / "aid2e.log"
+        result = self.runner.invoke(
+            cli_direct,
+            [
+                "optimize",
+                str(DTLZ2_CONFIG),
+                "--validate-only",
+                "--log",
+                str(log_path),
+            ],
+        )
+        assert result.exit_code == 0
+        assert "Configuration validated" in log_path.read_text()
 
 
 class TestUtilityCommands:
@@ -168,6 +225,8 @@ class TestUtilityCommands:
         assert result.exit_code == 0
         assert "ax" in result.output
         assert "Bayesian" in result.output
+        assert "pymoo" in result.output
+        assert "Evolutionary" in result.output
     
     def test_list_templates(self):
         """List templates should show template info."""

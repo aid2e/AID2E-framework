@@ -487,7 +487,7 @@ class DAGExecutor:
                     job_id = job_id + f"_{n_seen - 1}"
                     job.name = job_id
                 task_id = f"{stage.name}:{job_id}"
-                self._execute_job(job, job_id, task_id, stage_context, design_point)
+                self._execute_job(job, n_seen, job_id, task_id, stage_context, design_point)
 
         if stage.objective_plan is not None:
             payload = self._execute_objective_plan(
@@ -1017,6 +1017,7 @@ class DAGExecutor:
     def _execute_job(
         self,
         job: JobDefinition,
+        job_idx: int,
         job_id: str,
         task_id: str,
         stage_context: StageContext,
@@ -1026,6 +1027,7 @@ class DAGExecutor:
         
         Args:
             job: Job definition to execute.
+            job_idx: Job index (0 if name is unique)
             job_id: Unique job identifier.
             task_id: Key encoding stage, job ID
             stage_context: Parent stage context.
@@ -1054,6 +1056,7 @@ class DAGExecutor:
             output_dir=str(output_dir),
             problem_config=self.problem_config,
             workflow_context=self.workflow_context,
+            job_index=job_idx,
         )
         
         # Select and create evaluator

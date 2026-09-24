@@ -55,8 +55,8 @@ flowchart TB
     G --> s2["sim 2"]
 
     S0 --> M["merge sim output"]
-    s1 --> M
-    s2 --> M
+    S1 --> M
+    S2 --> M
     M  --> R["reco"]
     R  --> A["analysis"]
 
@@ -65,7 +65,7 @@ flowchart TB
 
   B --> T
   B --> N["Other trials<br/>same workflow"]
-  M --> R["Collect batch results"]
-  N --> R
-  R --> U["Update optimizer"] --> O
+  M --> C["Collect batch results"]
+  N --> C
+  C --> U["Update optimizer"] --> O
 ```

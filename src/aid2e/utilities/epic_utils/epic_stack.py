@@ -7,6 +7,7 @@ module.
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 import os
+import pathlib
 import shutil
 
 from aid2e.utilities.configurations.experimental_stack_config import (
@@ -60,7 +61,7 @@ class EpicGeoLayer(StackLayer):
         checks = [
             f' >& {output}',
             "grep -Eq 'Number of illegal overlaps/extrusions[[:space:]]*"
-            rf":[[:space:]]*0[[:space:]]*$' {output} || exit 9",
+            rf":[[:space:]]*0[[:space:]]+found' {output} || exit 9",
         ]
         return '\n'.join(checks)
 
@@ -191,7 +192,8 @@ class EpicStack(ExperimentStack):
             if src_file.startswith(template_geo_dir):
                 dst_file = src_file.replace(template_geo_dir, trial_geo_dir, 1)
             else:
-                dst_file = src_file
+                dst_path = pathlib.Path(trial_geo_dir) / src_file
+                dst_file = str(dst_path)
             remapped_modifications[dst_file] = params
 
         modify_xml_files(remapped_modifications)
@@ -202,6 +204,7 @@ class EpicStack(ExperimentStack):
             f"cmake --install {trial_geo_dir}/build\n"
         )
         compile_script = os.path.join(trial_geo_dir, "compile_geo.sh")
+
         with open(compile_script, "w") as script:
             script.writelines(compile_commands)
         os.chmod(compile_script, 0o777)

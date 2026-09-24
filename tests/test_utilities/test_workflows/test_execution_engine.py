@@ -140,6 +140,7 @@ class TestTemplateSubstitutions:
         job_context = JobContext(
             task_id=f'{stage_context.stage_id}:job',
             job_id='job',
+            job_index=9,
             stage_id=stage_context.stage_id,
             workflow_id=workflow_context.workflow_id,
             design_point={'param_a': 'red', 'param_b': 'blue', 'param_c': 'green'},
@@ -151,26 +152,28 @@ class TestTemplateSubstitutions:
             workflow_context=workflow_context,
         )
 
-        test_0 = "{{output_dir}}/out_{{design_point.param_a}}_{{design_point.param_b}}.root"
-        test_1 = "{{execution_dir}}/{{branch_id}}_{{stage_id}}_{{job_id}}.log"
-        test_2 = "{{geometry_dir}}/install/share/epic_{{workflow_id}}.xml"
-        test_3 = "{{artifacts[objective]}}"
-        test_4 = "{{xcom[upstream:job:metric]}}"
-        test_5 = "{{xcom[upstream:job:sim:inputs](1)}}"
-        test_6 = "{{xcom[upstream:job:return_value]('stdout')}}"
-        test_7 = "{{inputs[upstream:job:sim](2)}}"
-        test_8 = "{{outputs[upstream:job:sim](0)}}"
-        test_9 = "{{arguments[upstream:job:sim](0)}}"
-        assert Template.substitute(test_0, job_context) == "/output/here/out_red_blue.root"
-        assert Template.substitute(test_1, job_context) == "/execute/here/branch_stage_job.log"
-        assert Template.substitute(test_2, job_context) == "/geo/here/install/share/epic_workflow.xml"
-        assert Template.substitute(test_3, job_context) == "/output/here/objective.json"
-        assert Template.substitute(test_4, job_context) == "9"
-        assert Template.substitute(test_5, job_context) == "in_1.root"
-        assert Template.substitute(test_6, job_context) == "Hello!"
-        assert Template.substitute(test_7, job_context) == "in_2.root"
-        assert Template.substitute(test_8, job_context) == "out_0.root"
-        assert Template.substitute(test_9, job_context) == "--crossingAngleBoost 0.025"
+        test_0  = "{{output_dir}}/out_{{design_point.param_a}}_{{design_point.param_b}}.root"
+        test_1  = "{{execution_dir}}/{{branch_id}}_{{stage_id}}_{{job_id}}.log"
+        test_2  = "{{geometry_dir}}/install/share/epic_{{workflow_id}}.xml"
+        test_3  = "{{artifacts[objective]}}"
+        test_4  = "{{xcom[upstream:job:metric]}}"
+        test_5  = "{{xcom[upstream:job:sim:inputs](1)}}"
+        test_6  = "{{xcom[upstream:job:return_value]('stdout')}}"
+        test_7  = "{{inputs[upstream:job:sim](2)}}"
+        test_8  = "{{outputs[upstream:job:sim](0)}}"
+        test_9  = "{{arguments[upstream:job:sim](0)}}"
+        test_10 = "{{job_index}}"
+        assert Template.substitute(test_0, job_context)  == "/output/here/out_red_blue.root"
+        assert Template.substitute(test_1, job_context)  == "/execute/here/branch_stage_job.log"
+        assert Template.substitute(test_2, job_context)  == "/geo/here/install/share/epic_workflow.xml"
+        assert Template.substitute(test_3, job_context)  == "/output/here/objective.json"
+        assert Template.substitute(test_4, job_context)  == "9"
+        assert Template.substitute(test_5, job_context)  == "in_1.root"
+        assert Template.substitute(test_6, job_context)  == "Hello!"
+        assert Template.substitute(test_7, job_context)  == "in_2.root"
+        assert Template.substitute(test_8, job_context)  == "out_0.root"
+        assert Template.substitute(test_9, job_context)  == "--crossingAngleBoost 0.025"
+        assert Template.substitute(test_10, job_context) == "9"
 
 
 class TestBashExecutionEngine:

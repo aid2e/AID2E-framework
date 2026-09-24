@@ -38,7 +38,7 @@ problem:
     # Geometry configuration file to use (e.g. epic, epic_full)
     epic_config: "epic"
 
-    # Turn on/off recompilation of eometry after modifying it
+    # Turn on/off recompilation of geometry after modifying it
     # in a trial. Options:
     #   "build" - 
     geometry_mode: "build"

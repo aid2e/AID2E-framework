@@ -591,15 +591,10 @@ class DAGExecutor:
             # Process results and update XCom
             self._process_scheduler_results(result, jobs, stage.name)
 
-            with open(f"/w/eic-scshelf2104/users/dereka/aid2e/dev/ForBICInFW/AID2E-framework/examples/epic/{stage.name}.xcom", 'w') as xfile:
-                json.dump(job_context.xcom, xfile, indent=4)
-
             if not result.success:
                 raise RuntimeError(
                     f"Stage {stage.name} failed: {result.error_message}"
                 )
-
-
 
         except Exception as e:
             self.logger.checkpoint(

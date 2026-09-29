@@ -110,6 +110,8 @@ class JobContext:
         problem_config: Problem configuration for accessing stack-
                         dependent design space
         workflow_context: Shared workflow context (optional).
+        job_index: Index of job, will be 0 except when multiple jobs
+                   have names (e.g. when using a JobFactory)
     """
     task_id: str
     job_id: str
@@ -125,6 +127,7 @@ class JobContext:
     stage_context: Optional[StageContext] = None
     problem_config: Optional[ProblemConfiguration] = None
     workflow_context: Optional[WorkflowSharedContext] = None
+    job_index: Optional[int] = 0
 
     def xcom_key(self, key: str, task_id: str) -> str:
         """Get xcom key for a given job, stage
@@ -198,6 +201,7 @@ class Template:
     Supports:
         - {{design_point.key}} → Value for design parameter with name `key`
         - {{job_id}} → Name of current job
+        - {{job_index}} → Index of current job
         - {{stage_id}} → Name of current stage
         - {{branch_id}} → Name of current branch
         - {{workflow_id}} → Name of workflow
@@ -221,8 +225,14 @@ class Template:
     _substitutions = {
         "{{design_point.key}}":
             (lambda text, context: reduce(lambda result, key: result.replace(f"{{{{design_point.{key[0]}}}}}", str(key[1])), context.design_point.items(), text)),
+        "{{trial_index}}":
+            (lambda text, context: text.replace("{{trial_index}}", str(context.workflow_context.parameters["trial_index"]))
+            if context.workflow_context is not None and "trial_index" in context.workflow_context.parameters
+            else text),
         "{{job_id}}":
             (lambda text, context: text.replace("{{job_id}}", str(context.job_id))),
+        "{{job_index}}":
+            (lambda text, context: text.replace("{{job_index}}", str(context.job_index))),
         "{{stage_id}}":
             (lambda text, context: text.replace("{{stage_id}}", str(context.stage_id))),
         "{{branch_id}}":
@@ -705,6 +715,7 @@ class StackExecutionEngine(BaseExecutionEngine):
         # push info to XCom for downstream tasks
         for layer in self.layers:
             self._apply_template_substitution(layer, context)
+            self._resolve_relative_paths(layer)
             context.xcom_push(f'{layer.name}:inputs', layer.inputs)
             context.xcom_push(f'{layer.name}:outputs', layer.outputs)
             context.xcom_push(f'{layer.name}:arguments', layer.arguments)
@@ -786,6 +797,31 @@ class StackExecutionEngine(BaseExecutionEngine):
             layer.command = self._template.substitute(layer.command, context)
         if layer.rule is not None:
             layer.rule = self._template.substitute(layer.rule, context)
+
+    def _resolve_relative_paths(self, layer: StackLayerConfig) -> None:
+        """
+        Resolve relative paths of layer inputs/outputs.
+
+        Args:
+            layer: The layer config to apply substitutions to
+        """
+        resolved_inputs = list()
+        for layer_input in layer.inputs:
+            path = Path(layer_input)
+            if not path.is_absolute():
+                resolved_inputs.append(str(path.resolve()))
+            else:
+                resolved_inputs.append(str(path))
+        layer.inputs = resolved_inputs
+
+        resolved_outputs = list()
+        for layer_output in layer.outputs:
+            path = Path(layer_output)
+            if not path.is_absolute():
+                resolved_outputs.append(str(path.resolve()))
+            else:
+                resolved_outputs.append(str(path))
+        layer.outputs = resolved_outputs
 
 
 __all__ = [

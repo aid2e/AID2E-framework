@@ -24,6 +24,10 @@ class AxOptimizerConfig(BaseModel):
             ``"sobol"``, ``"uniform"``, and ``"center"``.
         generator: Specify the Ax generator enum name used for model-based
             candidate generation. The default is ``"BOTORCH_MODULAR"``.
+        warm_start_path: Optional path to a native Ax Client JSON snapshot.
+            When provided, AID2E validates compatibility, imports prior Ax trials
+            and results, then generates new candidates using the current AID2E
+            generation strategy. Set to ``null`` to disable warm-starting.
         generator_kwargs: Provide keyword arguments for Ax ``GeneratorSpec``
             setup (for example, model configuration details).
         generator_gen_kwargs: Provide generation-time keyword arguments passed
@@ -40,6 +44,7 @@ class AxOptimizerConfig(BaseModel):
         >>> config = AxOptimizerConfig(
         ...     initialization_strategy="sobol",
         ...     generator="BOTORCH_MODULAR",
+        ...     warm_start_path="previous_run/ax_client_snapshot.json",
         ...     generator_kwargs={"fit_out_of_design": False},
         ...     generator_gen_kwargs={"model_gen_options": {"acqf_optimizer_kwargs": {"num_restarts": 8}}},
         ...     n_initial_samples=12,
@@ -69,6 +74,13 @@ class AxOptimizerConfig(BaseModel):
         description=(
             "Ax generator enum name. This backend currently supports "
             "'BOTORCH_MODULAR' and treats it as the default model-based backend."
+        ),
+    )
+    warm_start_path: Optional[str] = Field(
+        default=None,
+        description=(
+            "Optional path to an Ax Client JSON snapshot used to seed this "
+            "optimization with compatible previous trials and results."
         ),
     )
     generator_kwargs: dict[str, Any] = Field(
@@ -139,6 +151,5 @@ class AxOptimizerConfig(BaseModel):
     def normalize_generator(cls, value: str) -> str:
         """Normalize the configured generator to an Ax enum-style name."""
         return validate_generator_name(value)
-
 
 register("ax", AxOptimizerConfig)

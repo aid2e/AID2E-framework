@@ -146,4 +146,5 @@ migrating_src
 *.codex*
 *__experimental__*
 *experimental_tests*
-*__pycache__*
+*__pycache__*aid2e_tech_meeting_aug1226.pdf
+Example_test_warm_start/

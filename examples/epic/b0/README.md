@@ -14,10 +14,15 @@ Objective (placeholder) : geometrical lever arm.
     - placeholder objective (lever arm) 
 
 - b0_ax_panda.yml :
-    - PanDA job submitted after sourcing `panda_source_example.sh`
-    - Issue in job reading : runner.py to be updated ?
-    - See aid2e/B0_FarForward for a working example of B0 with PanDA.
+    - fully validated through `aid2e validate` + `optimize`
+    - `eic-shell` + `epic` loading managed
+    - placeholder objective (lever arm)
+    - example: https://pandamon01.sdcc.bnl.gov/job?pandaid=4101255 
 
-- b0_ax_slurm.yml : to be done
+- b0_ax_slurm.yml :
+    - iFarm only (so far)
+    - fully validated through `aid2e validate` + `optimize`
+    - `eic-shell` + `epic` loading managed
+    - placeholder objective (lever arm)
 
 - b0_pymoo_xxx : to be done 

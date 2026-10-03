@@ -25,14 +25,11 @@ problem:
 
   # --------------------------------------------------------------------------
   # ePIC environment on PanDA workers
-  #
-  # The PanDA worker setup below initializes the EIC software environment
-  # through CVMFS. EIC_SOFTWARE is expected to be defined by that environment.
   # --------------------------------------------------------------------------
 
   epic_environment:
     singularity_image: "/cvmfs/singularity.opensciencegrid.org/eic/eic_ci:nightly"
-    epic_install: "$EIC_SOFTWARE"
+    epic_install: "/opt/local"
     epic_config: "epic"
     geometry_mode: "no_build"
 
@@ -46,14 +43,13 @@ problem:
 
         b0_tracker:
 
-          # Installed ePIC geometry on the worker
-          file_path: "$EIC_SOFTWARE/share/epic/compact/far_forward/B0_tracker.xml"
+          file_path: "$DETECTOR_PATH/compact/far_forward/B0_tracker.xml"
 
           parameters:
 
             z1:
-              value: -50.0
-              bounds: [-50.0, -30.0]
+              value: -40.0
+              bounds: [-40.0, -30.0]
               xml_path: ".//constant[@name='B0TrackerLayer1_zstart']"
               attribute: "value"
               unit: "cm"
@@ -95,9 +91,6 @@ problem:
 # ============================================================================
 # SECTION 2: OPTIMIZER CONFIGURATION
 # ============================================================================
-#
-# Keep this deliberately tiny for the first PanDA validation.
-# ============================================================================
 
 optimizer:
   name: "ax"
@@ -133,17 +126,23 @@ scheduler:
 
     # ------------------------------------------------------------------------
     # Worker environment
-    #
-    # This reproduces the environment initialization used by the previous
-    # B0_FarForward PanDA optimization.
     # ------------------------------------------------------------------------
 
     init_env: >
       source /cvmfs/unpacked.cern.ch/gitlab-registry.cern.ch/wguan/mlcontainer:py311_1.0/opt/conda/setup_mamba.sh;
       source /cvmfs/unpacked.cern.ch/gitlab-registry.cern.ch/wguan/mlcontainer:py311_1.0/opt/conda/dRICH-MOBO/MOBO-tools/setup_new.sh;
-      command -v singularity &> /dev/null ||
-      export SINGULARITY=/cvmfs/oasis.opensciencegrid.org/mis/singularity/current/bin/singularity;
+
+      PY311=/cvmfs/atlas.cern.ch/repo/ATLASLocalRootBase/x86_64/python/3.11.15-x86_64-el9/bin/python3;
+      $PY311 -m venv .venv;
+      source .venv/bin/activate;
+
+      export APPTAINER=/cvmfs/atlas.cern.ch/repo/containers/sw/apptainer/x86_64-el8/1.4.4/bin/apptainer;
+      mkdir -p "$PWD/container_bin";
+      ln -sf "$APPTAINER" "$PWD/container_bin/singularity";
+      export PATH="$PWD/container_bin:$PATH";
+      export SINGULARITY="$PWD/container_bin/singularity";
       unset SINGULARITY_BINDPATH;
+
       export AIDE_HOME=$(pwd);
       export PWD_PATH=$(pwd);
       export EPIC_SHARE_LOCAL="$PWD/epic_share_no_colon";
@@ -151,21 +150,16 @@ scheduler:
       if [ ! -e "$EPIC_SHARE_LOCAL/epic" ]; then
         ln -s "${DETECTOR_PATH}" "$EPIC_SHARE_LOCAL/epic";
       fi;
-      export SIF=/cvmfs/singularity.opensciencegrid.org/eic/eic_ci:nightly;
-      env;
 
-    # Package the current AID2E source tree with the task
-    source_dir: '.'
-    source_dir_parent_level: 1
+      export SIF=/cvmfs/singularity.opensciencegrid.org/eic/eic_ci:nightly;
 
     exclude_source_files:
       - "(^|/)\\.[^/]+"
       - "doc*"
       - "DTLZ2*"
       - ".*json"
-      - ".*log"
+      - ".*log$"
       - "work"
-      - "log"
       - "OUTDIR"
       - "calibrations"
       - "fieldmaps"
@@ -180,7 +174,7 @@ scheduler:
       - "events"
       - "checkpoints"
 
-    # Keep values modest for this validation test
+    # Test values
     max_walltime: 7200
     core_count: 1
     total_memory: 4000

@@ -114,16 +114,23 @@ class PanDAiDDSRunnerConfig(BaseModel):
                 config_file_dir = os.path.dirname(os.path.abspath(__file__))
                 project_root = os.path.abspath(os.path.join(config_file_dir, "..", "..", "..", ".."))
                 self.source_dir = project_root
-        
-        # Set init_env to source setup_aid2e.sh, or append to existing
+        # Modif Baptiste: run init_env before setup_aid2e.sh and dependency installation; use && for safe chaining.
         if self.init_env is None:
-            self.init_env = "source setup_aid2e.sh; bash install_aid2e_dependencies.sh; "
+            self.init_env = (
+                "source setup_aid2e.sh && "
+                "bash install_aid2e_dependencies.sh &&" 
+            )
         else:
-            # If init_env is already set, append the setup script after it
             if isinstance(self.init_env, str):
-                self.init_env = f"source setup_aid2e.sh && bash install_aid2e_dependencies.sh && {self.init_env}"
-            # Note: If init_env is a callable or other type, leave it as-is
-        
+                # Remove trailing whitespace/semicolons before chaining commands
+                user_init_env = self.init_env.rstrip().rstrip(";").rstrip()
+
+                self.init_env = (
+                    f"{user_init_env} && "
+                    "source setup_aid2e.sh && "
+                    "bash install_aid2e_dependencies.sh &&"
+                )
+
         return self
 
     cloud: Optional[str] = Field(

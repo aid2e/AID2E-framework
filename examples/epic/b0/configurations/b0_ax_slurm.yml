@@ -1,0 +1,192 @@
+# ============================================================================
+# ePIC B0 Far-Forward Tracker Optimization with Ax and Slurm
+# ============================================================================
+# This example shows:
+#   B0 tracker geometry optimization with Ax
+#   Four longitudinal tracker positions as design parameters
+#   ePIC geometry preparation for each design point
+#   Distributed execution using Slurm
+# ============================================================================
+
+# SECTION 1: PROBLEM DEFINITION
+# ============================================================================
+problem:
+  name: "ePIC B0 Geometry Optimization with Ax and Slurm"
+  problem_type: "EPIC_B0"
+
+  output_location: "./output/ax_slurm"
+  work_location: "./work/ax_slurm"
+
+  # eic-shell and ePIC paths to be adapted to environment
+  epic_environment:
+    eic_shell: "/work/eic3/users/fraisse/eic/eic-shell"
+    epic_install: "/work/eic3/users/fraisse/epic"
+    epic_config: "epic"
+    geometry_mode: "build"
+
+  inline_design:
+    epic_design_space:
+      epic_design_parameters:
+
+        b0_tracker:
+          file_path: "$EPIC_INSTALL/compact/far_forward/B0_tracker.xml"
+
+          parameters:
+
+            z1:
+              value: -50.0
+              bounds: [-50.0, -30.0]
+              xml_path: ".//constant[@name='B0TrackerLayer1_zstart']"
+              attribute: "value"
+              unit: "cm"
+
+            z2:
+              value: -20.0
+              bounds: [-20.0, -5.0]
+              xml_path: ".//constant[@name='B0TrackerLayer2_zstart']"
+              attribute: "value"
+              unit: "cm"
+
+            z3:
+              value: 0.0
+              bounds: [0.0, 20.0]
+              xml_path: ".//constant[@name='B0TrackerLayer3_zstart']"
+              attribute: "value"
+              unit: "cm"
+
+            z4:
+              value: 30.0
+              bounds: [30.0, 40.0]
+              xml_path: ".//constant[@name='B0TrackerLayer4_zstart']"
+              attribute: "value"
+              unit: "cm"
+
+      optimization_groups:
+        default:
+          - "b0_tracker.z1"
+          - "b0_tracker.z2"
+          - "b0_tracker.z3"
+          - "b0_tracker.z4"
+
+  objectives:
+    - name: "lever_arm"
+      direction: "maximize"
+
+
+# SECTION 2: OPTIMIZER CONFIGURATION
+# ============================================================================
+optimizer:
+  name: "ax"
+  type: "bayesian"
+
+  parameters:
+    initialization_strategy: "sobol"
+    generator: "BOTORCH_MODULAR"
+
+    n_initial_samples: 1
+    n_iterations: 2
+    batch_size: 1
+    seed: 42
+
+
+# SECTION 3: SCHEDULER CONFIGURATION (iFarm)
+# ============================================================================
+scheduler:
+  runner_type: "SlurmRunner"
+
+  parameters:
+    partition: "production"
+    ntasks: 1
+    cpus_per_task: 1
+    mem: "4GB"
+    time: "02:00:00"
+
+    job_name_prefix: "aid2e_b0"
+    runtime_working_dir: "."
+
+    # Ad hoc commands for iFarm. To be removed.
+    #setup_commands:
+      # SSL certificate issues when ePIC FileLoader downloads external calibration files on some Slurm worker nodes.
+      #- 'export CURL_HOME="${SLURM_TMPDIR:-/tmp}/aid2e_${SLURM_JOB_ID}"; mkdir -p "$CURL_HOME"; echo "insecure" > "$CURL_HOME/.curlrc"'
+      # Make ePIC shared library (libepic.so) visible in eic-shell.
+      #- 'export LD_LIBRARY_PATH="/opt/software/linux-x86_64_v2/epic-git.f9617538a4c1ca2a90d896f33e25092bd185ff2b_main-ypdki2ksx7szrqqknkrymlzrssxqn6jk/lib:${LD_LIBRARY_PATH:-}"'
+
+    poll_interval: 5
+
+  max_retries: 3
+  output_location: "./slurm_output"
+  monitor_interval: 60
+
+
+# SECTION 4: WORKFLOW EXECUTION
+# ============================================================================
+workflows:
+  workflows:
+
+    - name: "b0_geometry_validation"
+      description: "Validate distributed B0 geometry modification with Slurm"
+
+      stack_type: "epic"
+
+      branches:
+
+        - name: "main"
+
+          stages:
+
+            # --------------------------------------------------------------
+            # Stage 1: prepare and validate the modified ePIC geometry
+            # --------------------------------------------------------------
+            - name: "geo"
+              description: "Prepare and validate modified B0 geometry"
+
+              jobs:
+
+                - name: "geo_job"
+
+                  payload:
+                    evaluator_type: "stack"
+                    stack_type: "epic"
+                    job_id: "geo"
+
+                  layers:
+
+                    - name: "geo"
+                      layer: "geo"
+
+                      inputs:
+                        - "{{geometry_dir}}/install/share/epic/epic.xml"
+
+                      outputs:
+                        - "{{output_dir}}/geo.overlaps.txt"
+
+              parallelism:
+                max_concurrent: 1
+                retry_max: 1
+                timeout_sec: 300
+
+
+            # --------------------------------------------------------------
+            # Stage 2: evaluate the B0 objective
+            # --------------------------------------------------------------
+            - name: "evaluate"
+
+              objective_plan:
+                steps:
+                  stages:
+
+                    - name: "evaluate_b0"
+
+                      inline:
+                        entrypoint: "examples.epic.b0.b0_evaluator:objective_payload"
+
+                      produces_objective: true
+
+
+# SECTION 5: METADATA
+# ============================================================================
+metadata:
+  project: "AID2E"
+  detector: "ePIC B0 Far-Forward Tracker"
+  description: "B0 geometry optimization using Ax and Slurm"
+  version: "0.0.1"

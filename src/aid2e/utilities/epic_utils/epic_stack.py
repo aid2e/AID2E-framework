@@ -58,11 +58,18 @@ class EpicGeoLayer(StackLayer):
             raise ValueError(f"EpicGeoLayer takes one output, got {len(outputs)}")
         output = outputs[0]
 
+        # checks = [
+        #     f' >& {output}',
+        #     "grep -Eq 'Number of illegal overlaps/extrusions[[:space:]]*"
+        #     rf":[[:space:]]*0[[:space:]]*$' {output} || exit 9",
+        # ]
+        # Modif Baptiste: debug mode for overlaps/extrusions + space handling
         checks = [
-            f' >& {output}',
+            f' 2>&1 | tee {output}',
             "grep -Eq 'Number of illegal overlaps/extrusions[[:space:]]*"
-            rf":[[:space:]]*0[[:space:]]*$' {output} || exit 9",
+            rf":[[:space:]]*0([[:space:]]|$)' {output} || exit 9",
         ]
+
         return '\n'.join(checks)
 
 
@@ -170,16 +177,42 @@ class EpicStack(ExperimentStack):
         design = problem_config.design_config
         template_geo_dir = epic_install or os.environ['EPIC_INSTALL']
 
+        # if geometry_mode == "no_build":
+        #     #template_geo_dir = os.path.join(template_geo_dir, "share", "epic")
+        #     template_geo_dir = os.path.expandvars(os.environ.get("DETECTOR_PATH", ""))
+        #     trial_geo_dir = os.path.join(workflow_dir, "geometry", "epic")
+        #     if os.path.exists(trial_geo_dir):
+        #         shutil.rmtree(trial_geo_dir)
+        #     shutil.copytree(template_geo_dir, trial_geo_dir)
+        #     os.environ["DETECTOR_PATH"] = trial_geo_dir
+        #     modify_xml_files(design.get_xml_modifications(design_point))
+        #     return trial_geo_dir
+        
+        # Modif Baptiste: use singularity to copy geometry files for no_build mode
         if geometry_mode == "no_build":
-            template_geo_dir = os.path.join(template_geo_dir, "share", "epic")
             trial_geo_dir = os.path.join(workflow_dir, "geometry", "epic")
             if os.path.exists(trial_geo_dir):
                 shutil.rmtree(trial_geo_dir)
-            shutil.copytree(template_geo_dir, trial_geo_dir)
+            os.makedirs(trial_geo_dir, exist_ok=True)
+            image = os.environ.get("EIC_SINGULARITY_IMAGE")
+            singularity = os.environ.get("SINGULARITY", "singularity")
+            copy_command = (
+                f'{singularity} exec '
+                f'--bind "{workflow_dir}:{workflow_dir}" '
+                f'"{image}" '
+                f'bash -lc \'cp -a "$DETECTOR_PATH"/. "{trial_geo_dir}/"\''
+            )
+            subprocess.run(
+                copy_command,
+                shell=True,
+                check=True,
+            )
+            epic_xml = os.path.join(trial_geo_dir, "epic.xml")
             os.environ["DETECTOR_PATH"] = trial_geo_dir
-            modify_xml_files(design.get_xml_modifications(design_point))
+            modifications = design.get_xml_modifications(design_point)
+            modify_xml_files(modifications)
             return trial_geo_dir
-
+        
         trial_geo_dir = os.path.join(workflow_dir, os.path.basename(template_geo_dir))
 
         if not os.path.exists(trial_geo_dir):
@@ -269,13 +302,19 @@ class EpicStack(ExperimentStack):
         if not epic_config:
             raise EnvironmentError("Variable 'epic_config' not set. Must define epic_config.")
 
+        # if geometry_mode == "no_build":
+        #     if not epic_install:
+        #         raise EnvironmentError("Variable 'epic_install' not set. Must define epic_install.")
+        #     detector_setup = (
+        #         f"source \"{epic_install}/bin/thisepic.sh\" {epic_config}\n"
+        #         f"export EPIC_INSTALL=\"{epic_install}\"\n"
+        #         f"export EPIC_CONFIG=\"{epic_config}\"\n"
+        #         f"export DETECTOR_PATH=\"{trial_geo_dir}\"\n"
+        #         f"export DETECTOR_CONFIG=\"{epic_config}\""
+        #     )
+
         if geometry_mode == "no_build":
-            if not epic_install:
-                raise EnvironmentError("Variable 'epic_install' not set. Must define epic_install.")
             detector_setup = (
-                f"source \"{epic_install}/bin/thisepic.sh\" {epic_config}\n"
-                f"export EPIC_INSTALL=\"{epic_install}\"\n"
-                f"export EPIC_CONFIG=\"{epic_config}\"\n"
                 f"export DETECTOR_PATH=\"{trial_geo_dir}\"\n"
                 f"export DETECTOR_CONFIG=\"{epic_config}\""
             )
@@ -304,8 +343,19 @@ class EpicStack(ExperimentStack):
         """
         Form command to run ePIC driver script.
         """
+        # if 'EIC_SINGULARITY_IMAGE' in os.environ:
+        #     return f"$SINGULARITY exec {os.environ['EIC_SINGULARITY_IMAGE']} {script}" 
+        #     #return f"singularity exec {os.environ['EIC_SINGULARITY_IMAGE']} {script}"
+        # elif 'EIC_SHELL' in os.environ:
+        #     return f"{os.environ['EIC_SHELL']} -- {script}"
+        # Modif Baptiste: bind /srv/output and /srv/work for singularity execution (to be double-checked)
         if 'EIC_SINGULARITY_IMAGE' in os.environ:
-            return f"singularity exec {os.environ['EIC_SINGULARITY_IMAGE']} {script}"
+            return (
+                f"$SINGULARITY exec "
+                f"--bind /srv/output:/srv/output "
+                f"--bind /srv/work:/srv/work "
+                f"{os.environ['EIC_SINGULARITY_IMAGE']} {script}"
+            )
         elif 'EIC_SHELL' in os.environ:
             return f"{os.environ['EIC_SHELL']} -- {script}"
         else:

@@ -57,6 +57,51 @@ class PanDAiDDSScheduler(BaseScheduler):
 		self.lock = threading.Lock()
 		# Cache workflows per stage_name to ensure one workflow per stage
 		self.stage_workflows: Dict[str, Any] = {}
+		self.completed_job_results: Dict[str, Dict[str, Any]] = {} # Modif Baptiste: store completed job results for local command-based jobs
+
+	# Modif Baptiste: add _execute_job method to run command-based jobs locally
+	def _execute_job(
+		self,
+		job_def: Dict[str, Any],
+		working_dir: Optional[str] = None,
+	) -> Dict[str, Any]:
+		"""Execute a command-based job locally."""
+
+		command = job_def.get("command")
+		if not command:
+			return {
+				"status": "failed",
+				"return_code": -1,
+				"stdout": "",
+				"stderr": "Job definition does not contain a command",
+				"outputs": {},
+			}
+
+		completed = subprocess.run(
+			command,
+			shell=True,
+			cwd=working_dir,
+			capture_output=True,
+			text=True,
+		)
+
+		if completed.returncode != 0:
+			print("=== LOCAL JOB FAILED ===")
+			print(f"command: {command}")
+			print(f"return_code: {completed.returncode}")
+			print("=== STDOUT ===")
+			print(completed.stdout)
+			print("=== STDERR ===")
+			print(completed.stderr)
+			print("=== END LOCAL JOB FAILED ===")
+
+		return {
+			"status": "completed" if completed.returncode == 0 else "failed",
+			"return_code": completed.returncode,
+			"stdout": completed.stdout,
+			"stderr": completed.stderr,
+			"outputs": {},
+		}
 
 
 	# --- Run stage (synchronous convenience wrapper) -----------------------
@@ -103,7 +148,8 @@ class PanDAiDDSScheduler(BaseScheduler):
 					self.logger.info("Submitting function job %s to iDDS/PanDA", job_id)
 					# normalize job to the shape expected by submit_job
 					job_dict = job_def.copy()
-					job_dict.setdefault("job_id", job_id)
+					# job_dict.setdefault("job_id", job_id) 
+					job_dict["job_id"] = job_id # Modif Baptiste
 					self.submit_job(stage_name, job_dict, working_dir)
 					submitted_job_ids.append(job_id)
 				except RuntimeError as exc:
@@ -149,13 +195,24 @@ class PanDAiDDSScheduler(BaseScheduler):
 					self.logger.info("Job %s finished", job_id)
 					submitted_job_ids.remove(job_id)
 					# store a placeholder result; detailed results are in self.jobs mapping
-					local_job_results[job_id] = {
-						"status": "completed",
-						"return_code": 0,
-						"stdout": "",
-						"stderr": "",
-						"outputs": {},
-					}
+					# local_job_results[job_id] = {
+					# 	"status": "completed",
+					# 	"return_code": 0,
+					# 	"stdout": "",
+					# 	"stderr": "",
+					# 	"outputs": {},
+					# }
+					# Modif Baptiste: use completed_job_results for local job results instead of placeholder above
+					local_job_results[job_id] = self.completed_job_results.pop(
+						job_id,
+						{
+							"status": "completed",
+							"return_code": 0,
+							"stdout": "",
+							"stderr": "",
+							"outputs": {},
+						},
+					)
 
 		# Phase 3: Consolidate results
 		for index, job_def in enumerate(job_definitions):
@@ -169,7 +226,7 @@ class PanDAiDDSScheduler(BaseScheduler):
 
 			job_statuses.append(
 				JobStatus(
-					job_id=job_id,
+					job_id=str(job_def.get("job_id", job_id)), #job_id=job_id, Modif Baptiste
 					status=status,
 					return_code=return_code,
 					stdout=result.get("stdout", ""),
@@ -542,15 +599,16 @@ class PanDAiDDSScheduler(BaseScheduler):
 		status = work.get_status()
 		if work.is_finished(status):
 			self.logger.info("Job %s finished (transform %s)", job_id, tf_id)
+			results = None # Modif Baptiste: init before try block to ensure it's defined even if get_results fails
 			try:
 				ret = work.get_results()
 				# try to extract mapped results
-				results = None
+				# results = None
 				try:
 					results, _details = ret.get_result(name=work.name, key=info.get("job_key", work.name), verbose=True, with_details=True)
 					self.logger.debug(f"Extracted results for job {job_id}: {results}, details: {_details}")
 					
-					if job:
+					if job_context is not None: #if job: # modif Baptiste
 						self.logger.debug("Job %s has context: %s", job_id, job_context)
 						# Optionally, you could store or use this context information as needed for your application
 						job_context.xcom_push("objectives", results)
@@ -561,6 +619,14 @@ class PanDAiDDSScheduler(BaseScheduler):
 			except Exception:
 				self.logger.exception("Failed to fetch results for job %s", job_id)
 			info["status"] = "finished"
+			# Modif Baptiste: store completed job results
+			self.completed_job_results[job_id] = {
+				"status": "completed",
+				"return_code": 0,
+				"stdout": "",
+				"stderr": "",
+				"outputs": results if isinstance(results, dict) else {"result": results},
+			}
 			# cleanup bookkeeping from stage
 			self.running_funcs[stage_name].pop(job_id, None)
 		elif work.is_failed(status):

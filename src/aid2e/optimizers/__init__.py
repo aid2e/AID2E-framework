@@ -16,20 +16,32 @@ Attributes:
     __version__: Version string inherited from the main aid2e package.
 """
 
+# from aid2e import __MAIN_VERSION__
+# from .base import BaseOptimizer, SearchSpace, Trial, compute_pareto_front
+# from .ax import AxOptimizer, AxOptimizerConfig
+# from .pymoo import PyMOOOptimizer, PyMOOOptimizerConfig, PyMOOProblem
+
+# __version__ = __MAIN_VERSION__
+# __all__ = [
+#     "BaseOptimizer",
+#     "SearchSpace",
+#     "Trial",
+#     "compute_pareto_front",
+#     "AxOptimizer",
+#     "AxOptimizerConfig",
+#     "PyMOOProblem",
+#     "PyMOOOptimizer",
+#     "PyMOOOptimizerConfig",
+# ]
+
 from aid2e import __MAIN_VERSION__
 from .base import BaseOptimizer, SearchSpace, Trial, compute_pareto_front
-from .ax import AxOptimizer, AxOptimizerConfig
-from .pymoo import PyMOOOptimizer, PyMOOOptimizerConfig, PyMOOProblem
 
 __version__ = __MAIN_VERSION__
+
 __all__ = [
     "BaseOptimizer",
     "SearchSpace",
     "Trial",
     "compute_pareto_front",
-    "AxOptimizer",
-    "AxOptimizerConfig",
-    "PyMOOProblem",
-    "PyMOOOptimizer",
-    "PyMOOOptimizerConfig",
 ]

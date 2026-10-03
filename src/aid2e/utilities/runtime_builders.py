@@ -260,11 +260,32 @@ def run_trial_workflow(
     """Execute one optimizer candidate through the configured workflow."""
     from aid2e.utilities.configurations import load_config
 
-    config_path_obj = Path(config_path).resolve()
+    # Modif Baptiste:
+    # Make config/output/work paths robust on remote PanDA jobs.
+    # If the original config path is not directly available, search for the config
+    # file in the current working tree; if the original output/work parent
+    # directories do not exist, redirect them to local ./output and ./work.
+
+    # config_path_obj = Path(config_path).resolve()
+    # config = load_config(str(config_path_obj))
+    config_path_obj = Path(config_path)
+    if not config_path_obj.exists():
+        matches = list(Path.cwd().rglob(config_path_obj.name))
+        if len(matches) == 1:
+            config_path_obj = matches[0]
+    config_path_obj = config_path_obj.resolve()
     config = load_config(str(config_path_obj))
+    run_dir_obj = Path(run_dir)
+    run_work_dir_obj = Path(run_work_dir)
+    if not run_dir_obj.parent.exists():
+        run_dir_obj = Path.cwd() / "output" / run_dir_obj.name
+    if not run_work_dir_obj.parent.exists():
+        run_work_dir_obj = Path.cwd() / "work" / run_work_dir_obj.name
     trial_name = f"trial_{trial_index}"
-    output_dir = Path(run_dir).resolve() / "trials" / trial_name
-    work_dir = Path(run_work_dir).resolve() / "trials" / trial_name
+    # output_dir = Path(run_dir).resolve() / "trials" / trial_name
+    # work_dir = Path(run_work_dir).resolve() / "trials" / trial_name
+    output_dir = run_dir_obj.resolve() / "trials" / trial_name
+    work_dir = run_work_dir_obj.resolve() / "trials" / trial_name
 
     trial_metadata = {
         "trial_index": trial_index,

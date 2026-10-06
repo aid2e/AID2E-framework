@@ -53,6 +53,7 @@ optimizer:
   name: "ax"
   type: "bayesian"
   parameters:
+    warm_start_path: null
     initialization_strategy: "sobol"
     generator: "BOTORCH_MODULAR"
     n_initial_samples: 24

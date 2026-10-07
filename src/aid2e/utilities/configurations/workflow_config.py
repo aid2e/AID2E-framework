@@ -68,7 +68,7 @@ class ParallelismPolicy(BaseModel):
         >>> policy = ParallelismPolicy(max_concurrent=4, retry_max=2, timeout_sec=300)
     """
     max_concurrent: int = Field(default=4, ge=1, description="Max concurrent jobs in stage")
-    retry_max: int = Field(default=2, ge=0, description="Max retries per failed job")
+    retry_max: int = Field(default=3, ge=0, description="Max retries per failed job")
     timeout_sec: int = Field(default=300, ge=1, description="Timeout per job (seconds)")
 
 

@@ -571,11 +571,11 @@ class DAGExecutor:
         # Prepare parallelism policy from stage config
         parallelism_policy = {
             "max_concurrent": stage.parallelism.max_concurrent,
-            "retry_max": stage.parallelism.retry_max,
+            "retry_max": min(stage.parallelism.retry_max, self.scheduler_config.max_retries),
             "timeout_sec": stage.parallelism.timeout_sec,
-            "poll_interval": 5,  # Default poll interval for async schedulers
+            "poll_interval": stage.parallelism.poll_interval,
         }
-        
+
         stage_working_dir = self.scheduler_submit_dir / stage.name
         stage_working_dir.mkdir(parents=True, exist_ok=True)
 

@@ -43,8 +43,28 @@ def cli():
     Utilities:
       list       - Show available optimizers/templates/problems
       version    - Display version information
+
+    MCP:
+      mcp        - Run the AID2E MCP server
     """
     pass
+
+
+@click.command(name="mcp")
+@click.option("--sse", is_flag=True, help="Run over streamable HTTP instead of stdio.")
+@click.pass_context
+def mcp(ctx: click.Context, sse: bool) -> None:
+    """Run the AID2E MCP server.
+
+    The server is imported only when this command is invoked so the main CLI
+    remains usable when the optional ``mcp`` dependency is not installed.
+    """
+    try:
+        from aid2e.mcp.server import mcp_command
+    except RuntimeError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    ctx.invoke(mcp_command, sse=sse)
 
 
 def _load_plugin_commands(group: click.Group):
@@ -80,6 +100,7 @@ cli.add_command(validate)
 cli.add_command(optimize)
 cli.add_command(list_resources, name="list")
 cli.add_command(version)
+cli.add_command(mcp)
 
 # Load plugin commands
 _load_plugin_commands(cli)

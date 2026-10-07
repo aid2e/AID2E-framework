@@ -198,6 +198,22 @@ with the absolute path to your clone:
 }
 ```
 
+If you are using conda, an example could look like:
+
+```json
+{
+  "servers": {
+    "aid2e": {
+      "command": "bash",
+      "args": [
+        "-c",
+        "source /home/username/miniforge3/bin/activate aid2e_env && aid2e mcp"
+      ]
+    }
+  }
+}
+```
+
 Start the MCP server from the VS Code MCP view, then enable the desired tools
 from the Chat interface. If you use Conda rather than `.venv`, point
 `command` at that environment's `aid2e` executable, or use a shell wrapper

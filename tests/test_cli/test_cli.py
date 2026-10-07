@@ -17,6 +17,7 @@ def test_cli_help(runner):
     assert result.exit_code == 0
     assert 'AID2E' in result.output
     assert 'Usage:' in result.output
+    assert 'mcp' in result.output
 
 
 def test_cli_version(runner):
@@ -106,3 +107,10 @@ workflows:
     assert calls[0][1] == str(config_path)
     assert calls[0][2]["workflow_name"] == "generic_eval"
     assert calls[0][2]["run_id"] == "run-1"
+
+
+def test_mcp_help_is_always_available(runner):
+    """The MCP command must be discoverable even before extras are installed."""
+    result = runner.invoke(cli, ['mcp', '--help'])
+    assert result.exit_code == 0
+    assert 'Run the AID2E MCP server.' in result.output

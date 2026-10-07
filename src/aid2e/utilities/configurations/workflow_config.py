@@ -70,6 +70,7 @@ class ParallelismPolicy(BaseModel):
     max_concurrent: int = Field(default=4, ge=1, description="Max concurrent jobs in stage")
     retry_max: int = Field(default=3, ge=0, description="Max retries per failed job")
     timeout_sec: int = Field(default=300, ge=1, description="Timeout per job (seconds)")
+    poll_interval: int = Field(default=5, ge=1, description="Poll interval for async schedulers (seconds)")
 
 
 class ArtifactSpec(BaseModel):

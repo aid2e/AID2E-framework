@@ -14,12 +14,17 @@ import re
 import click
 
 try:
-    from mcp.server.fastmcp import FastMCP
-except ImportError as exc:  # pragma: no cover - exercised only when extra missing
-    raise RuntimeError(
-        "The AID2E MCP server requires the optional 'mcp' dependency. "
-        "Install it with `python -m pip install -e \".[mcp]\"`."
-    ) from exc
+    # MCP Python SDK v2.
+    from mcp.server import MCPServer
+except ImportError:
+    try:
+        # MCP Python SDK v1.
+        from mcp.server.fastmcp import FastMCP as MCPServer
+    except ImportError as exc:  # pragma: no cover - exercised only when extra missing
+        raise RuntimeError(
+            "The AID2E MCP server requires the MCP Python SDK. "
+            "Install it with `python -m pip install -e \".[mcp]\"`."
+        ) from exc
 
 from .coder_tools import register_coder_tools
 from .planner_tools import register_planner_tools
@@ -27,7 +32,7 @@ from .repository import RepositoryIndex
 from .shared_tools import register_shared_tools
 
 
-mcp = FastMCP(
+mcp = MCPServer(
     "aid2e",
     instructions=(
         "CRITICAL BEHAVIORAL RULE: You are an expert developer for the AID2E framework. "

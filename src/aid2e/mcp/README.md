@@ -1,163 +1,222 @@
-# AID2E Chatbot: Deployment & VS Code Connection Guide
+# AID2E Code-Assist: User Setup Guide
 
-This document walks through how to deploy the AID2E chat/autocomplete models and connect to them from VS Code.
+This guide sets up the AID2E 100B code-assist model in VS Code and, if
+needed, the AID2E MCP tools. Each person uses an individual LiteLLM API key,
+so usage is attributed to that user and a key can be revoked independently.
 
----
+## Before you begin
 
-## 1. Configuration Files
+You need:
 
-All deployment configs live here:
+- VS Code with the current **GitHub Copilot Chat** extension.
+- An account that can SSH to SciClone, if you will use the SSH-tunnel route.
+- Python 3 and Git.
+- A personal LiteLLM API key beginning with `sk-`.
 
-```
-/src/aid2e/mcp/deployment/
-```
+Request a key by emailing [jgiroux@wm.edu](mailto:jgiroux@wm.edu). Include
+your W&M username, preferred email address, and a note that you need access
+to the AID2E Code-Assist model. Do not share your key with anyone.
 
-In that directory you'll find:
+The model name used by every client is:
 
-- **`.yml` files** — deployment configs for each model (chat/agent models and the autocomplete model). I will deploy these for you, if you have any issues let me know and I can reset their state.
-
-
----
-
-## 2. About the `.jinja` System Prompt File
-
-The system prompt exists in:
-
-```
-/scr/aid2e/mcp/context/
+```text
+code-assist-100b
 ```
 
-The `.jinja` file lets you inject a custom system prompt when the model is deployed, so users don't need to set one manually in their VS Code configuration files.
+## 1. Clone and install AID2E
 
-A few important notes on this file:
+Clone the AID2E repository provided by the project team, then install its MCP
+extra in an isolated Python environment. Replace `<AID2E-REPOSITORY-URL>` with
+the repository URL you were given.
 
-- The **top block is commented out**. Effectively, this means `sys_content` is set to the custom prompt of your choosing.
-- This also **strips the VS Code (system) prompt** — the model will use your injected prompt instead of whatever VS Code would normally send.
-
-**For most use cases:** you likely don't need this. Simply remove the argument in the `.yml` file that passes the chat template, e.g. remove:
-
-```
---chat_template "arg"
-```
-
-and the model will behave normally (using VS Code's own system prompt).
-
-**If you do want a custom system prompt on top of VS Code's**, the `.jinja` file is how you achieve that — this is the mechanism to use.
-
-![.jinja template stripping VSCode prompt](assets/jinja_template.png)
-
----
-
-## 3. Spawning and Forwarding the Model(s)
-
-Once the model(s) are spawned, forward the appropriate ports over SSH:
-
-Using the W&M VPN:
 ```bash
-ssh -L 8000:IP_OF_CHAT_AGENT:8000 -L 8001:IP_OF_AUTO_COMPLETE:8001 username@cm.geo.sciclone.wm.edu
+git clone <AID2E-REPOSITORY-URL>
+cd AID2E-framework
+
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -e ".[mcp]"
 ```
-Jumping through bastion:
+
+You can use Conda instead of `venv` if preferred. The important installation
+command, run from the repository root, is:
+
 ```bash
-ssh -J username@bastion.wm.edu -L 8000:IP_OF_CHAT_AGENT:8000 -L 8001:IP_OF_AUTO_COMPLETE:8001 username@cm.geo.sciclone.wm.edu
+python -m pip install -e ".[mcp]"
 ```
 
-- Port `8000` → chat/agent model
-- Port `8001` → autocomplete model
+## 2. Connect to the LiteLLM gateway
 
-Replace `IP_OF_CHAT_AGENT`, `IP_OF_AUTO_COMPLETE`, and `username` with your actual values.
-A succesful execution will result in a login to sciclone. If the endpoints are not correctly configured in VSCode you will see output here as well.
+LiteLLM is the gateway in front of the model. It authenticates your personal
+key, routes the request to the 100B model, and records usage. You never need
+the vLLM pod address or a Kubernetes command to use the service.
 
----
+### Option A: direct shared endpoint
 
-## 4. Configuring `chatLanguageModels.json` in VS Code
+If the service administrator provides a reachable shared endpoint, use it as
+your base URL:
 
-Open the `chatLanguageModels.json` file in VS Code and set it up similar to the example below. 
-ctrl + shift + p will allow you to type and search for this.
+```text
+http://<LITELLM-HOST>:4000/v1
+```
+
+Use the full chat endpoint below when configuring VS Code:
+
+```text
+http://<LITELLM-HOST>:4000/v1/chat/completions
+```
+
+### Option B: SSH tunnel through SciClone
+
+If you are given the tunnel-based route, run this command from the same
+environment in which the VS Code Copilot extension runs. For example, if you
+use VS Code in WSL, run it in your WSL terminal—not in a separate Windows
+terminal.
+
+```bash
+ssh -N \
+  -o ServerAliveInterval=30 \
+  -o ServerAliveCountMax=3 \
+  -L 4001:127.0.0.1:4000 \
+  <your-wm-username>@cm.geo.sciclone.wm.edu
+```
+
+Keep this terminal open while using AID2E. With this tunnel, your local API
+base URL is:
+
+```text
+http://127.0.0.1:4001/v1
+```
+
+If SciClone access requires the W&M VPN, connect to the VPN first. If the SSH
+command is refused, contact the service administrator rather than attempting
+to expose a Kubernetes service yourself.
+
+## 3. Verify your key and connection
+
+Set the endpoint that applies to your connection. For the SSH-tunnel example:
+
+```bash
+export AID2E_LLM_URL="http://127.0.0.1:4001/v1"
+read -rsp "Paste your AID2E API key: " AID2E_LLM_API_KEY; echo
+```
+
+Check that the gateway recognizes the model:
+
+```bash
+curl -sS "$AID2E_LLM_URL/models" \
+  -H "Authorization: Bearer $AID2E_LLM_API_KEY"
+```
+
+The response should list `code-assist-100b`. Then make a small test request:
+
+```bash
+curl -sS "$AID2E_LLM_URL/chat/completions" \
+  -H "Authorization: Bearer $AID2E_LLM_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "code-assist-100b",
+    "messages": [{"role": "user", "content": "Reply with pong."}],
+    "max_tokens": 16
+  }'
+
+unset AID2E_LLM_API_KEY
+```
+
+If this fails, send the error message to the administrator, but never send
+your API key.
+
+## 4. Configure VS Code Chat
+
+1. In VS Code, open the Command Palette with `Ctrl+Shift+P`.
+2. Run **Chat: Manage Language Models**.
+3. Choose **Add Models** → **Custom Endpoint**.
+4. Enter a group name such as `AID2E`.
+5. Enter your personal API key when prompted and select **Chat
+   Completions**.
+6. Open `chatLanguageModels.json` from the Language Models editor.
+
+Use the following configuration. Replace the two key placeholders with your
+own key, and use the endpoint that applies to you. This tunnel example uses
+port `4001`.
 
 ```json
 [
-    {
-        "name": "AID2E Models",
-        "vendor": "customendpoint",
-        "apiType": "chat-completions",
-        "models": [
-            {
-                "id": "Qwen/Qwen3.5-122B-A10B-FP8",
-                "name": "Qwen 3.5 122B (Chat/Agent)",
-                "url": "http://localhost:8000/v1/chat/completions",
-                "toolCalling": true,
-                "vision": false,
-                "maxInputTokens": 65536,
-                "maxOutputTokens": 4096
-            },
-            {
-                "id": "Qwen/Qwen3.6-35B-A3B",
-                "name": "Qwen 3.6 35B (Chat/Agent)",
-                "url": "http://localhost:8000/v1/chat/completions",
-                "toolCalling": true,
-                "vision": false,
-                "maxInputTokens": 65536,
-                "maxOutputTokens": 4096
-            },
-            {
-                "id": "Qwen/Qwen3.5-4B",
-                "name": "Qwen 3.5 4B (Inline Autocomplete)",
-                "url": "http://localhost:8001/v1/chat/completions",
-                "toolCalling": false,
-                "vision": false,
-                "maxInputTokens": 16384,
-                "maxOutputTokens": 2048
-            }
-        ]
-    }
+  {
+    "name": "AID2E",
+    "vendor": "customendpoint",
+    "apiKey": "sk-PASTE-YOUR-PERSONAL-KEY-HERE",
+    "apiType": "chat-completions",
+    "models": [
+      {
+        "id": "code-assist-100b",
+        "name": "AID2E Code Assist 100B",
+        "url": "http://127.0.0.1:4001/v1/chat/completions",
+        "toolCalling": true,
+        "vision": false,
+        "maxInputTokens": 61440,
+        "maxOutputTokens": 4096,
+        "modelOptions": {
+          "parallel_tool_calls": false
+        },
+        "requestHeaders": {
+          "Authorization": "Bearer sk-PASTE-YOUR-PERSONAL-KEY-HERE"
+        }
+      }
+    ]
+  }
 ]
 ```
 
-You can list multiple models here for chat — just make sure to select the one that's actually spawned on the server. Selecting a model that isn't currently running will throw an ID error. Selection is done in the same location as normal copilot models.
+Important:
 
----
+- Use the exact same personal key in both locations.
+- Do not include `Bearer ` in the `apiKey` value.
+- The `Authorization` header must include `Bearer ` followed by the key.
+- Keep this configuration private. Do not commit it to a repository or share
+  screenshots containing the key.
+- Run **Developer: Reload Window** after saving if the model does not appear.
 
-## 5. Enabling Inline Autocomplete
+Select **AID2E Code Assist 100B** in the Chat model picker. The service is a
+chat/agent model; do not configure a separate inline-completion or Continue
+endpoint.
 
-To get the autocompletion model working:
+## 5. Enable AID2E MCP tools
 
-1. Click the **three dots (⋯)** in the top right of the chat window.
-2. Go to **Chat Settings**.
-3. Select **Inline Chat**.
-4. Set **Inline Chat: Default Model** to the correct model (e.g., `Qwen 3.5 4B (Inline Autocomplete)`).
-
-![Autocomplete setup](assets/autocomplete.png)
-
----
-
-## 6. Setting up the MCP Server
-
-To setup the MCP server, you will need to access the mcp.json file inside VSCode (ctrl + shift + p and search for MCP: Open User Configuration). You should then inject something like this:
+The model can use AID2E MCP tools after the package is installed. In VS Code,
+run **MCP: Open User Configuration** and add a server entry. Replace the path
+with the absolute path to your clone:
 
 ```json
 {
   "servers": {
     "aid2e": {
-      "command": "bash",
-      "args": [
-        "-c",
-        "source /home/james/miniforge3/bin/activate aid2e_test && aid2e mcp"
-      ]
+      "command": "/absolute/path/to/AID2E-framework/.venv/bin/aid2e",
+      "args": ["mcp"]
     }
   }
 }
 ```
 
-Note I am using conda to hold the AID2E environment, if you are using virtual env, UV, etc., just make sure you activate it accordingly and enable the MCP server. You will need to make sure to start the server (icon above the name once in the mcp.json file).
+Start the MCP server from the VS Code MCP view, then enable the desired tools
+from the Chat interface. If you use Conda rather than `.venv`, point
+`command` at that environment's `aid2e` executable, or use a shell wrapper
+that activates the environment before running `aid2e mcp`.
 
-If the tools are enabled correctly, you will be able to see them by clicking "configure tools" beside the model name inside the chatbox.
+## Troubleshooting
 
-![MCP Tools](assets/tools.png)
+| Problem | What to check |
+| --- | --- |
+| `connect ECONNREFUSED` | The SSH tunnel is not running in the same environment as VS Code. Restart the tunnel and keep it open. |
+| `Malformed API Key` | Ensure the header is `Authorization: Bearer sk-...`; do not use an `api-key` header with `Bearer`. |
+| `model ... is not available for this API key` | Your key or its owner lacks access to `code-assist-100b`. Email [jgiroux@wm.edu](mailto:jgiroux@wm.edu). |
+| Model does not appear in VS Code | Save the configuration and run **Developer: Reload Window**. Ensure GitHub Copilot Chat is current. |
+| Old Continue/inline-completion error | That is not part of AID2E Code-Assist. Remove or disable the old completion endpoint configuration. |
 
-## Notes
+## Security and support
 
-Please take note of how useful this is, and when it starts to break. You will notice that as context gets longer the model is going to start not using the AID2E tools for example. Also think of new tools that will be useful, you can simply tell me what these will be and I can implement them or feel free to also contribute yourself.
-
-This is a little bit awkward in the sense that I am developing as if AID2E is a pip package. We want to perform experiments away from the actual source code. For example:
-
-You will install AID2E-framework as usual (git clone ... , python -m pip install -e ".[mcp]" ), but then you should work in a different directory adjacent to the actual source code.
+Your LiteLLM key identifies your requests and is tracked for usage reporting.
+Do not share it, commit it, or put it in a public issue. If you suspect that
+your key was exposed, email [jgiroux@wm.edu](mailto:jgiroux@wm.edu) to have it
+revoked and reissued.

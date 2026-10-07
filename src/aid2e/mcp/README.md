@@ -178,9 +178,8 @@ Important:
   screenshots containing the key.
 - Run **Developer: Reload Window** after saving if the model does not appear.
 
-Select **AID2E Code Assist 100B** in the Chat model picker. The service is a
-chat/agent model; do not configure a separate inline-completion or Continue
-endpoint.
+At the bottom of the Chat panel, open the model picker and select **AID2E Code Assist 100B**. Your current model selection likely says **Auto**. The service is a chat/agent model; do not configure a separate
+inline-completion or Continue endpoint.
 
 ## 5. Enable AID2E MCP tools
 
@@ -203,6 +202,12 @@ Start the MCP server from the VS Code MCP view, then enable the desired tools
 from the Chat interface. If you use Conda rather than `.venv`, point
 `command` at that environment's `aid2e` executable, or use a shell wrapper
 that activates the environment before running `aid2e mcp`.
+
+Enable the AID2E tools shown below from the Chat interface.
+
+![AID2E MCP tool selection](assets/tool_list.png)
+
+The tool menu is two parallel lines next to the model selection.
 
 ## Troubleshooting
 

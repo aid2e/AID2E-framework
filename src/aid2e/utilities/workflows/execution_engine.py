@@ -315,7 +315,7 @@ class BaseExecutionEngine(ABC):
         self.params = kwargs
 
     @abstractmethod
-    def execute(self, context: JobContext) -> Any:
+    def execute(self, context: JobContext) -> Dict[str, Any]:
         """Execute the engine.
         
         Must be implemented by subclasses. Execution engines should:
@@ -324,12 +324,14 @@ class BaseExecutionEngine(ABC):
         3. Use context.xcom_push() to return results
         4. Use context.add_log() for logging
         5. Use context.save_artifact() to register outputs
+        6. Return dictionary of at least 'stdout', 'stderr', and
+           any values return by the work.
         
         Args:
             context: Operation execution context (XCom, logs, artifacts).
             
         Returns:
-            Result of execution (any serializable type).
+            Dict with at least 'stdout', 'stderr', and any return values.
         """
         raise NotImplementedError
     
@@ -476,7 +478,8 @@ class PythonExecutionEngine(BaseExecutionEngine):
             context: Task context (passed as first argument to callable).
 
         Returns:
-            Function return value.
+            Dict with 'stdout', 'stderr', 'warnings', 'return_value',
+            and 'callable'.
 
         Raises:
             Exception: Any exception raised by the function.

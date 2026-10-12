@@ -324,14 +324,16 @@ class BaseExecutionEngine(ABC):
         3. Use context.xcom_push() to return results
         4. Use context.add_log() for logging
         5. Use context.save_artifact() to register outputs
-        6. Return dictionary of at least 'stdout', 'stderr', and
+        6. Return dictionary of at least 'completed' (flag if work
+           completed without exceptions) 'stdout', 'stderr', and
            any values return by the work.
         
         Args:
             context: Operation execution context (XCom, logs, artifacts).
             
         Returns:
-            Dict with at least 'stdout', 'stderr', and any return values.
+            Dict with at least 'completed', 'stdout', 'stderr',
+            and any return values.
         """
         raise NotImplementedError
     
@@ -379,10 +381,10 @@ class BashExecutionEngine(BaseExecutionEngine):
             context: Task context.
 
         Returns:
-            Dict with 'stdout', 'stderr', 'returncode'.
+            Dict with 'stdout', 'stderr', 'return_value'.
 
         Raises:
-            RuntimeError: If command fails (returncode != 0).
+            Exception: any encountered during execution.
         """
         try:
             # Template substitution (simple string formatting)
@@ -406,19 +408,25 @@ class BashExecutionEngine(BaseExecutionEngine):
             if result.stderr:
                 context.add_log(f"STDERR:\n{result.stderr}")
 
+            did_complete = True
+            exceptions   = []
+            if result.returncode != 0:
+                exceptions.append(f"Command failed with code {result.returncode}")
+                did_complete = False
+
             # Push results to XCom
             output = {
+                'completed': did_complete,
                 'stdout': result.stdout,
                 'stderr': result.stderr,
-                'returncode': result.returncode
+                'exceptions': exceptions,
+                'return_value': result.returncode
             }
             context.xcom_push('return_value', output)
 
-            if result.returncode != 0:
-                raise RuntimeError(f"Command failed with code {result.returncode}")
-
             return output
 
+        # Catch any exceptions outside execution
         except Exception as e:
             context.add_log(f"ERROR: {str(e)}")
             raise
@@ -482,48 +490,62 @@ class PythonExecutionEngine(BaseExecutionEngine):
             and 'callable'.
 
         Raises:
-            Exception: Any exception raised by the function.
+            Exception: Any exception encountered outside the function.
         """
+        try:
+            # all stdout, stderr will be redirected to
+            # a buffer and appended to XCOm
+            stdout_buffer = io.StringIO()
+            stderr_buffer = io.StringIO()
 
-        # all stdout, stderr will be redirected to
-        # a buffer and appended to XCOm
-        stdout_buffer = io.StringIO()
-        stderr_buffer = io.StringIO()
+            # any warnings or exceptions will
+            # be logged
+            #   --> any exceptions encountered flag
+            #       execution as failed
+            with warnings.catch_warnings(record=True) as warning_buffer:
+                warnings.simplefilter("always")
 
-        # any warnings or exceptions (TODO) will
-        # be logged
-        #   --> any exceptions encountered flag
-        #       execution as failed
-        with warnings.catch_warnings(record=True) as warning_buffer:
-            warnings.simplefilter("always")
+            exceptions   = []
+            return_value = None
+            with contextlib.redirect_stdout(stdout_buffer), contextlib.redirect_stderr(stderr_buffer):
+                try:
+                    context.add_log(f"Executing Python callable: {self.python_callable.__name__}")
 
-        return_value = None
-        with contextlib.redirect_stdout(stdout_buffer), contextlib.redirect_stderr(stderr_buffer):
-            try:
-                context.add_log(f"Executing Python callable: {self.python_callable.__name__}")
+                    # Call function with context as first argument
+                    return_value = self.python_callable(context, *self.op_args, **self.op_kwargs)
 
-                # Call function with context as first argument
-                return_value = self.python_callable(context, *self.op_args, **self.op_kwargs)
+                    context.add_log(f"Function returned: {return_value}")
 
-                context.add_log(f"Function returned: {return_value}")
+                    # Push return value to XCom
+                    context.xcom_push('return_value', return_value)
 
-                # Push return value to XCom
-                context.xcom_push('return_value', return_value)
-            except Exception as e:
-                context.add_log(f"ERROR: {str(e)}")
-                raise
+                except Exception as e:
+                    exceptions.append(f"ERROR: {str(e)}")
 
-        warnings_text = "".join(
-            f"{warning.category.__name__}: {warning.message}\n" for warning in warning_buffer
-        )
-        result = {
-            'stdout': stdout_buffer.getvalue(),
-            'stderr': stderr_buffer.getvalue(),
-            'warnings': warnings_text,
-            'return_value': return_value,
-            'callable': f"{self.python_callable.__name__}",
-        }
-        return result
+            # Log output
+            if stdout_buffer.getvalue() != "":
+                context.add_log(f"STDOUT:\n{result.stdout}")
+            if stderr_buffer.getvalue() != "":
+                context.add_log(f"STDERR:\n{result.stderr}")
+
+            warnings_text = "".join(
+                f"{warning.category.__name__}: {warning.message}\n" for warning in warning_buffer
+            )
+            result = {
+                'completed': len(exceptions) == 0,
+                'stdout': stdout_buffer.getvalue(),
+                'stderr': stderr_buffer.getvalue(),
+                'warnings': warnings_text,
+                'exceptions': exceptions,
+                'return_value': return_value,
+                'callable': f"{self.python_callable.__name__}",
+            }
+            return result
+
+        # Catch any exceptions outside execution
+        except Exception as e:
+            context.add_log(f"ERROR: {str(e)}")
+            raise
 
 
 class ContainerExecutionEngine(BaseExecutionEngine):
@@ -597,10 +619,10 @@ class ContainerExecutionEngine(BaseExecutionEngine):
             context: Task context.
 
         Returns:
-            Dict with 'container_id', 'stdout', 'stderr', 'returncode'.
+            Dict with 'container_id', 'stdout', 'stderr', 'return_value'.
 
         Raises:
-            RuntimeError: If docker run fails.
+            Exception: any encountered during execution.
         """
         try:
             context.add_log(f"Running Docker container: {self.image}")
@@ -625,20 +647,26 @@ class ContainerExecutionEngine(BaseExecutionEngine):
             if result.stderr:
                 context.add_log(f"STDERR:\n{result.stderr}")
 
+            did_complete = True
+            exceptions   = []
+            if result.returncode != 0:
+                exceptions.append(f"Command failed with code {result.returncode}")
+                did_complete = False
+
             # Extract container ID from output (if available)
             output = {
+                'completed': did_complete,
                 'stdout': result.stdout,
                 'stderr': result.stderr,
-                'returncode': result.returncode,
+                'exceptions': exceptions,
+                'return_value': result.returncode,
                 'image': self.image
             }
             context.xcom_push('return_value', output)
 
-            if result.returncode != 0:
-                raise RuntimeError(f"Docker container failed with code {result.returncode}")
-
             return output
 
+        # Catch any exceptions outside execution
         except Exception as e:
             context.add_log(f"ERROR: {str(e)}")
             raise
@@ -728,45 +756,44 @@ class StackExecutionEngine(BaseExecutionEngine):
             context: Task context.
 
         Returns:
-            Dict with 'stdout', 'stderr', 'returncode'
+            Dict with 'stdout', 'stderr', 'return_value'
 
         Raises:
-            RuntimeError: If execution fails
+            Exception: any encountered during execution.
 
         Note:
             Layer inputs, outputs, and arguments are pushed
             to XCom for retrieval downstream.
         """
-        stack = self.stack_class()
-
-        # Do any preparations ahead of execution
-        preparations = stack.prepare_for_execution(context = context)
-
-        # Substitute templates in each layer's inputs/outputs/args and
-        # push info to XCom for downstream tasks
-        for layer in self.layers:
-            self._apply_template_substitution(layer, context)
-            self._resolve_relative_paths(layer)
-            context.xcom_push(f'{layer.name}:inputs', layer.inputs)
-            context.xcom_push(f'{layer.name}:outputs', layer.outputs)
-            context.xcom_push(f'{layer.name}:arguments', layer.arguments)
-
-        # Build driver script and command to run it
-        driver = f"{context.execution_dir}/{self.engine_id}_driver.sh"
-        command = stack.make_driver_command(driver)
-        stack.make_driver_script(
-            script=driver,
-            configs=self.layers,
-            preparations=preparations,
-            context=context,
-        )
-
-        # Append script and command to context
-        context.add_log(f"Driver script: {driver}")
-        context.add_log(f"Driver command: {command}")
-
-        # Try running command
         try:
+            stack = self.stack_class()
+
+            # Do any preparations ahead of execution
+            preparations = stack.prepare_for_execution(context = context)
+
+            # Substitute templates in each layer's inputs/outputs/args and
+            # push info to XCom for downstream tasks
+            for layer in self.layers:
+                self._apply_template_substitution(layer, context)
+                self._resolve_relative_paths(layer)
+                context.xcom_push(f'{layer.name}:inputs', layer.inputs)
+                context.xcom_push(f'{layer.name}:outputs', layer.outputs)
+                context.xcom_push(f'{layer.name}:arguments', layer.arguments)
+
+            # Build driver script and command to run it
+            driver = f"{context.execution_dir}/{self.engine_id}_driver.sh"
+            command = stack.make_driver_command(driver)
+            stack.make_driver_script(
+                script=driver,
+                configs=self.layers,
+                preparations=preparations,
+                context=context,
+            )
+
+            # Append script and command to context
+            context.add_log(f"Driver script: {driver}")
+            context.add_log(f"Driver command: {command}")
+
             result = subprocess.run(
                 command,
                 shell=True,
@@ -780,20 +807,25 @@ class StackExecutionEngine(BaseExecutionEngine):
             if result.stderr:
                 context.add_log(f"STDERR:\n{result.stderr}")
 
+            did_complete = True
+            exceptions   = []
+            if result.returncode != 0:
+                exceptions.append(f"Command failed with code {result.returncode}")
+                did_complete = False
+
             # Push any output to XCom
             output = {
+                'completed': did_complete,
                 'stdout': result.stdout,
                 'stderr': result.stderr,
-                'returncode': result.returncode,
+                'exceptions': exceptions,
+                'return_value': result.returncode,
             }
             context.xcom_push('return_value', output)
 
-            if result.returncode != 0:
-                raise RuntimeError(f"{self.stack_type} execution failed with code {result.returncode}")
             return output
 
-        # And throw generic exception if
-        # something goes wrong
+        # Catch any exceptions outside execution
         except Exception as e:
             context.add_log(f"ERROR: {str(e)}")
             raise

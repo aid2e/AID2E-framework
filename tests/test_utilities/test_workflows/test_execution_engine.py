@@ -10,11 +10,12 @@ Tests cover:
 Project: AID2E v0.0.0
 """
 
-import pytest
 from pathlib import Path
 import json
-import tempfile
+import operator
 import os
+import pytest
+import tempfile
 
 from aid2e.utilities.workflows.execution_engine import (
     JobContext,
@@ -118,7 +119,7 @@ class TestTemplateSubstitutions:
             'upstream:job:return_value': {
                 'stdout': 'Hello!',
                 'stderr': '',
-                'returncode': 9,
+                'return_value': 9,
             },
         }
         artifacts = {
@@ -208,7 +209,7 @@ class TestBashExecutionEngine:
 
         result = op.execute(context)
 
-        assert result['returncode'] == 0
+        assert result['return_value'] == 0
         assert 'Hello World' in result['stdout']
 
     def test_bash_engine_with_environment(self):
@@ -228,7 +229,7 @@ class TestBashExecutionEngine:
         )
 
         result = op.execute(context)
-        assert result['returncode'] == 0
+        assert result['return_value'] == 0
 
     def test_bash_engine_failure(self):
         """Test bash engine with failing command."""
@@ -245,8 +246,12 @@ class TestBashExecutionEngine:
             bash_command='exit 1'
         )
 
-        with pytest.raises(RuntimeError, match='Command failed'):
-            op.execute(context)
+        result = op.execute(context)
+
+        assert result['completed'] == False
+        assert len(result['exceptions']) == 1
+        assert operator.contains(result['exceptions'][0], 'Command failed')
+
 
     def test_bash_engine_template_substitution(self):
         """Test template variable substitution."""
@@ -340,6 +345,7 @@ class TestPythonExecutionEngine:
         assert result['return_value']['product'] == 12.0
         assert context.xcom_pull('stage:processor', key='processed') == {'sum': 7.0}
 
+
     def test_python_engine_exception(self):
         """Test Python engine with exception in function."""
         def failing_func(context):
@@ -357,8 +363,12 @@ class TestPythonExecutionEngine:
             python_callable=failing_func
         )
 
-        with pytest.raises(ValueError, match='Test error'):
-            op.execute(context)
+        result = op.execute(context)
+
+        assert result['completed'] == False
+        assert len(result['exceptions']) == 1
+        assert operator.contains(result['exceptions'][0], 'Test error')
+
 
     def test_python_engine_with_args_kwargs(self):
         """Test Python engine with positional and keyword arguments."""

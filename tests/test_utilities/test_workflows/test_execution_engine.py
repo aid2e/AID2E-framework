@@ -310,7 +310,7 @@ class TestPythonExecutionEngine:
 
         result = op.execute(context)
 
-        assert result == 8
+        assert result['return_value'] == 8
         assert context.xcom_pull('stage:test_python', key='return_value') == 8
 
     def test_python_engine_with_context(self):
@@ -336,8 +336,8 @@ class TestPythonExecutionEngine:
 
         result = op.execute(context)
 
-        assert result['sum'] == 7.0
-        assert result['product'] == 12.0
+        assert result['return_value']['sum'] == 7.0
+        assert result['return_value']['product'] == 12.0
         assert context.xcom_pull('stage:processor', key='processed') == {'sum': 7.0}
 
     def test_python_engine_exception(self):
@@ -381,7 +381,7 @@ class TestPythonExecutionEngine:
 
         result = op.execute(context)
 
-        assert result == 10  # 2 + 3 + 5
+        assert result['return_value'] == 10  # 2 + 3 + 5
 
 
 class TestContainerExecutionEngine:

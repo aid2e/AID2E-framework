@@ -28,14 +28,18 @@ Repository: https://github.com/aid2e/AID2E-framework.git
 
 from abc import ABC, abstractmethod
 from ast import literal_eval
-from typing import Any, Callable, Dict, List, Optional
 from dataclasses import dataclass, field
 from functools import reduce
-import subprocess
+from pathlib import Path
+from typing import Any, Callable, Dict, List, Optional
+import contextlib
+import io
 import json
 import os
 import re
-from pathlib import Path
+import sys
+import subprocess
+import warnings
 
 from aid2e.utilities.configurations.problem_config import (
     ProblemConfiguration,
@@ -465,7 +469,7 @@ class PythonExecutionEngine(BaseExecutionEngine):
         self.op_args = op_args or ()
         self.op_kwargs = op_kwargs or {}
 
-    def execute(self, context: JobContext) -> Any:
+    def execute(self, context: JobContext) -> Dict[str, Any]:
         """Execute Python function.
 
         Args:
@@ -477,22 +481,46 @@ class PythonExecutionEngine(BaseExecutionEngine):
         Raises:
             Exception: Any exception raised by the function.
         """
-        try:
-            context.add_log(f"Executing Python callable: {self.python_callable.__name__}")
 
-            # Call function with context as first argument
-            result = self.python_callable(context, *self.op_args, **self.op_kwargs)
+        # all stdout, stderr will be redirected to
+        # a buffer and appended to XCOm
+        stdout_buffer = io.StringIO()
+        stderr_buffer = io.StringIO()
 
-            context.add_log(f"Function returned: {result}")
+        # any warnings or exceptions (TODO) will
+        # be logged
+        #   --> any exceptions encountered flag
+        #       execution as failed
+        with warnings.catch_warnings(record=True) as warning_buffer:
+            warnings.simplefilter("always")
 
-            # Push return value to XCom
-            context.xcom_push('return_value', result)
+        return_value = None
+        with contextlib.redirect_stdout(stdout_buffer), contextlib.redirect_stderr(stderr_buffer):
+            try:
+                context.add_log(f"Executing Python callable: {self.python_callable.__name__}")
 
-            return result
+                # Call function with context as first argument
+                return_value = self.python_callable(context, *self.op_args, **self.op_kwargs)
 
-        except Exception as e:
-            context.add_log(f"ERROR: {str(e)}")
-            raise
+                context.add_log(f"Function returned: {return_value}")
+
+                # Push return value to XCom
+                context.xcom_push('return_value', return_value)
+            except Exception as e:
+                context.add_log(f"ERROR: {str(e)}")
+                raise
+
+        warnings_text = "".join(
+            f"{warning.category.__name__}: {warning.message}\n" for warning in warning_buffer
+        )
+        result = {
+            'stdout': stdout_buffer.getvalue(),
+            'stderr': stderr_buffer.getvalue(),
+            'warnings': warnings_text,
+            'return_value': return_value,
+            'callable': f"{self.python_callable.__name__}",
+        }
+        return result
 
 
 class ContainerExecutionEngine(BaseExecutionEngine):

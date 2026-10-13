@@ -130,7 +130,30 @@ class TestBranchExecution:
 
 class TestStageExecution:
     """Test stage execution with job expansion."""
-    
+
+    def test_job_execution_ends_after_expected_retries(self, tmp_path):
+        """Test job with retries"""
+        job = JobDefinition(
+            name="failing_job",
+            command="exit 1",
+            payload={"evaluator_type": "bash"},
+        )
+
+        stage = StageDefinition(
+            name="failing_stage",
+            jobs=[job],
+        )
+
+        branch = BranchDefinition(name="failing_branch", stage=[stage])
+        workflow = WorkflowDefinition(name="failing_workflow", branches=[branch], objectives=[])
+        executor = DAGExecutor(workflow, base_output_dir=str(tmp_path))
+
+        with pytest.raises(Exception):
+            objectives = executor.execute({"x1": 0.5, "x2": 0.7, "x3": 0.3})
+
+        # TODO should set max retries to a number and
+        # confirm it exited as expected
+
     def test_job_expansion_with_range_factory(self, tmp_path):
         """Test job expansion using range factory."""
         job = JobDefinition(

@@ -12,11 +12,11 @@ Tests the DAGExecutor orchestration engine including:
 Project: AID2E v0.0.0 - AI assisted Detector Design for EIC
 """
 
-import pytest
-import tempfile
-import shutil
 from pathlib import Path
 from typing import Dict, Any
+import pytest
+import shutil
+import tempfile
 
 from aid2e.utilities.workflows import (
     DAGExecutor,
@@ -144,15 +144,16 @@ class TestStageExecution:
             jobs=[job],
         )
 
-        branch = BranchDefinition(name="failing_branch", stage=[stage])
+        branch = BranchDefinition(name="main", stages=[stage])
         workflow = WorkflowDefinition(name="failing_workflow", branches=[branch], objectives=[])
         executor = DAGExecutor(workflow, base_output_dir=str(tmp_path))
 
-        with pytest.raises(Exception):
+        # Make sure execution fails with a RuntimeError, and
+        # that we get the message it failed after 4 attempts
+        # (1 try + 3 retries)
+        with pytest.raises(RuntimeError) as run_error:
             objectives = executor.execute({"x1": 0.5, "x2": 0.7, "x3": 0.3})
-
-        # TODO should set max retries to a number and
-        # confirm it exited as expected
+        assert "Job failing_job failed after 4 attempts" in str(run_error.value)
 
     def test_job_expansion_with_range_factory(self, tmp_path):
         """Test job expansion using range factory."""

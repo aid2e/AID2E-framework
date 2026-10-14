@@ -571,7 +571,7 @@ class DAGExecutor:
         # Prepare parallelism policy from stage config
         parallelism_policy = {
             "max_concurrent": stage.parallelism.max_concurrent,
-            "retry_max": min(stage.parallelism.retry_max, self.scheduler_config.max_retries),
+            "retry_max": min(stage.parallelism.retry_max, self.scheduler_config["max_retries"]),
             "timeout_sec": stage.parallelism.timeout_sec,
             "poll_interval": stage.parallelism.poll_interval,
         }

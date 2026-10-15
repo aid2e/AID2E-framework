@@ -22,6 +22,7 @@ import datetime
 import importlib
 import hashlib
 import re
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Dict, Any, List, Optional, Tuple
@@ -59,6 +60,68 @@ def _resolve_callable_reference(callable_ref: str) -> Any:
     return target
 
 
+def _normalize_all2one_input_datasets(
+    input_datasets: Dict[str, Any],
+) -> Tuple[Dict[str, str], Dict[str, List[str]]]:
+    """Expand list-valued all2one inputs into iDDS-supported mappings.
+
+    iDDS requires each ``input_datasets`` value to be one dataset string.  The
+    AID2E YAML remains convenient by allowing one callable argument to name a
+    list of datasets.  Generated input-map names are recorded so the remote
+    adapter can combine the file lists back into the original argument.
+    """
+    if not isinstance(input_datasets, dict):
+        raise ValueError("all2one input_datasets must be a mapping")
+
+    normalized: Dict[str, str] = {}
+    groups: Dict[str, List[str]] = {}
+    source_keys = set(input_datasets)
+    for argument_name, datasets in input_datasets.items():
+        if isinstance(datasets, str):
+            normalized[argument_name] = datasets
+            continue
+        if not isinstance(datasets, list) or not datasets:
+            raise ValueError(
+                f"all2one input_datasets[{argument_name!r}] must be a dataset string "
+                "or a non-empty list of dataset strings"
+            )
+
+        aliases = []
+        for index, dataset in enumerate(datasets):
+            if not isinstance(dataset, str) or not dataset:
+                raise ValueError(
+                    f"all2one input_datasets[{argument_name!r}][{index}] "
+                    "must be a non-empty dataset string"
+                )
+            alias = f"{argument_name}__aid2e_{index}"
+            if alias in source_keys or alias in normalized:
+                raise ValueError(f"all2one generated input dataset key collides with {alias!r}")
+            normalized[alias] = dataset
+            aliases.append(alias)
+        groups[argument_name] = aliases
+    return normalized, groups
+
+
+def _restore_all2one_runtime_inputs(
+    runtime_kwargs: Dict[str, Any],
+    input_dataset_groups: Optional[Dict[str, List[str]]],
+) -> Dict[str, Any]:
+    """Restore generated iDDS input maps to the callable's YAML argument."""
+    restored = dict(runtime_kwargs)
+    for argument_name, aliases in (input_dataset_groups or {}).items():
+        file_names: List[Any] = []
+        for alias in aliases:
+            value = restored.pop(alias, None)
+            if value is None:
+                continue
+            if isinstance(value, (list, tuple)):
+                file_names.extend(value)
+            else:
+                file_names.append(value)
+        restored[argument_name] = file_names
+    return restored
+
+
 class _TrialGraphContext(SimpleNamespace):
     """Minimal context used by PanDA trial graph bridge final/local stages."""
 
@@ -72,6 +135,8 @@ def _remote_python_callable_entrypoint(
     callable_ref: str,
     context_payload: Dict[str, Any],
     op_kwargs: Optional[Dict[str, Any]] = None,
+    with_context: bool = True,
+    input_dataset_groups: Optional[Dict[str, List[str]]] = None,
     **runtime_kwargs: Any,
 ) -> Any:
     """Worker-side PanDA entrypoint that only runs the requested Python callable.
@@ -84,8 +149,12 @@ def _remote_python_callable_entrypoint(
     func = _resolve_callable_reference(callable_ref)
     context = JobContext(**context_payload)
     merged_kwargs = dict(op_kwargs or {})
-    merged_kwargs.update(runtime_kwargs)
-    return func(context, **merged_kwargs)
+    merged_kwargs.update(
+        _restore_all2one_runtime_inputs(runtime_kwargs, input_dataset_groups)
+    )
+    if with_context:
+        return func(context, **merged_kwargs)
+    return func(**merged_kwargs)
 
 
 class PanDAiDDSScheduler(BaseScheduler):
@@ -152,6 +221,21 @@ class PanDAiDDSScheduler(BaseScheduler):
         # Phase 1: Submit all jobs
         submitted_job_ids = []
         local_job_results = {}
+        multistage_futures = {}
+        multistage_executor = None
+
+        def submit_multistage(job_id, runner, job_definition):
+            nonlocal multistage_executor
+            if multistage_executor is None:
+                max_concurrent = int(policy.get("max_concurrent") or len(job_definitions) or 1)
+                multistage_executor = ThreadPoolExecutor(max_workers=max(1, max_concurrent))
+            multistage_futures[job_id] = multistage_executor.submit(
+                runner,
+                stage_name,
+                job_definition,
+                working_dir,
+                poll_interval,
+            )
 
         for index, job_def in enumerate(job_definitions):
             job_name = job_def.get("name", f"job_{index}")
@@ -161,72 +245,18 @@ class PanDAiDDSScheduler(BaseScheduler):
 
             trial_graph_job = self._try_build_trial_multistage_graph_job(job_def)
             if trial_graph_job is not None:
-                try:
-                    self.logger.info("Running optimizer trial %s as a PanDA multi-stage graph", job_id)
-                    multistage_result = self._run_multistage_graph_job(
-                        stage_name,
-                        trial_graph_job,
-                        working_dir,
-                        poll_interval,
-                    )
-                    local_job_results[job_id] = multistage_result
-                    self.completed_jobs[job_id] = multistage_result
-                except Exception as exc:
-                    self.logger.exception("Failed to run optimizer trial graph %s: %s", job_id, exc)
-                    local_job_results[job_id] = {
-                        "status": "failed",
-                        "return_code": -1,
-                        "stdout": "",
-                        "stderr": str(exc),
-                        "outputs": {},
-                    }
-                    all_success = False
+                self.logger.info("Running optimizer trial %s as a PanDA multi-stage graph", job_id)
+                submit_multistage(job_id, self._run_multistage_graph_job, trial_graph_job)
                 continue
 
             if self._is_panda_multistage_job(job_def):
-                try:
-                    self.logger.info("Running multi-stage function job %s via iDDS/PanDA", job_id)
-                    multistage_result = self._run_multistage_job(
-                        stage_name,
-                        job_def,
-                        working_dir,
-                        poll_interval,
-                    )
-                    local_job_results[job_id] = multistage_result
-                    self.completed_jobs[job_id] = multistage_result
-                except Exception as exc:
-                    self.logger.exception("Failed to run multi-stage function job %s: %s", job_id, exc)
-                    local_job_results[job_id] = {
-                        "status": "failed",
-                        "return_code": -1,
-                        "stdout": "",
-                        "stderr": str(exc),
-                        "outputs": {},
-                    }
-                    all_success = False
+                self.logger.info("Running multi-stage function job %s via iDDS/PanDA", job_id)
+                submit_multistage(job_id, self._run_multistage_job, job_def)
                 continue
 
             if self._is_panda_multistage_graph_job(job_def):
-                try:
-                    self.logger.info("Building and running multi-stage graph job %s via iDDS/PanDA", job_id)
-                    multistage_result = self._run_multistage_graph_job(
-                        stage_name,
-                        job_def,
-                        working_dir,
-                        poll_interval,
-                    )
-                    local_job_results[job_id] = multistage_result
-                    self.completed_jobs[job_id] = multistage_result
-                except Exception as exc:
-                    self.logger.exception("Failed to run multi-stage graph job %s: %s", job_id, exc)
-                    local_job_results[job_id] = {
-                        "status": "failed",
-                        "return_code": -1,
-                        "stdout": "",
-                        "stderr": str(exc),
-                        "outputs": {},
-                    }
-                    all_success = False
+                self.logger.info("Building and running multi-stage graph job %s via iDDS/PanDA", job_id)
+                submit_multistage(job_id, self._run_multistage_graph_job, job_def)
                 continue
 
             # If the job provides a function object, try to submit to iDDS.
@@ -254,6 +284,24 @@ class PanDAiDDSScheduler(BaseScheduler):
                 self.logger.info("Executing local job %s", job_id)
                 result = self._execute_job(job_def, working_dir)
                 local_job_results[job_id] = result
+
+        for job_id, future in multistage_futures.items():
+            try:
+                multistage_result = future.result()
+                local_job_results[job_id] = multistage_result
+                self.completed_jobs[job_id] = multistage_result
+            except Exception as exc:
+                self.logger.exception("Failed to run multi-stage job %s: %s", job_id, exc)
+                local_job_results[job_id] = {
+                    "status": "failed",
+                    "return_code": -1,
+                    "stdout": "",
+                    "stderr": str(exc),
+                    "outputs": {},
+                }
+                all_success = False
+        if multistage_executor is not None:
+            multistage_executor.shutdown()
 
         # Phase 2: Poll all submitted iDDS jobs until they finish
         poll_count = 0
@@ -510,52 +558,55 @@ class PanDAiDDSScheduler(BaseScheduler):
 
         Raises RuntimeError if iDDS is not available.
         """
-        # Check cache first
-        if stage_name in self.stage_workflows:
-            self.logger.debug("Returning cached workflow for stage '%s'", stage_name)
-            return self.stage_workflows[stage_name]
+        # Workflow creation must be serialized when optimizer trials run in
+        # parallel; all works in one AID2E stage share the same iDDS workflow.
+        with self.lock:
+            if stage_name in self.stage_workflows:
+                self.logger.debug("Returning cached workflow for stage '%s'", stage_name)
+                return self.stage_workflows[stage_name]
+            try:
+                from idds.iworkflow.workflow import workflow as workflow_def  # type: ignore
+            except Exception as exc:  # pragma: no cover - optional dependency
+                raise RuntimeError(
+                    "idds.iworkflow is not available; install idds to use PanDA runner"
+                ) from exc
 
-        try:
-            from idds.iworkflow.workflow import workflow as workflow_def  # type: ignore
-        except Exception as exc:  # pragma: no cover - optional dependency
-            raise RuntimeError("idds.iworkflow is not available; install idds to use PanDA runner") from exc
+            workflow_name = (
+                f"{self.config.name or 'aid2e'}.{stage_name}."
+                f"{datetime.datetime.now().strftime('%Y%m%d_%H_%M_%S')}"
+            )
+            self.logger.info("Defining workflow for experiment %s", workflow_name)
 
-        workflow_name = f"{self.config.name or 'aid2e'}.{stage_name}.{datetime.datetime.now().strftime('%Y%m%d_%H_%M_%S')}"
-        self.logger.info("Defining workflow for experiment %s", workflow_name)
+            wf_builder = workflow_def(
+                func=lambda: None,
+                name=workflow_name,
+                service="panda",
+                cloud=self.config.cloud,
+                queue=self.config.queue,
+                init_env=self.config.init_env,
+                source_dir=self.config.source_dir,
+                source_dir_parent_level=self.config.source_dir_parent_level,
+                exclude_source_files=self.config.exclude_source_files,
+                max_walltime=self.config.max_walltime,
+                core_count=self.config.core_count,
+                total_memory=self.config.total_memory,
+                enable_separate_log=self.config.enable_separate_log,
+                local=True,
+                return_workflow=True,
+                post_script=self.config.post_script,
+            )
+            workflow = wf_builder()
+            workflow.pre_run()
+            workflow.prepare()
+            req_id = workflow.submit()
+            self.logger.info("Workflow id for experiment %s: %s", workflow_name, req_id)
+            if not req_id:
+                raise RuntimeError(f"Failed to submit workflow for experiment {workflow_name} to PanDA")
 
-        wf_builder = workflow_def(
-            func=lambda: None,
-            name=workflow_name,
-            service="panda",
-            cloud=self.config.cloud,
-            queue=self.config.queue,
-            init_env=self.config.init_env,
-            source_dir=self.config.source_dir,
-            source_dir_parent_level=self.config.source_dir_parent_level,
-            exclude_source_files=self.config.exclude_source_files,
-            max_walltime=self.config.max_walltime,
-            core_count=self.config.core_count,
-            total_memory=self.config.total_memory,
-            enable_separate_log=self.config.enable_separate_log,
-            local=True,
-            return_workflow=True,
-            post_script=self.config.post_script,
-        )
-
-        workflow = wf_builder()
-        workflow.pre_run()
-        workflow.prepare()
-        req_id = workflow.submit()
-        self.logger.info("Workflow id for experiment %s: %s", workflow_name, req_id)
-        if not req_id:
-            raise RuntimeError(f"Failed to submit workflow for experiment {workflow_name} to PanDA")
-
-        # store for potential future use
-        self.workflow = workflow
-        self.workflow_id = req_id
-        # Cache the workflow per stage_name
-        self.stage_workflows[stage_name] = workflow
-        return workflow
+            self.workflow = workflow
+            self.workflow_id = req_id
+            self.stage_workflows[stage_name] = workflow
+            return workflow
 
     def _next_work_name(self, stage_name: str, job_id: str, func_name: str) -> str:
         """Build a compact iDDS work/job key used for PanDA and Rucio artifacts.
@@ -606,6 +657,7 @@ class PanDAiDDSScheduler(BaseScheduler):
                 "stage_id": stage_name,
                 "workflow_id": job.get("workflow_id", "pandaidds"),
                 "design_point": job.get("payload", {}).get("design_point", {}),
+                "payload": dict(job.get("payload") or {}),
                 "xcom": {},
                 "execution_dir": working_dir,
                 "output_dir": working_dir,
@@ -617,6 +669,7 @@ class PanDAiDDSScheduler(BaseScheduler):
             "stage_id": getattr(context, "stage_id", stage_name),
             "workflow_id": getattr(context, "workflow_id", "pandaidds"),
             "design_point": dict(getattr(context, "design_point", {}) or {}),
+            "payload": dict(getattr(context, "payload", None) or job.get("payload") or {}),
             "xcom": dict(getattr(context, "xcom", {}) or {}),
             "artifacts": dict(getattr(context, "artifacts", {}) or {}),
             "logs": list(getattr(context, "logs", []) or []),
@@ -679,6 +732,11 @@ class PanDAiDDSScheduler(BaseScheduler):
         self.logger.info("Defining work %s", work_name)
 
         params = dict(job.get("params", {}))
+        with_context = (
+            "context" in params
+            or job.get("job_context") is not None
+            or job.get("context_payload") is not None
+        )
         context_payload = self._context_payload_for_callable_work(
             stage_name,
             job_id,
@@ -690,6 +748,7 @@ class PanDAiDDSScheduler(BaseScheduler):
             "callable_ref": callable_ref,
             "context_payload": context_payload,
             "op_kwargs": params,
+            "with_context": with_context,
         }
         work_kwargs = {
             "func": _remote_python_callable_entrypoint,
@@ -700,7 +759,18 @@ class PanDAiDDSScheduler(BaseScheduler):
             "job_key": work_name,
             "log_dataset_name": f"{work_name}.log/",
         }
-        work_kwargs.update(self._idds_work_dataset_kwargs(job.get("payload") or {}))
+        dataset_kwargs = self._idds_work_dataset_kwargs(job.get("payload") or {})
+        input_dataset_groups: Dict[str, List[str]] = {}
+        if (
+            job.get("payload", {}).get("dep_map") == "all2one"
+            and "input_datasets" in dataset_kwargs
+        ):
+            dataset_kwargs["input_datasets"], input_dataset_groups = (
+                _normalize_all2one_input_datasets(dataset_kwargs["input_datasets"])
+            )
+        if input_dataset_groups:
+            work_params["input_dataset_groups"] = input_dataset_groups
+        work_kwargs.update(dataset_kwargs)
         work_builder = work_def(**work_kwargs)
         work = work_builder(**work_params)
 
@@ -777,6 +847,7 @@ class PanDAiDDSScheduler(BaseScheduler):
             stage_id=workflow.branches[0].name,
             workflow_id=f"{workflow.name}_{trial_name}",
             design_point=design_point,
+            payload=trial_payload,
             xcom={},
             artifacts={},
             logs=[],
@@ -803,7 +874,7 @@ class PanDAiDDSScheduler(BaseScheduler):
         record: Dict[str, Any] = {"name": stage.name}
         stage_scheduler = getattr(stage, "scheduler", None)
         if getattr(stage_scheduler, "runner_type", None) == "JobLibRunner":
-            record["runner"] = "joblib"
+            record["runner"] = "local"
 
         jobs = []
         for job in stage.jobs:
@@ -817,12 +888,8 @@ class PanDAiDDSScheduler(BaseScheduler):
 
     def _is_panda_multistage_stage_records(self, stage_records: List[Dict[str, Any]]) -> bool:
         graph_keys = {
-            "panda_stage",
-            "panda_job_map",
             "depends_on",
             "dep_map",
-            "with_input_datasets",
-            "with_output_dataset",
             "input_datasets",
             "output_dataset",
         }
@@ -1020,4 +1087,3 @@ class PanDAiDDSScheduler(BaseScheduler):
 
     # convenience alias for upstream name
     submit_workflow = submit_idds_workflow
-

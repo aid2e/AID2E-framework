@@ -9,7 +9,7 @@ problem:
   problem_type: "DTLZ2"
   output_location: "/tmp"
   work_location: "/tmp"
-  design_parameters_file: "examples/optimizers/dtlz2_design.params"
+  design_parameters_file: "../../optimizers/dtlz2_design.params"
   objectives:
     - name: "f1"
       direction: "minimize"

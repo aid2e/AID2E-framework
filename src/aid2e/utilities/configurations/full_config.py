@@ -2,17 +2,14 @@
 
 from pathlib import Path
 import sys
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 import yaml
 from pydantic import BaseModel
 
 from .problem_config import ProblemConfiguration, ProblemConfigLoader
 from .optimizer_config import OptimizerConfiguration
-from .scheduler_config import (
-    SchedulerConfigLoader,
-    SchedulerConfiguration,
-)
+from .scheduler_config import SchedulerConfigLoader, SchedulerConfiguration
 from .stack_registry import StackRegistry
 from .workflow_config import WorkflowDefinition, WorkflowsConfiguration
 
@@ -33,54 +30,13 @@ def _ensure_config_import_path(base_dir: Path) -> None:
         sys.path.append(resolved)
 
 
-def _load_init_env_file(file_path: str, base_dir: Path) -> str:
-    """Load PanDA init_env commands from a YAML list or plain text file."""
-    path = Path(file_path).expanduser()
-    if not path.is_absolute():
-        path = (base_dir / path).resolve()
-    if not path.exists():
-        raise FileNotFoundError(f"PanDA init_env_file not found: {path}")
-
-    if path.suffix.lower() in {".yml", ".yaml"}:
-        with path.open("r", encoding="utf-8") as handle:
-            data = yaml.safe_load(handle) or []
-        if isinstance(data, dict):
-            data = data.get("init_env", [])
-        if isinstance(data, str):
-            return data
-        if not isinstance(data, list) or not all(isinstance(item, str) for item in data):
-            raise ValueError(
-                "PanDA init_env_file YAML must contain a string list or an "
-                "init_env string/list field"
-            )
-        commands: List[str] = data
-    else:
-        commands = []
-        with path.open("r", encoding="utf-8") as handle:
-            for line in handle:
-                command = line.strip()
-                if command and not command.startswith("#"):
-                    commands.append(command)
-
-    return " ".join(commands)
-
-
 def _normalize_scheduler_data(
     scheduler_raw: Dict[str, Any],
     base_dir: Path,
 ) -> SchedulerConfiguration:
     """Normalize scheduler payloads before model validation."""
     normalized = dict(scheduler_raw)
-    params = dict(normalized.get("parameters") or {})
-    init_env_file = params.pop("init_env_file", None)
-    if init_env_file is not None:
-        if "init_env" in params:
-            raise ValueError(
-                "Use only one of scheduler.parameters.init_env or "
-                "scheduler.parameters.init_env_file"
-            )
-        params["init_env"] = _load_init_env_file(str(init_env_file), base_dir)
-    normalized["parameters"] = params
+    normalized.setdefault("parameters", {})
     return SchedulerConfigLoader.from_dict(normalized, base_dir=str(base_dir))
 
 

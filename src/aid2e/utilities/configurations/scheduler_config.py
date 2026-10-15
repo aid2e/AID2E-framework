@@ -15,7 +15,7 @@ Repository: https://github.com/aid2e/AID2E-framework.git
 
 import json
 from pathlib import Path
-from typing import Dict, Optional, Any, Literal
+from typing import Dict, List, Optional, Any, Literal
 import yaml
 from pydantic import BaseModel, Field, ConfigDict
 from .scheduler_registry import get
@@ -125,6 +125,11 @@ class SchedulerConfigLoader:
         missing = [key for key in required_keys if key not in scheduler_payload]
         if missing:
             raise ValueError("Invalid scheduler definition, missing keys: " + ", ".join(missing))
+        if scheduler_payload.get("runner_type") == "PanDAiDDSRunner":
+            scheduler_payload["parameters"] = SchedulerConfigLoader._normalize_panda_parameters(
+                scheduler_payload.get("parameters") or {},
+                base_dir,
+            )
         config = SchedulerConfiguration(**scheduler_payload)
         parameters = dict(config.parameters)
         if config.runner_type == "SlurmRunner":
@@ -170,6 +175,58 @@ class SchedulerConfigLoader:
         Model(**parameters)
 
         return config
+
+    @staticmethod
+    def _normalize_panda_parameters(
+        parameters: Dict[str, Any],
+        base_dir: Optional[Path],
+    ) -> Dict[str, Any]:
+        """Resolve PanDA-specific convenience fields before validation."""
+        normalized = dict(parameters)
+        init_env_file = normalized.pop("init_env_file", None)
+        if init_env_file is None:
+            return normalized
+        if "init_env" in normalized:
+            raise ValueError(
+                "Use only one of scheduler.parameters.init_env or "
+                "scheduler.parameters.init_env_file"
+            )
+        normalized["init_env"] = SchedulerConfigLoader._load_init_env_file(
+            str(init_env_file),
+            base_dir,
+        )
+        return normalized
+
+    @staticmethod
+    def _load_init_env_file(file_path: str, base_dir: Optional[Path]) -> str:
+        """Load PanDA init commands from a YAML list or plain-text file."""
+        path = Path(file_path).expanduser()
+        if base_dir is not None and not path.is_absolute():
+            path = (base_dir / path).resolve()
+        if not path.exists():
+            raise FileNotFoundError(f"PanDA init_env_file not found: {path}")
+
+        if path.suffix.lower() in {".yml", ".yaml"}:
+            with path.open("r", encoding="utf-8") as handle:
+                data = yaml.safe_load(handle) or []
+            if isinstance(data, dict):
+                data = data.get("init_env", [])
+            if isinstance(data, str):
+                return data
+            if not isinstance(data, list) or not all(isinstance(item, str) for item in data):
+                raise ValueError(
+                    "PanDA init_env_file YAML must contain a string list or an "
+                    "init_env string/list field"
+                )
+            commands: List[str] = data
+        else:
+            commands = []
+            with path.open("r", encoding="utf-8") as handle:
+                for line in handle:
+                    command = line.strip()
+                    if command and not command.startswith("#"):
+                        commands.append(command)
+        return " ".join(commands)
 
     @staticmethod
     def load(file_path: str) -> SchedulerConfiguration:

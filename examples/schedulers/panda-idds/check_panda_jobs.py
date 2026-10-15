@@ -7,10 +7,9 @@ prints authentication tokens.
 
 Examples::
 
-    python check_panda_jobs.py --request-id 3665
+    python check_panda_jobs.py --task-id 3665
     python check_panda_jobs.py --request-id 3665 --transform-id 32469
-    python check_panda_jobs.py --task-id 40758
-    python check_panda_jobs.py --runtaskid 40758
+    python check_panda_jobs.py --jedi-task-id 40758
     python check_panda_jobs.py --job-id 4878999 --job-id 4879000
 """
 
@@ -21,15 +20,38 @@ import json
 import sys
 from typing import Any, Dict, Iterable, List, Optional, Sequence
 
+REQUEST_FIELDS = (
+    "request_id",
+    "name",
+    "scope",
+    "status",
+    "substatus",
+    "request_type",
+    "username",
+    "site",
+    "created_at",
+    "updated_at",
+    "total_transforms",
+    "finished_transforms",
+    "subfinished_transforms",
+    "failed_transforms",
+    "errors",
+)
 
 TRANSFORM_FIELDS = (
     "transform_id",
+    "transform_name",
+    "transform_type",
+    "transform_tag",
     "status",
     "substatus",
     "workload_id",
     "internal_id",
     "parent_transform_id",
     "parent_internal_id",
+    "created_at",
+    "updated_at",
+    "finished_at",
     "errors",
 )
 
@@ -92,7 +114,9 @@ def _display_value(value: Any) -> Any:
     return str(value)
 
 
-def _select_mapping_fields(mapping: Dict[str, Any], fields: Iterable[str]) -> Dict[str, Any]:
+def _select_mapping_fields(
+    mapping: Dict[str, Any], fields: Iterable[str]
+) -> Dict[str, Any]:
     return {
         field: _display_value(mapping[field])
         for field in fields
@@ -125,9 +149,7 @@ def _unwrap_idds_response(response: Any, operation: str) -> Any:
     # Some manager calls, including get_transforms in released client versions,
     # add a second ``(success, data)`` envelope and leave the data JSON encoded.
     while (
-        isinstance(data, (list, tuple))
-        and len(data) == 2
-        and isinstance(data[0], bool)
+        isinstance(data, (list, tuple)) and len(data) == 2 and isinstance(data[0], bool)
     ):
         nested_success, data = data
         if not nested_success:
@@ -157,6 +179,36 @@ def _get_idds_api(verbose: bool = False) -> Any:
     )
 
 
+def _query_request_rows(
+    request_id: int, *, verbose: bool = False
+) -> List[Dict[str, Any]]:
+    """Return the detailed rows used to describe an iDDS workflow."""
+    api = _get_idds_api(verbose=verbose)
+    rows = (
+        _unwrap_idds_response(
+            api.get_requests(
+                request_id=request_id,
+                with_detail=True,
+                with_metadata=False,
+            ),
+            "get_requests",
+        )
+        or []
+    )
+    return [row for row in rows if isinstance(row, dict)]
+
+
+def query_workflow(request_id: int, *, verbose: bool = False) -> Dict[str, Any]:
+    """Return workflow-level information for an iDDS request/task ID."""
+    rows = _query_request_rows(request_id, verbose=verbose)
+    if not rows:
+        raise QueryError(f"iDDS workflow/task {request_id} was not found")
+    workflow = _select_mapping_fields(rows[0], REQUEST_FIELDS)
+    workflow.setdefault("request_id", int(request_id))
+    workflow["task_id"] = int(request_id)
+    return workflow
+
+
 def query_transforms(
     request_id: int,
     transform_id: Optional[int] = None,
@@ -175,14 +227,7 @@ def query_transforms(
         # The bulk get_transforms call is incompatible with some released
         # iDDS manager/client combinations. Detailed request rows reliably
         # expose transform IDs, which can then be queried individually.
-        request_rows = _unwrap_idds_response(
-            api.get_requests(
-                request_id=request_id,
-                with_detail=True,
-                with_metadata=False,
-            ),
-            "get_requests",
-        ) or []
+        request_rows = _query_request_rows(request_id, verbose=verbose)
         transform_ids = sorted(
             {
                 int(row["transform_id"])
@@ -210,7 +255,9 @@ def query_task(task_id: int, *, verbose: bool = False) -> Dict[str, Any]:
     try:
         from pandaclient import Client
     except ImportError as exc:
-        raise QueryError("panda-client is unavailable; source setup_aid2e.sh first") from exc
+        raise QueryError(
+            "panda-client is unavailable; source setup_aid2e.sh first"
+        ) from exc
 
     status, task = Client.getJediTaskDetails(
         {"jediTaskID": int(task_id)},
@@ -223,7 +270,9 @@ def query_task(task_id: int, *, verbose: bool = False) -> Dict[str, Any]:
 
     job_status, panda_ids = Client.getPandaIDsWithTaskID(int(task_id), verbose=verbose)
     if job_status != 0:
-        raise QueryError(f"getPandaIDsWithTaskID({task_id}) failed with status {job_status}")
+        raise QueryError(
+            f"getPandaIDsWithTaskID({task_id}) failed with status {job_status}"
+        )
 
     result = _select_mapping_fields(task, TASK_FIELDS)
     result.setdefault("jediTaskID", int(task_id))
@@ -231,23 +280,25 @@ def query_task(task_id: int, *, verbose: bool = False) -> Dict[str, Any]:
     return result
 
 
-def query_jobs(job_ids: Sequence[int], *, verbose: bool = False) -> List[Dict[str, Any]]:
+def query_jobs(
+    job_ids: Sequence[int], *, verbose: bool = False
+) -> List[Dict[str, Any]]:
     """Return compact job records, including archived jobs when available."""
     if not job_ids:
         return []
     try:
         from pandaclient import Client
     except ImportError as exc:
-        raise QueryError("panda-client is unavailable; source setup_aid2e.sh first") from exc
+        raise QueryError(
+            "panda-client is unavailable; source setup_aid2e.sh first"
+        ) from exc
 
-    status, jobs = Client.getFullJobStatus([int(job_id) for job_id in job_ids], verbose=verbose)
+    status, jobs = Client.getFullJobStatus(
+        [int(job_id) for job_id in job_ids], verbose=verbose
+    )
     if status != 0 or jobs is None:
         raise QueryError(f"getFullJobStatus failed with status {status}")
-    return [
-        _select_object_fields(job, JOB_FIELDS)
-        for job in jobs
-        if job is not None
-    ]
+    return [_select_object_fields(job, JOB_FIELDS) for job in jobs if job is not None]
 
 
 def inspect_identifiers(
@@ -262,21 +313,19 @@ def inspect_identifiers(
     """Resolve identifiers down the request → transform → task → job chain."""
     report: Dict[str, Any] = {}
     discovered_task_ids = {int(task_id) for task_id in task_ids}
+    transforms: List[Dict[str, Any]] = []
 
     if request_id is not None:
         transforms = query_transforms(request_id, transform_id, verbose=verbose)
-        report["request_id"] = int(request_id)
-        report["transforms"] = transforms
         discovered_task_ids.update(
             int(transform["workload_id"])
             for transform in transforms
             if transform.get("workload_id") not in (None, "")
         )
 
-    tasks = [query_task(task_id, verbose=verbose) for task_id in sorted(discovered_task_ids)]
-    if tasks:
-        report["tasks"] = tasks
-
+    tasks = [
+        query_task(task_id, verbose=verbose) for task_id in sorted(discovered_task_ids)
+    ]
     discovered_job_ids = {int(job_id) for job_id in job_ids}
     for task in tasks:
         discovered_job_ids.update(task.get("panda_ids", []))
@@ -289,7 +338,56 @@ def inspect_identifiers(
         }
         selected_job_ids = selected_job_ids[:max_jobs]
     if selected_job_ids:
-        report["jobs"] = query_jobs(selected_job_ids, verbose=verbose)
+        jobs = query_jobs(selected_job_ids, verbose=verbose)
+    else:
+        jobs = []
+
+    tasks_by_id = {int(task["jediTaskID"]): task for task in tasks}
+    jobs_by_task: Dict[int, List[Dict[str, Any]]] = {}
+    for job in jobs:
+        jedi_task_id = job.get("jediTaskID")
+        if jedi_task_id is not None:
+            jobs_by_task.setdefault(int(jedi_task_id), []).append(job)
+
+    if request_id is not None:
+        workflow = query_workflow(request_id, verbose=verbose)
+        workflow_transforms: List[Dict[str, Any]] = []
+        for transform in transforms:
+            transform_report = dict(transform)
+            workload_id = transform.get("workload_id")
+            if workload_id not in (None, ""):
+                task_id = int(workload_id)
+                task = tasks_by_id.get(task_id)
+                if task is not None:
+                    transform_report["jedi_task"] = task
+                transform_report["jobs"] = jobs_by_task.get(task_id, [])
+            else:
+                transform_report["jobs"] = []
+            workflow_transforms.append(transform_report)
+
+        status_counts: Dict[str, int] = {}
+        for job in jobs:
+            status = str(job.get("jobStatus", "unknown"))
+            status_counts[status] = status_counts.get(status, 0) + 1
+        workflow["summary"] = {
+            "transforms": len(transforms),
+            "jedi_tasks": len(tasks),
+            "panda_jobs": len(jobs),
+            "job_statuses": status_counts,
+        }
+        workflow["transforms"] = workflow_transforms
+        report["workflow"] = workflow
+    else:
+        if tasks:
+            report["jedi_tasks"] = [
+                {
+                    "task": task,
+                    "jobs": jobs_by_task.get(int(task["jediTaskID"]), []),
+                }
+                for task in tasks
+            ]
+        if job_ids:
+            report["jobs"] = jobs
 
     return report
 
@@ -301,21 +399,26 @@ def build_parser() -> argparse.ArgumentParser:
             "or PanDA job ID. Queries are read-only."
         )
     )
-    parser.add_argument("--request-id", type=int, help="iDDS request/workflow ID")
+    parser.add_argument(
+        "--request-id",
+        "--task-id",
+        "--runtaskid",
+        dest="request_id",
+        type=int,
+        help="AID2E/iDDS workflow task ID (iDDS request ID)",
+    )
     parser.add_argument(
         "--transform-id",
         type=int,
         help="iDDS transform ID; requires --request-id",
     )
     parser.add_argument(
-        "--task-id",
         "--jedi-task-id",
-        "--runtaskid",
         dest="task_ids",
         action="append",
         type=int,
         default=[],
-        help="JEDI/run task ID; may be supplied more than once",
+        help="individual JEDI task ID; may be supplied more than once",
     )
     parser.add_argument(
         "--job-id",
@@ -349,7 +452,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     if args.max_jobs < 1:
         parser.error("--max-jobs must be at least 1")
     if args.request_id is None and not args.task_ids and not args.job_ids:
-        parser.error("provide --request-id, --task-id/--runtaskid, or --job-id")
+        parser.error("provide --task-id/--request-id, --jedi-task-id, or --job-id")
 
     try:
         report = inspect_identifiers(

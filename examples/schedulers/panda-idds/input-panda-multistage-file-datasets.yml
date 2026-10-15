@@ -2,7 +2,7 @@
 #
 # Intended command:
 #
-#   aid2e optimize input-panda-multistage-file-smoke.yml
+#   aid2e optimize examples/schedulers/panda-idds/input-panda-multistage-file-datasets.yml
 #
 # This submits one sim/reco PanDA work that writes my_test.txt, then one ana
 # PanDA work that consumes the dataset-backed file list and prints the message
@@ -14,7 +14,7 @@ problem:
   problem_type: "DTLZ2"
   output_location: "/tmp"
   work_location: "/tmp"
-  design_parameters_file: "examples/optimizers/dtlz2_design.params"
+  design_parameters_file: "../../optimizers/dtlz2_design.params"
   objectives:
     - name: "xyz"
       direction: "minimize"
@@ -72,9 +72,6 @@ workflows:
                   payload:
                     evaluator_type: "python"
                     python_callable: "examples.evaluators.dtlz2_panda:panda_stage_simreco"
-                    panda_stage: "simreco"
-                    panda_job_map: "one"
-                    with_output_dataset: true
                     output_file: "my_test.txt"
                     output_dataset: "{panda_scope}.aid2e.dtlz2.file_smoke.{submission_id}.{workflow_id}.{stage_id}.{job_id}"
                     num_events: 100
@@ -94,14 +91,11 @@ workflows:
                   payload:
                     evaluator_type: "python"
                     python_callable: "examples.evaluators.dtlz2_panda:panda_stage_ana"
-                    panda_stage: "ana"
                     depends_on:
                       stage: "simreco"
                       jobs: "*"
                     dep_type: "datasets"
                     dep_map: "one2one"
-                    with_input_datasets: true
                     input_datasets:
                       input_file_names: "{panda_scope}.aid2e.dtlz2.file_smoke.{submission_id}.{workflow_id}.simreco.{job_id}"
                     produces_objective: true
-                    final: true

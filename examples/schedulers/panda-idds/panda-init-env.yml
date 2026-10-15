@@ -1,20 +1,28 @@
-# Machine-specific PanDA setup commands for input-panda.yml.
-# Keep one shell command per list item; the loader joins them with spaces.
-# This DTLZ2 smoke installs AID2E core dependencies via install_aid2e_dependencies.sh.
-- "command -v singularity &> /dev/null || export SINGULARITY=/cvmfs/oasis.opensciencegrid.org/mis/singularity/current/bin/singularity;"
+# PanDA worker setup for the AID2E examples in this directory.
+# Keep one shell command per list item; the loader joins them into one script.
+# Use an explicit micromamba prefix instead of shell activation so both
+# `python` and `python3` resolve to Python 3.13 inside run_workflow.sh.
+- "set -e;"
+- "command -v singularity >/dev/null 2>&1 || export SINGULARITY=/cvmfs/oasis.opensciencegrid.org/mis/singularity/current/bin/singularity;"
 - "export AID2E_WORKDIR=$(pwd);"
-- "echo AID2E_WORKDIR: ${AID2E_WORKDIR};"
 - "export MAMBA_ROOT_PREFIX=${AID2E_WORKDIR}/micromamba;"
 - "export MAMBA_EXE=${MAMBA_ROOT_PREFIX}/bin/micromamba;"
+- "export AID2E_PYTHON_ENV=${AID2E_WORKDIR}/aid2e-python;"
+- "echo AID2E_WORKDIR: ${AID2E_WORKDIR};"
 - "mkdir -p ${MAMBA_ROOT_PREFIX}/bin;"
-- "curl -Ls https://micromamba.snakepit.net/api/micromamba/linux-64/latest | tar -xj -C ${MAMBA_ROOT_PREFIX} bin/micromamba;"
-- "chmod -R a+rx ${MAMBA_ROOT_PREFIX};"
-- "${MAMBA_EXE} install -y -r ${MAMBA_ROOT_PREFIX} -n base -c conda-forge python=3.13 pip;"
-- "${MAMBA_EXE} clean -a -y;"
-- "eval \"$(${MAMBA_EXE} shell hook -s posix)\";"
-- "micromamba activate base;"
-- "export PATH=${MAMBA_ROOT_PREFIX}/bin:$PATH;"
-- "echo \"python version being used\" $(python --version; which python);"
+- "curl -fLsS https://micro.mamba.pm/api/micromamba/linux-64/latest | tar -xj -C ${MAMBA_ROOT_PREFIX} bin/micromamba;"
+- "test -x ${MAMBA_EXE};"
+- "${MAMBA_EXE} create -y -p ${AID2E_PYTHON_ENV} -c conda-forge python=3.13 pip;"
+- "export PATH=${AID2E_PYTHON_ENV}/bin:${PATH};"
+- "hash -r;"
+- "echo Python environment selected:;"
+- "python --version;"
+- "python3 --version;"
+- "which python;"
+- "which python3;"
+- "python -c 'import sys; assert sys.version_info >= (3, 10), sys.version';"
 - "bash ${AID2E_WORKDIR}/install_aid2e_dependencies.sh;"
-- "source setup_aid2e.sh;"
+- "source ${AID2E_WORKDIR}/setup_aid2e.sh;"
+- "python -c 'import sys, aid2e; print(\"AID2E import succeeded with\", sys.version)';"
+- "${MAMBA_EXE} clean -a -y;"
 - "echo END OF AID2E PANDA ENVIRONMENT SETUP;"

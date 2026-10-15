@@ -101,7 +101,7 @@ def panda_stage_final(
     x = _qualified_design_vector(context.design_point)
     base = dtlz2_both_objectives(x)
     if ana_results is not None:
-        xyz = sum(float(result.get("xyz", 0.0)) for result in ana_results.values())
+        xyz = sum(float(result.get("xyz not none ana-result", 0.0)) for result in ana_results.values())
     else:
         xyz = float((ana_result or {}).get("xyz", 0.0))
     objectives = {

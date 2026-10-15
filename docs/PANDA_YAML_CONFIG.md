@@ -4,6 +4,18 @@ This guide explains how to configure the PanDAiDDS scheduler using YAML files in
 
 ## Quick Start
 
+For the checked-in PanDA examples, initialize the client environment before
+running the CLI:
+
+```bash
+source examples/schedulers/panda-idds/setup_panda.sh
+export PANDA_USERNAME=<your_panda_username>  # Optional account-name override
+aid2e optimize examples/schedulers/panda-idds/input-panda.yml
+```
+
+The setup script contains shared BNL PanDA endpoint and OIDC settings. It does
+not set a personal PanDA username.
+
 ### Minimal Configuration
 
 ```yaml
@@ -61,6 +73,7 @@ scheduler:
 | `name` | string | auto-generated | Job name, must start with `user.<username>` (auto-generates if omitted) |
 | `job_name_prefix` | string | "aid2e_job" | Prefix used when auto-generating the PanDA job name |
 | `init_env` | string/callable | "source setup_aid2e.sh; bash install_aid2e_dependencies.sh;" | Environment initialization (auto-sets if omitted, prepended if string) |
+| `init_env_file` | path | None | YAML list or plain-text file of environment commands, resolved relative to the scheduler config file; mutually exclusive with `init_env` |
 | `source_dir` | string | project root | Directory to upload to PanDA (auto-sets to project root if omitted) |
 | `max_walltime` | int | None | Maximum walltime in seconds |
 | `core_count` | int | 1 | CPU cores per job |
@@ -201,6 +214,25 @@ parameters:
   # Result: "source setup_aid2e.sh && bash install_aid2e_dependencies.sh && export MY_VAR=value && module load gcc"
 ```
 
+## All-to-One Dataset Inputs
+
+For an `all2one` dataset dependency, YAML may group multiple parent datasets
+under the callable argument that should receive their files:
+
+```yaml
+dep_type: "datasets"
+dep_map: "all2one"
+input_datasets:
+  input_file_names:
+    - "user.example.simreco.a"
+    - "user.example.simreco.b"
+```
+
+The PanDA adapter expands this list into separate string-valued iDDS input
+maps during submission. On the worker, it combines the injected file lists and
+calls the evaluator with `input_file_names=[...]`. This translation applies
+only to `all2one`; ordinary string-valued dataset mappings are unchanged.
+
 ## Loading Configurations
 
 ### Method 1: Full Config (Recommended)
@@ -277,6 +309,35 @@ The configuration is validated via Pydantic models:
 - Required field checks
 
 Invalid configurations will raise `ValidationError` with detailed messages.
+
+## Inspecting Requests, Tasks, and Jobs
+
+The read-only diagnostic script follows the iDDS/PanDA identifier chain from a
+request to its transforms, JEDI tasks, and PanDA jobs. Source the project and
+PanDA environments first:
+
+```bash
+source setup_aid2e.sh
+source examples/schedulers/panda-idds/setup_panda.sh
+```
+
+Query a complete iDDS request:
+
+```bash
+python examples/schedulers/panda-idds/check_panda_jobs.py --request-id 3665
+```
+
+The script also accepts narrower identifiers:
+
+```bash
+python examples/schedulers/panda-idds/check_panda_jobs.py --request-id 3665 --transform-id 32469
+python examples/schedulers/panda-idds/check_panda_jobs.py --task-id 40758
+python examples/schedulers/panda-idds/check_panda_jobs.py --runtaskid 40758
+python examples/schedulers/panda-idds/check_panda_jobs.py --job-id 4879003
+```
+
+Use `--max-jobs N` to bound job-detail queries. The output is JSON so it can
+also be filtered with tools such as `jq`.
 
 ## See Also
 

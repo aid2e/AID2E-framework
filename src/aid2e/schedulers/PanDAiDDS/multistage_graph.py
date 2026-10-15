@@ -21,31 +21,26 @@ _STAGE_KEYS = {
     "runner",
     "execution",
     "job_type",
-    "with_output_dataset",
     "output_file",
     "output_file_name",
     "output_dataset",
     "output_dataset_name",
     "num_events",
     "num_events_per_job",
-    "with_input_datasets",
     "input_datasets",
     "parent_results_key",
     "parent_result_parameter_name",
     "produces_objective",
     "final",
-    "produces",
 }
 
 _JOB_INSTANCE_KEYS = {
-    "with_output_dataset",
     "output_file",
     "output_file_name",
     "output_dataset",
     "output_dataset_name",
     "num_events",
     "num_events_per_job",
-    "with_input_datasets",
     "input_datasets",
 }
 

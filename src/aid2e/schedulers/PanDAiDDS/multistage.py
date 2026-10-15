@@ -1,7 +1,9 @@
-"""AID2E-owned PanDA/iDDS multi-stage dependency coordinator.
+"""Coordinate PanDA/iDDS submission for an AID2E multi-stage workflow.
 
-The AID2E-framework provides the DAG information (stages, jobs, outputs), multistage_graph.py creates a dependency graph that PanDA can ingest. 
-Runner uses this dependency information to submit job via multistage.py 
+The PanDA runner translates AID2E stage records into this module's scheduler-
+specific payload. This coordinator submits remote works with iDDS dependency
+metadata, executes explicitly local stages, and returns final objective outputs
+to the scheduler without exposing PanDA concepts to the generic DAG executor.
 """
 
 from __future__ import annotations
@@ -89,6 +91,28 @@ class PanDAMultiStageSpec:
                     raise ValueError(
                         f"panda_multistage stage '{stage['name']}' depends on unknown stage '{dep_name}'"
                     )
+
+        # Reuse the generic DAG validation utility to reject cyclic stage maps.
+        # PanDA-specific submission remains in this coordinator.
+        from aid2e.utilities.workflows.dag_types import (
+            DagDefinition,
+            DagNode,
+            DagNodeType,
+            topological_sort,
+        )
+
+        dag = DagDefinition(
+            name="panda_multistage",
+            nodes=[
+                DagNode(
+                    node_id=stage["name"],
+                    node_type=DagNodeType.STAGE,
+                    depends_on=_depends_on(stage),
+                )
+                for stage in by_name.values()
+            ],
+        )
+        topological_sort(dag)
 
         final_stages = [
             stage["name"]
@@ -215,7 +239,7 @@ class PanDAMultiStageJob:
                 return False
             if dep_type == "results":
                 if any(parent.status == "failed" for parent in parent_instances):
-                    return True
+                    return False
                 if any(parent.status != "completed" for parent in parent_instances):
                     return False
         return True
@@ -245,9 +269,14 @@ class PanDAMultiStageJob:
                     "design_point": self.payload.get("design_point", {}),
                     "stage_name": stage["name"],
                     "instance_key": instance_key,
+                    "dep_map": stage.get("dep_map", "one2one"),
                 },
             }
-            context_payload = self._stage_context_payload(job_id, stage["name"])
+            context_payload = self._stage_context_payload(
+                job_id,
+                stage["name"],
+                child_job["payload"],
+            )
             if context_payload is not None:
                 child_job["context_payload"] = context_payload
 
@@ -295,7 +324,7 @@ class PanDAMultiStageJob:
     def _is_local_stage(self, stage: Dict[str, Any]) -> bool:
         runner = stage.get("runner") or stage.get("execution")
         job_type = stage.get("job_type")
-        return runner in {"local", "joblib", "JobLibRunner"} or job_type in {"local", "joblib"}
+        return runner == "local" or job_type == "local"
 
     def _run_local_instance(
         self,
@@ -410,14 +439,12 @@ class PanDAMultiStageJob:
         payload: Dict[str, Any] = {}
         for source in (stage, instance):
             for key in (
-                "with_output_dataset",
                 "output_file",
                 "output_file_name",
                 "output_dataset",
                 "output_dataset_name",
                 "num_events",
                 "num_events_per_job",
-                "with_input_datasets",
                 "input_datasets",
             ):
                 if key in source:
@@ -509,7 +536,12 @@ class PanDAMultiStageJob:
             if key in dataset_payload and key not in params:
                 params[key] = dataset_payload[key]
 
-    def _stage_context_payload(self, job_id: str, logical_stage_name: str) -> Optional[Dict[str, Any]]:
+    def _stage_context_payload(
+        self,
+        job_id: str,
+        logical_stage_name: str,
+        payload: Dict[str, Any],
+    ) -> Optional[Dict[str, Any]]:
         parent_context = self.job_definition.get("job_context")
         if parent_context is None:
             return None
@@ -519,6 +551,7 @@ class PanDAMultiStageJob:
             "stage_id": logical_stage_name,
             "workflow_id": getattr(parent_context, "workflow_id", "pandaidds"),
             "design_point": dict(getattr(parent_context, "design_point", {}) or {}),
+            "payload": dict(payload),
             "xcom": dict(getattr(parent_context, "xcom", {}) or {}),
             "artifacts": dict(getattr(parent_context, "artifacts", {}) or {}),
             "logs": list(getattr(parent_context, "logs", []) or []),

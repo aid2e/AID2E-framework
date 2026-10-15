@@ -12,11 +12,11 @@ Tests the DAGExecutor orchestration engine including:
 Project: AID2E v0.0.0 - AI assisted Detector Design for EIC
 """
 
-import pytest
-import tempfile
-import shutil
 from pathlib import Path
 from typing import Dict, Any
+import pytest
+import shutil
+import tempfile
 
 from aid2e.schedulers.PanDAiDDS import runner as panda_runner
 from aid2e.schedulers.PanDAiDDS.config import PanDAiDDSRunnerConfig
@@ -146,7 +146,31 @@ class TestBranchExecution:
 
 class TestStageExecution:
     """Test stage execution with job expansion."""
-    
+
+    def test_job_execution_ends_after_expected_retries(self, tmp_path):
+        """Test job with retries"""
+        job = JobDefinition(
+            name="failing_job",
+            command="exit 1",
+            payload={"evaluator_type": "bash"},
+        )
+
+        stage = StageDefinition(
+            name="failing_stage",
+            jobs=[job],
+        )
+
+        branch = BranchDefinition(name="main", stages=[stage])
+        workflow = WorkflowDefinition(name="failing_workflow", branches=[branch], objectives=[])
+        executor = DAGExecutor(workflow, base_output_dir=str(tmp_path))
+
+        # Make sure execution fails with a RuntimeError, and
+        # that we get the message it failed after 4 attempts
+        # (1 try + 3 retries)
+        with pytest.raises(RuntimeError) as run_error:
+            objectives = executor.execute({"x1": 0.5, "x2": 0.7, "x3": 0.3})
+        assert "Job failing_job failed after 4 attempts" in str(run_error.value)
+
     def test_job_expansion_with_range_factory(self, tmp_path):
         """Test job expansion using range factory."""
         job = JobDefinition(

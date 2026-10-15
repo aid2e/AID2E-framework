@@ -78,6 +78,24 @@ def test_optimizer_only_example_configs_load() -> None:
         assert config.optimizer.parameters
 
 
+def test_cli_smoke_example_configs_load() -> None:
+    """Relocated JobLib and PanDA CLI examples should remain self-contained."""
+    example_paths = [
+        Path("examples/basic/input-joblib.yml"),
+        Path("examples/schedulers/panda-idds/input-panda.yml"),
+        Path(
+            "examples/schedulers/panda-idds/"
+            "input-panda-multistage-file-datasets.yml"
+        ),
+    ]
+
+    for cfg_path in example_paths:
+        config = load_config(str(cfg_path))
+        assert config.problem.design_config.get_parameter_names()
+        assert config.scheduler is not None
+        assert config.workflows is not None
+
+
 def test_optimizer_only_example_scripts_compile() -> None:
     """New optimizer-only example scripts should compile cleanly."""
     script_paths = [

@@ -4,6 +4,7 @@ from copy import deepcopy
 from typing import List, Dict, Any, Optional, TYPE_CHECKING, Union
 import logging, sys
 import numpy as np
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +20,7 @@ try:
         from ax.core.parameter_constraint import SumConstraint as AxSumConstraint
     except ImportError:
         AxSumConstraint = None
+    from ax.api.client import Client
     from ax.core.objective import MultiObjective, Objective
     from ax.core.optimization_config import MultiObjectiveOptimizationConfig, OptimizationConfig
     from ax.core.metric import Metric
@@ -187,6 +189,9 @@ class AxOptimizer(BaseOptimizer):
         # Create generation strategy
         self.generation_strategy = self._create_generation_strategy()
         
+        if config.warm_start_path is not None:
+            self._warm_start_from_ax_snapshot(config.warm_start_path)
+            
         # Track trials
         # self._trials and self._trial_counter are owned by BaseOptimizer
         
@@ -196,6 +201,159 @@ class AxOptimizer(BaseOptimizer):
             f"generator={config.generator}"
         )
     
+    
+    def save_ax_client_snapshot(self, path: str | Path) -> Path:
+        """Save the current Ax experiment and generation strategy as an Ax Client snapshot."""
+        snapshot_path = Path(path)
+        snapshot_path.parent.mkdir(parents=True, exist_ok=True)
+
+        client = Client()
+        client.set_experiment(self.experiment)
+        client.set_generation_strategy(self.generation_strategy)
+        client.save_to_json_file(filepath=str(snapshot_path))
+
+        return snapshot_path
+    
+    def _warm_start_from_ax_snapshot(self, warm_start_path: str) -> None:
+        """Seed this new AID2E Ax experiment from an Ax Client JSON snapshot."""
+        path = Path(warm_start_path)
+        if not path.is_absolute():
+            path = (Path.cwd()/path).resolve()
+            
+        if not path.is_file():
+            raise FileNotFoundError(f"Ax warm-start JSON file does not exist: {path}")
+
+        client = self._load_ax_client_snapshot(path)
+        old_experiment = self._get_client_experiment(client)
+        self._validate_warm_start_compatibility(old_experiment)
+        # Ax copies compatible single-arm trials and their attached data into this
+        # newly created AID2E experiment. The current AID2E generation strategy
+        # remains active, so the current generator/acquisition settings are used.
+        copied_trials = self.experiment.warm_start_from_old_experiment(
+            old_experiment=old_experiment,
+            search_space_check_membership_raise_error=True)
+        
+        self._restore_aid2e_trials_from_ax(copied_trials)
+        logger.info("warm-started Ax optimization from %s with %d copied trials(s).", 
+                    path, len(copied_trials))
+        
+    @staticmethod
+    def _load_ax_client_snapshot(path: Path) -> Any:
+        """Load an Ax 1.3+ Client JSON snapshot."""
+        from ax.api.client import Client
+        try:
+            return Client.load_from_json_file(filepath=str(path))
+        except Exception as error:
+            raise ValueError(f"Could not load Ax Client snapshot '{path}': {error}") from error
+
+    @staticmethod
+    def _get_client_experiment(client:Any) -> Any:
+        """Return the experiment restored by an Ax Client snapshot."""
+        return client._experiment
+    
+    def _validate_warm_start_compatibility(self, old_experiment: Any) -> None:
+        """Reject a snapshot whose search space or objectives conflict with AID2E."""
+        old_parameters = old_experiment.search_space.parameters
+        new_parameters = self.experiment.search_space.parameters
+        
+        if set(old_parameters) != set(new_parameters):
+          raise ValueError(
+            "Warm-start search-space parameter names do not match the current "
+            f"AID2E problem. Saved={sorted(old_parameters)}, "
+            f"current={sorted(new_parameters)}.")
+
+        for name, new_parameter in new_parameters.items():
+            old_parameter = old_parameters[name]
+            if type(old_parameter) is not type(new_parameter):
+                raise ValueError(f"Warm-start parameter '{name}' has a different Ax parameter type.")
+    
+            if isinstance(new_parameter, AxRangeParameter):
+                if (old_parameter.lower != new_parameter.lower
+                    or old_parameter.upper != new_parameter.upper
+                    or old_parameter.parameter_type != new_parameter.parameter_type
+                ):
+                    raise ValueError(f"Warm-start range parameter '{name}' has different bounds "
+                        "or a different value type.")
+                    
+            elif isinstance(new_parameter, AxChoiceParameter):
+                if (list(old_parameter.values) != list(new_parameter.values)
+                    or old_parameter.parameter_type != new_parameter.parameter_type):
+                    raise ValueError(f"Warm-start choice parameter '{name}' has different values "
+                        "or a different value type.")
+                    
+        old_optimization_config = old_experiment.optimization_config
+        if old_optimization_config is None:
+            raise ValueError("Warm-start Ax experiment has no optimization configuration.")
+
+        old_objective = old_optimization_config.objective
+        old_objectives = getattr(old_objective, "objectives", [old_objective])
+
+        old_directions = {}
+        for objective in old_objectives:
+            if hasattr(objective, "metric_names"):
+                metric_names = objective.metric_names
+                if len(metric_names) != 1:
+                    raise ValueError("Warm-start requires each Ax objective to contain exactly one metric. "
+                        f"Saved objective {objective!r} contains: {metric_names}.")
+                old_directions[metric_names[0]] = bool(objective.minimize)
+
+            elif hasattr(objective, "metric"):
+                # Compatibility with older Ax objective objects.
+                old_directions[objective.metric.name] = bool(objective.minimize)
+
+            else:
+                raise ValueError(f"Cannot read metric name and direction from saved Ax objective: {objective!r}")
+                
+        current_directions = {name: (str(getattr(
+                self.objective_directions.get(name, "minimize"), "value",
+                self.objective_directions.get(name, "minimize"))).lower()
+            != "maximize") for name in self.objective_names}
+
+        if old_directions != current_directions:
+            raise ValueError(
+                "Warm-start objectives or objective directions do not match. "
+                f"Saved={old_directions}, current={current_directions}."
+            )
+            
+    
+    def _restore_aid2e_trials_from_ax(self, ax_trials: List[Any]) -> None:
+        """Mirror imported Ax trials in AID2E's shared trial ledger.""" 
+        status_map = {
+            "CANDIDATE": "suggested",
+            "STAGED": "running",
+            "RUNNING": "running",
+            "COMPLETED": "completed",
+            "FAILED": "failed",
+            "ABANDONED": "aborted",
+            "EARLY_STOPPED": "aborted",
+            "STALE": "cancelled",
+        }   
+        
+        data_frame = self.experiment.lookup_data().df
+        self._trials = []
+        for ax_trial in ax_trials:
+            # Ax's native warm_start_from_old_experiment currently supports
+            # single-arm Trial objects, so this should always be present.
+            if ax_trial.arm is None:
+                raise ValueError(f"Warm-start trial {ax_trial.index} has no arm and cannot be represented by AID2E.")
+            rows = data_frame[(data_frame["trial_index"] == ax_trial.index)
+                            & (data_frame["arm_name"] == ax_trial.arm.name)
+                            & (data_frame["metric_name"].isin(self.objective_names))]
+
+            metrics = {metric_name: float(metric_rows.iloc[-1]["mean"])
+                for metric_name, metric_rows in rows.groupby("metric_name")}
+            
+            status = status_map.get(ax_trial.status.name, "pending")
+            self.set_trial_status(trial_index = ax_trial.index,
+                                status = status,            
+                                parameters=dict(ax_trial.arm.parameters),
+                                metrics=metrics or None,
+                                metadata={"ax_status": ax_trial.status.name,
+                                        "warm_started": True})
+
+        self._trial_counter = (max((trial.index for trial in ax_trials), default=-1) + 1)
+
+                
     def _parse_constraint_to_ax(
         self, constraint
     ) -> Optional[Any]:
@@ -856,6 +1014,7 @@ class AxOptimizer(BaseOptimizer):
             "config": {
                 "initialization_strategy": self.config.initialization_strategy,
                 "generator": self.config.generator,
+                "warm_start_path": self.config.warm_start_path,
                 "generator_kwargs": deepcopy(self.config.generator_kwargs),
                 "generator_gen_kwargs": deepcopy(self.config.generator_gen_kwargs),
                 "objective_thresholds": (

@@ -1200,7 +1200,7 @@ def test_panda_multistage_graph_job_runs_stage_records(monkeypatch, tmp_path):
 
 
 def test_dtlz2_dataset_simreco_writes_message_output_file(tmp_path, monkeypatch):
-    from examples.evaluators.dtlz2_panda import panda_stage_simreco
+    from examples.dtlz2.dtlz2_panda_evaluator import panda_stage_simreco
 
     context = types.SimpleNamespace(
         design_point={
@@ -1240,7 +1240,7 @@ def test_dtlz2_dataset_simreco_writes_message_output_file(tmp_path, monkeypatch)
 
 
 def test_dtlz2_dataset_ana_reads_and_prints_simreco_messages(tmp_path, capsys):
-    from examples.evaluators.dtlz2_panda import panda_stage_ana
+    from examples.dtlz2.dtlz2_panda_evaluator import panda_stage_ana
 
     first = tmp_path / "first.json"
     second = tmp_path / "second.json"

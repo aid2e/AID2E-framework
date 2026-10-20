@@ -571,11 +571,11 @@ class DAGExecutor:
         # Prepare parallelism policy from stage config
         parallelism_policy = {
             "max_concurrent": stage.parallelism.max_concurrent,
-            "retry_max": stage.parallelism.retry_max,
+            "retry_max": min(stage.parallelism.retry_max, self.scheduler_config["max_retries"]),
             "timeout_sec": stage.parallelism.timeout_sec,
-            "poll_interval": 5,  # Default poll interval for async schedulers
+            "poll_interval": stage.parallelism.poll_interval,
         }
-        
+
         stage_working_dir = self.scheduler_submit_dir / stage.name
         stage_working_dir.mkdir(parents=True, exist_ok=True)
 
@@ -1013,7 +1013,7 @@ class DAGExecutor:
             return expanded
         else:
             raise ValueError(f"Unsupported job_factory type: {factory.type}")
-    
+
     def _execute_job(
         self,
         job: JobDefinition,
@@ -1024,7 +1024,7 @@ class DAGExecutor:
         design_point: Dict[str, Any],
     ) -> None:
         """Execute a single job using the appropriate evaluator.
-        
+
         Args:
             job: Job definition to execute.
             job_idx: Job index (0 if name is unique)
@@ -1041,7 +1041,7 @@ class DAGExecutor:
         )
 
         execution_dir, output_dir = self._build_job_directories(stage_context.stage_id, job_id)
-        
+
         # Create job context
         job_context = JobContext(
             task_id=task_id,
@@ -1058,18 +1058,35 @@ class DAGExecutor:
             workflow_context=self.workflow_context,
             job_index=job_idx,
         )
-        
+
         # Select and create evaluator
         evaluator = self._create_evaluator(job, job_id)
-        
+
         try:
-            # Execute evaluator
-            result = evaluator.execute(job_context)
-            
-            # Store result in XCom
-            if result is not None:
+
+            # Execution should succeed in 1 + retry_max
+            # attempts (1st attempt + retry_max retries)
+            result = None
+            success = False
+            n_attempts = stage_context.parameters['retry_max'] + 1
+            for attempt in range(0, n_attempts):
+                attempt_result = evaluator.execute(job_context)
+                if attempt_result is not None and attempt_result['completed']:
+                    result = attempt_result
+                    success = True
+                else:
+                    if attempt + 1 < n_attempts:
+                        job_context.add_log(f"Job {job_id} attempt {attempt} failed; retrying...")
+                    else:
+                        job_context.add_log(f"Job {job_id} failed after max number of retries")
+
+            # If execution was successful, push result in XCom
+            # Otherwise execution failed, so throw runtime error
+            if success:
                 job_context.xcom_push("result", result)
-            
+            else:
+                raise RuntimeError(f"Job {job_id} failed after {n_attempts} attempts")
+
             self.logger.checkpoint(
                 "job_complete",
                 "success",
@@ -1079,7 +1096,7 @@ class DAGExecutor:
                     "result": str(result)[:200] if result else None,
                 },
             )
-            
+
         except Exception as e:
             self.logger.checkpoint(
                 "job_error",
@@ -1087,16 +1104,8 @@ class DAGExecutor:
                 f"Job {job_id} failed: {str(e)}",
                 context={"job_id": job_id, "error": str(e)},
             )
-            
-            # Check if retry is needed
-            max_retries = stage_context.parameters.get("retry_max", 0)
-            if max_retries > 0:
-                self.logger.log_warning(
-                    f"Job {job_id} failed. Retries not yet implemented."
-                )
-            
             raise
-    
+
     def _create_evaluator(self, job: JobDefinition, job_id: str) -> BaseExecutionEngine:
         """Create appropriate execution engine for a job.
         

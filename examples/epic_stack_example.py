@@ -240,7 +240,7 @@ def example_configure_layers():
         inputs = ["{{outputs[merge_rec_ana_stage:merge_rec_ana_job:rec](0)}}"],
         outputs = ["{{execution_dir}}/central_photon_phi_resolution.hist.root"],
         arguments = ["-c phi", "-s 22"],
-        command = "scripts/bic_angular_reso.py",
+        command = "bic/scripts/bic_angular_reso.py",
         rule = "python {{command}} -i {{inputs}} -o {{outputs}} {{arguments}}",
     )
     cfgs = [cfg_geo, cfg_sim_A, cfg_sim_B, cfg_sim_C, cfg_ana_A, cfg_rec, cfg_ana_B]

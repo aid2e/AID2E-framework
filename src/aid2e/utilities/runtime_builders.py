@@ -87,6 +87,9 @@ def build_scheduler_runtime_config(
         return None
 
     runner_type = scheduler_cfg.runner_type
+    max_retries = scheduler_cfg.max_retries
+    output_location = scheduler_cfg.output_location
+    monitor_interval = scheduler_cfg.monitor_interval
     params = dict(scheduler_cfg.parameters or {})
 
     if not params:
@@ -111,7 +114,13 @@ def build_scheduler_runtime_config(
     else:
         raise ValueError(f"Unsupported scheduler runner_type: {runner_type}")
 
-    return {"runner_type": runner_type, "config": cfg}
+    return {
+        "runner_type": runner_type,
+        "max_retries": max_retries,
+        "output_location": output_location,
+        "monitor_interval": monitor_interval,
+        "config": cfg
+    }
 
 
 def build_scheduler_from_config(scheduler_cfg: Optional[SchedulerConfiguration]):

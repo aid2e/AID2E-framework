@@ -26,16 +26,10 @@ After all branches complete, the executor collects the declared objectives and r
 
 The job `payload.evaluator_type` selects the execution engine. When it is omitted, the job uses command execution.
 
-- **Command/Bash** executes `job.command`; direct execution uses `payload.env`
-  for additional environment variables.
-- **Python** uses `evaluator_type: "python"` with `python_callable`. Direct
-  execution expects a callable object and passes `JobContext` first, followed by
-  `op_args` and `op_kwargs`. Scheduler-backed Python jobs forward `op_kwargs`;
-  the workflow adapter currently rejects this evaluator type for Slurm.
-- **Container** uses `evaluator_type: "container"` with image, command,
-  environment, volume, and resource settings for direct execution.
-- **Stack** uses `evaluator_type: "stack"` with a registered `stack_type` and
-  one or more ordered layers.
+- **Command/Bash** executes `job.command`; direct execution uses `payload.env` for additional environment variables.
+- **Python** uses `evaluator_type: "python"` with `python_callable`. Direct execution expects a callable object and passes `JobContext` first, followed by `op_args` and `op_kwargs`. Scheduler-backed Python jobs forward `op_kwargs`; the workflow adapter currently rejects this evaluator type for Slurm.
+- **Container** uses `evaluator_type: "container"` with image, command, environment, volume, and resource settings for direct execution.
+- **Stack** uses `evaluator_type: "stack"` with a registered `stack_type` and one or more ordered layers.
 
 ### Job Factories
 
@@ -144,7 +138,7 @@ For `evaluate`, the stage-level `SlurmRunner` overrides the branch default. A st
 
 ## Stack Jobs and EpicStack
 
-The stack interface allows a workflow job to execute one or more ordered layers of a registered experimental software stack. `StackRegistry` maps a stack name to its environment, design, problem, workflow, and execution classes. The ePIC implementation is registered as `epic`.
+The stack interface allows a workflow job to execute one or more ordered layers of a registered experimental software stack. The ePIC implementation is registered as `epic`.
 
 A stack workflow declares `stack_type`, while each stack job declares `evaluator_type: "stack"` and one or more `layers`. A job-level `stack_type` can override the workflow value. Missing or unknown stack types and missing layer configurations raise errors.
 
@@ -188,7 +182,7 @@ from aid2e.utilities.epic_utils import EpicStack
 - `rec` runs `eicrecon` and formats reconstruction inputs and podio output arguments.
 - `ana` runs a user-provided analysis command and rule.
 
-Before branches execute, `DAGExecutor` calls `prepare_workflow_geometry()` once for a workflow with a `stack_type`, design configuration, and problem configuration. In `no_build` mode, EpicStack copies `<epic_install>/share/epic` into the workflow output under `geometry/epic`, applies the design-point XML modifications, and uses that copy as `DETECTOR_PATH`. In `build` mode, it copies the configured geometry source, applies the modifications, and builds and installs that workflow copy.
+Geometry is prepared once per trial before branches execute. In `no_build` mode, EpicStack copies `<epic_install>/share/epic` into the workflow output under `geometry/epic`, applies the design-point XML modifications, and uses that copy as `DETECTOR_PATH`. In `build` mode, it copies the configured geometry source, applies the modifications, and builds and installs that workflow copy.
 
 Generated ePIC driver scripts use `set -euo pipefail`, initialize the selected geometry, and run through `EIC_SINGULARITY_IMAGE` or `EIC_SHELL`. The workflow therefore requires a valid ePIC environment configuration and an ePIC design configuration. See the [dRICH example](https://github.com/aid2e/AID2E-framework/tree/main/examples/drich) for a complete `geo`, `sim`/`rec`, and `ana` workflow, and the [BIC example](https://github.com/aid2e/AID2E-framework/tree/main/examples/bic) for another ePIC detector workflow.
 
@@ -200,12 +194,9 @@ The current full-config loader selects stack-specific workflow models when a wor
 
 Objectives can be returned in three ways:
 
-1. A job returns declared objective names directly in a mapping, an
-   `objectives` mapping, or individual output keys.
-2. A stage-level objective plan runs after that stage's jobs and stores its
-   extracted metrics in XCom.
-3. An objective-level or combined objective plan runs during final objective
-   collection.
+1. A job returns declared objective names directly in a mapping, an `objectives` mapping, or individual output keys.
+2. A stage-level objective plan runs after that stage's jobs and stores its extracted metrics in XCom.
+3. An objective-level or combined objective plan runs during final objective collection.
 
 Objective plans execute locally inside the trial's `DAGExecutor`, even when workflow jobs use a remote scheduler. Their `StepStage` objects are separate from workflow `StageDefinition` objects and do not use the scheduler cascade.
 
@@ -217,14 +208,7 @@ A stage-level plan must return all objectives declared for the workflow. A singl
 
 In a full configuration, declare objectives under `problem.objectives` only; duplicated `workflows[].objectives` declarations are rejected.
 
-### Key Classes
-
-| Class | Purpose |
-| --- | --- |
-| `ObjectiveDefinition` | Objective name, direction, optional plan, and output `metrics_keys`. |
-| `ObjectivePlanSpec` | A `steps` specification containing one or more script or inline stages. |
-| `CombinedObjectivePlan` | One plan with multiple metric definitions. |
-| `CombinedObjectiveMetric` | Metric name, direction, and `metric_key` to extract from the plan output. |
+See [workflow notes](notes/workflows.md) for objective model classes, stack registration, and geometry preparation internals.
 
 Objective-level and combined-plan `scheduler` fields are reserved but unsupported by the executor. Use a workflow stage for scheduled objective work.
 

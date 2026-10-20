@@ -5,11 +5,9 @@
 The AID2E CLI recognizes four configuration types:
 
 1. **DesignConfig** - Defines the parameter search space and constraints.
-2. **ProblemConfiguration** - Defines the design configuration, objectives,
-   paths, and evaluation settings.
+2. **ProblemConfiguration** - Defines the design configuration, objectives, paths, and evaluation settings.
 3. **OptimizerConfiguration** - Defines optimizer selection and settings.
-4. **FullConfig** - Combines problem, optimizer, optional scheduler, and
-   optional workflow configurations.
+4. **FullConfig** - Combines problem, optimizer, optional scheduler, and optional workflow configurations.
 
 Although scheduler and workflow configurations are optional in `FullConfig`, both are required to run `aid2e optimize`.
 
@@ -137,21 +135,7 @@ candidate = {name: 0.5 for name in config.problem.design_config.get_parameter_na
 is_valid, errors = search_space.validate(candidate)
 ```
 
-#### Constraint Methods
-
-`ParameterConstraint` provides these methods for direct use:
-
-| Method | Purpose |
-| --- | --- |
-| `extract_parameter_names()` | Return the qualified parameter names in the rule. |
-| `validate_syntax(valid_param_names)` | Check syntax and parameter names; return validity and an error message. |
-| `evaluate(param_values)` | Check whether parameter values satisfy the rule. |
-
-`AxOptimizer._parse_constraint_to_ax()` converts supported rules into Ax
-constraints. For example, `group.x + group.y >= 0.5` becomes
-`-group.x - group.y <= -0.5`. See the
-[optimizer guide](optimizers.md#search-space-and-constraint-mapping) for backend
-behavior.
+See [configuration notes](notes/configuration.md) for constraint methods and Ax conversion.
 
 ## Optimizer Configuration
 
@@ -241,8 +225,7 @@ workflows:
                       produces_objective: true
 ```
 
-See the checked-in configuration for all ten design parameters and constraint
-descriptions.
+See the checked-in configuration for all ten design parameters and constraint descriptions.
 
 ## See Also
 

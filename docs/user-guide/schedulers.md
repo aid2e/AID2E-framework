@@ -20,12 +20,9 @@ scheduler:
 
 `SchedulerConfiguration` also accepts:
 
-- `max_retries` (`int`, default `3`): Caps the stage `retry_max` policy passed
-  to scheduler runners. The current runners do not resubmit jobs from this setting.
-- `output_location` (`str`, default `"./scheduler_output"`): Common output setting;
-  execution directories currently come from the problem and workflow runtime.
-- `monitor_interval` (`int`, default `30`): Common monitoring setting;
-  runner or stage polling settings control the actual polling interval.
+- `max_retries` (`int`, default `3`): Caps the stage `retry_max` policy passed to scheduler runners. The current runners do not resubmit jobs from this setting.
+- `output_location` (`str`, default `"./scheduler_output"`): Common output setting; execution directories currently come from the problem and workflow runtime.
+- `monitor_interval` (`int`, default `30`): Common monitoring setting; runner or stage polling settings control the actual polling interval.
 
 ### Scheduler Cascade
 
@@ -206,8 +203,7 @@ scheduler:
 
 When `name` is omitted, it becomes `user.<username>.aid2e_job`. The username comes from `PANDA_USERNAME`, or the system account when unset. Set `name` explicitly for a different suffix.
 
-`source_dir` defaults to `PANDA_SOURCE_DIR` if set, then `cwd/src` when that directory exists, otherwise `cwd`. Set it explicitly if workers also need examples or other files outside `src`. `exclude_source_files` controls archive exclusions; inspect the 
-[config defaults](https://github.com/aid2e/AID2E-framework/blob/main/src/aid2e/schedulers/PanDAiDDS/config.py) before packaging inputs.
+`source_dir` defaults to `PANDA_SOURCE_DIR` if set, then `cwd/src` when that directory exists, otherwise `cwd`. Set it explicitly if workers also need examples or other files outside `src`. `exclude_source_files` controls archive exclusions; inspect the [config defaults](https://github.com/aid2e/AID2E-framework/blob/main/src/aid2e/schedulers/PanDAiDDS/config.py) before packaging inputs.
 
 Worker setup must be provided through `init_env` or `init_env_file`; no setup script is automatically prepended. A command list is joined with spaces, so include shell separators where needed:
 
@@ -237,10 +233,7 @@ The PanDA adapter expands this list into separate string-valued iDDS input maps 
 
 ### Examples and Queues
 
-See the [scheduler configuration](https://github.com/aid2e/AID2E-framework/blob/main/examples/schedulers/panda-idds/panda_scheduler_config.yml)
-and [CLI workflow](https://github.com/aid2e/AID2E-framework/blob/main/examples/schedulers/panda-idds/input-panda.yml).
-The checked-in examples use BNL settings; choose a queue and cloud available
-to your account with your PanDA administrator.
+See the [scheduler configuration](https://github.com/aid2e/AID2E-framework/blob/main/examples/schedulers/panda-idds/panda_scheduler_config.yml) and [CLI workflow](https://github.com/aid2e/AID2E-framework/blob/main/examples/schedulers/panda-idds/input-panda.yml). The checked-in examples use BNL settings; choose a queue and cloud available to your account with your PanDA administrator.
 
 ### Inspecting Requests, Tasks, and Jobs
 
@@ -269,46 +262,7 @@ python examples/schedulers/panda-idds/check_panda_jobs.py --job-id 4879003
 
 ## Python API
 
-### Full Config
-
-```python
-from aid2e.utilities.configurations import load_config
-
-# Load complete config including scheduler
-config = load_config("examples/basic/full_example_slurm.yml")
-
-# Access scheduler configuration
-scheduler_cfg = config.scheduler
-print(f"Runner type: {scheduler_cfg.runner_type}")
-print(f"Max retries: {scheduler_cfg.max_retries}")
-
-# Get validated runner-specific config
-runner_cfg = scheduler_cfg.parse_runner_params()
-print(f"Runner parameters: {runner_cfg}")
-```
-
-### Scheduler Config Only
-
-```python
-from aid2e.utilities.configurations.scheduler_config import SchedulerConfigLoader
-
-scheduler_config = SchedulerConfigLoader.load("scheduler.yml")
-runner_config = scheduler_config.parse_runner_params()
-```
-
-### Direct PanDA Config
-
-```python
-import yaml
-from aid2e.schedulers.PanDAiDDS.config import PanDAiDDSRunnerConfig
-
-# Load YAML (just PanDA parameters)
-with open("panda.yml") as f:
-    data = yaml.safe_load(f)
-
-# Parse
-panda_config = PanDAiDDSRunnerConfig(**data)
-```
+See [scheduler notes](notes/schedulers.md#python-api) for loading scheduler configurations and constructing runner configuration objects in Python.
 
 ## Troubleshooting
 

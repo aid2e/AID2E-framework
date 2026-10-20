@@ -1,0 +1,47 @@
+# NSGA-II: the same ten-variable, two-objective problem as Ax/Sobol.
+
+problem:
+  name: "DTLZ2 PyMOO with JobLib"
+  problem_type: "DTLZ2"
+  output_location: "./output/pymoo_joblib"
+  work_location: "./work/pymoo_joblib"
+
+  design_parameters_file: "../dtlz2_design.params"
+
+  objectives:
+    - name: "f1"
+      direction: "minimize"
+    - name: "f2"
+      direction: "minimize"
+
+optimizer:
+  name: "pymoo"
+  type: "evolutionary"
+  parameters:
+    algorithm: "nsga2"
+    pop_size: 20
+    n_offsprings: 4
+    n_iterations: 21  # Generations: 20 initial + 20 x 4 offspring = 100 evaluations.
+    seed: 42
+
+scheduler:
+  runner_type: "JobLibRunner"
+  parameters:
+    n_jobs: 4
+    backend: "threading"
+
+workflows:
+  workflows:
+    - name: "dtlz2_eval"
+      description: "DTLZ2 objective evaluation"
+      branches:
+        - name: "main"
+          stages:
+            - name: "evaluate"
+              objective_plan:
+                steps:
+                  stages:
+                    - name: "evaluate"
+                      inline:
+                        entrypoint: "examples.dtlz2.dtlz2_evaluator:objective_payload"
+                      produces_objective: true

@@ -125,10 +125,10 @@ aid2e version
 
 ```bash
 aid2e --help
-aid2e describe examples/configurations/dtlz2_optimization.yml
-aid2e inspect examples/configurations/dtlz2_optimization.yml
-aid2e validate examples/configurations/dtlz2_optimization.yml
-aid2e optimize examples/configurations/dtlz2_optimization.yml --validate-only
+aid2e describe examples/dtlz2/configurations/dtlz2_ax_constraints.yml
+aid2e inspect examples/dtlz2/configurations/dtlz2_ax_constraints.yml
+aid2e validate examples/dtlz2/configurations/dtlz2_ax_constraints.yml
+aid2e optimize examples/dtlz2/configurations/dtlz2_ax_constraints.yml --validate-only
 aid2e list
 aid2e version
 ```

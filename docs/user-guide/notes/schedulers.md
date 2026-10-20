@@ -10,7 +10,7 @@ See the [scheduler guide](../schedulers.md) for YAML settings, execution behavio
 from aid2e.utilities.configurations import load_config
 
 # Load complete config including scheduler
-config = load_config("examples/basic/full_example_slurm.yml")
+config = load_config("examples/dtlz2/configurations/dtlz2_ax_slurm.yml")
 
 # Access scheduler configuration
 scheduler_cfg = config.scheduler

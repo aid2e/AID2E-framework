@@ -149,9 +149,9 @@ Useful Slurm commands:
 For the checked-in PanDA examples, initialize the client environment before running the CLI:
 
 ```bash
-source examples/schedulers/panda-idds/setup_panda.sh
+source examples/dtlz2/schedulers/panda-idds/setup_panda.sh
 export PANDA_USERNAME=your_panda_username  # Optional account-name override
-aid2e optimize examples/schedulers/panda-idds/input-panda.yml
+aid2e optimize examples/dtlz2/configurations/dtlz2_ax_panda.yml
 ```
 
 The setup script contains shared BNL PanDA endpoint and OIDC settings. It does not set a personal PanDA username.
@@ -233,7 +233,7 @@ The PanDA adapter expands this list into separate string-valued iDDS input maps 
 
 ### Examples and Queues
 
-See the [scheduler configuration](https://github.com/aid2e/AID2E-framework/blob/main/examples/schedulers/panda-idds/panda_scheduler_config.yml) and [CLI workflow](https://github.com/aid2e/AID2E-framework/blob/main/examples/schedulers/panda-idds/input-panda.yml). The checked-in examples use BNL settings; choose a queue and cloud available to your account with your PanDA administrator.
+See the [scheduler configuration](https://github.com/aid2e/AID2E-framework/blob/main/examples/dtlz2/schedulers/panda-idds/panda_scheduler_config.yml) and [CLI workflow](https://github.com/aid2e/AID2E-framework/blob/main/examples/dtlz2/configurations/dtlz2_ax_panda.yml). The checked-in examples use BNL settings; choose a queue and cloud available to your account with your PanDA administrator.
 
 ### Inspecting Requests, Tasks, and Jobs
 
@@ -241,21 +241,21 @@ The read-only diagnostic script follows the iDDS/PanDA identifier chain from a r
 
 ```bash
 source setup_aid2e.sh
-source examples/schedulers/panda-idds/setup_panda.sh
+source examples/dtlz2/schedulers/panda-idds/setup_panda.sh
 ```
 
 Query a complete iDDS request:
 
 ```bash
-python examples/schedulers/panda-idds/check_panda_jobs.py --request-id 3665
+python examples/dtlz2/schedulers/panda-idds/check_panda_jobs.py --request-id 3665
 ```
 
 The script also accepts narrower identifiers:
 
 ```bash
-python examples/schedulers/panda-idds/check_panda_jobs.py --request-id 3665 --transform-id 32469
-python examples/schedulers/panda-idds/check_panda_jobs.py --jedi-task-id 40758
-python examples/schedulers/panda-idds/check_panda_jobs.py --job-id 4879003
+python examples/dtlz2/schedulers/panda-idds/check_panda_jobs.py --request-id 3665 --transform-id 32469
+python examples/dtlz2/schedulers/panda-idds/check_panda_jobs.py --jedi-task-id 40758
+python examples/dtlz2/schedulers/panda-idds/check_panda_jobs.py --job-id 4879003
 ```
 
 `--task-id` and `--runtaskid` are aliases for `--request-id`, not JEDI task IDs. Use `--max-jobs N` to bound job-detail queries. The output is JSON so it can also be filtered with tools such as `jq`.
@@ -310,7 +310,7 @@ scheduler:
 - [Configuration Guide](configuration.md)
 - [Workflow Guide](workflows.md)
 - [Optimizer Guide](optimizers.md)
-- [DTLZ2 configuration](https://github.com/aid2e/AID2E-framework/blob/main/examples/configurations/dtlz2_optimization.yml)
+- [DTLZ2 configuration](https://github.com/aid2e/AID2E-framework/blob/main/examples/dtlz2/configurations/dtlz2_ax_constraints.yml)
 - [dRICH workflow](https://github.com/aid2e/AID2E-framework/blob/main/examples/drich/workflow.yml)
 - [PanDA Documentation](https://panda-wms.readthedocs.io/)
 - [iDDS Documentation](https://idds.readthedocs.io/)

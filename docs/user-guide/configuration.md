@@ -41,7 +41,7 @@ cfg = ProblemConfigLoader.load("path/to/problem.config")
 print(cfg.design_config.get_parameter_names())
 ```
 
-- The complete DTLZ2 example is defined in `examples/configurations/dtlz2_optimization.yml`.
+- The complete DTLZ2 example is defined in `examples/dtlz2/configurations/dtlz2_ax_constraints.yml`.
 
 ### Load a Full Configuration
 
@@ -49,7 +49,7 @@ print(cfg.design_config.get_parameter_names())
 from aid2e.utilities.configurations import load_config
 
 # Load a full configuration
-`config = load_config("examples/configurations/dtlz2_optimization.yml")`
+`config = load_config("examples/dtlz2/configurations/dtlz2_ax_constraints.yml")`
 
 # Access configuration components
 print(config.problem)
@@ -163,7 +163,7 @@ Use the `workflows: {workflows: [...]}` wrapper shown in the full example below.
 
 ### DTLZ2 Example
 
-This abbreviated example follows the checked-in `examples/configurations/dtlz2_optimization.yml` structure:
+This abbreviated example follows the checked-in `examples/dtlz2/configurations/dtlz2_ax_constraints.yml` structure:
 
 ```yaml
 problem:

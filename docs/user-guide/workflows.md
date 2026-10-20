@@ -403,8 +403,8 @@ Workflow errors propagate to the optimization loop. The problem's `evaluation_co
 
 ## Examples and API
 
-- [DTLZ2](https://github.com/aid2e/AID2E-framework/blob/main/examples/configurations/dtlz2_optimization.yml): local objective evaluation with JobLib.
+- [DTLZ2](https://github.com/aid2e/AID2E-framework/blob/main/examples/dtlz2/configurations/dtlz2_ax_constraints.yml): local objective evaluation with JobLib.
 - [dRICH](https://github.com/aid2e/AID2E-framework/blob/main/examples/drich/workflow.yml): scheduler cascade, payload factories, EpicStack layers, and objective aggregation.
 - [BIC](https://github.com/aid2e/AID2E-framework/tree/main/examples/bic): ePIC detector workflow and environment settings.
-- [PanDA examples](https://github.com/aid2e/AID2E-framework/tree/main/examples/schedulers/panda-idds): remote jobs and multistage graphs.
+- [PanDA examples](https://github.com/aid2e/AID2E-framework/tree/main/examples/dtlz2/schedulers/panda-idds): remote jobs and multistage graphs.
 - [Configuration API](../api-reference/utilities.md): workflow and objective models.

@@ -125,10 +125,10 @@ aid2e version
 
 ```bash
 aid2e --help
-aid2e describe examples/dtlz2/configurations/dtlz2_ax_constraints.yml
-aid2e inspect examples/dtlz2/configurations/dtlz2_ax_constraints.yml
-aid2e validate examples/dtlz2/configurations/dtlz2_ax_constraints.yml
-aid2e optimize examples/dtlz2/configurations/dtlz2_ax_constraints.yml --validate-only
+aid2e describe examples/dtlz2/configurations/dtlz2_ax_joblib.yml
+aid2e inspect examples/dtlz2/configurations/dtlz2_ax_joblib.yml
+aid2e validate examples/dtlz2/configurations/dtlz2_ax_joblib.yml
+aid2e optimize examples/dtlz2/configurations/dtlz2_ax_joblib.yml --validate-only
 aid2e list
 aid2e version
 ```
@@ -140,3 +140,5 @@ After each completed batch, `aid2e optimize` saves `optimization_results.json` (
 Objective fields named `<objective>_err` are saved as `objective_errors`; they are not yet passed to Ax as standard errors. Penalized trials retain the penalty flag and failure reason in metadata, and count toward `max_failed_trials`.
 
 `--validate-only` checks configuration loading; it does not execute jobs or verify the external software environment. Saved results do not provide automatic CLI resume.
+
+See the [CLI and runtime notes](notes/cli.md) for module structure, planned commands, and runtime responsibilities.

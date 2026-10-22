@@ -381,7 +381,7 @@ For `aid2e optimize`, the configured output and work locations contain one direc
     `-- trial_<index>/
         |-- log/
         |-- <stage>/<job>/
-        `-- geometry/epic/        # EpicStack no_build geometry
+        `-- geometry/epic/        
 
 <work_location>/<run-id>/
 `-- trials/
@@ -400,11 +400,3 @@ Workflow checkpoints record stage and job completion or failure. See [run record
 The executor requires every declared objective. Missing metrics, invalid JSON, non-numeric values, nonzero job return codes, and failed scheduler stages are workflow errors. Direct objective collection currently visits XCom values in insertion order, so repeated objective keys can overwrite earlier values rather than raising an error; workflows with multiple producers should use an explicit aggregation plan.
 
 Workflow errors propagate to the optimization loop. The problem's `evaluation_config.trial_failure_policy` then determines whether the optimizer marks the trial as failed or completes it with configured `penalty_objectives`. `max_failed_trials` limits tolerated failed evaluations. The default policy is `fail`, the default `max_failed_trials` is `0`, and the `penalty` policy requires a configured value for every declared objective. Scheduler retry and timeout limitations are documented in the [scheduler guide](schedulers.md#parallelism-and-failure-behavior).
-
-## Examples and API
-
-- [DTLZ2](https://github.com/aid2e/AID2E-framework/blob/main/examples/dtlz2/configurations/dtlz2_ax_constraints.yml): local objective evaluation with JobLib.
-- [dRICH](https://github.com/aid2e/AID2E-framework/blob/main/examples/drich/workflow.yml): scheduler cascade, payload factories, EpicStack layers, and objective aggregation.
-- [BIC](https://github.com/aid2e/AID2E-framework/tree/main/examples/bic): ePIC detector workflow and environment settings.
-- [PanDA examples](https://github.com/aid2e/AID2E-framework/tree/main/examples/dtlz2/schedulers/panda-idds): remote jobs and multistage graphs.
-- [Configuration API](../api-reference/utilities.md): workflow and objective models.

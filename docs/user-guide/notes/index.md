@@ -8,7 +8,3 @@ Implementation details and design choices. Setup and usage stay in the
 - [Optimizers](optimizers.md): backend contracts, constraints, and state.
 - [Schedulers](schedulers.md): execution, registration, and artifacts.
 - [Workflows and stacks](workflows.md): contexts, objective plans, and geometry.
-
-To preview or build the docs, install `.[docs]`, then run `mkdocs serve` or
-`mkdocs build`. Pages are listed in `mkdocs.yml`; the existing GitHub Actions
-workflow publishes changes from `main`.

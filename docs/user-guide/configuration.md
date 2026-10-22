@@ -41,7 +41,7 @@ cfg = ProblemConfigLoader.load("path/to/problem.config")
 print(cfg.design_config.get_parameter_names())
 ```
 
-- The complete DTLZ2 example is defined in `examples/dtlz2/configurations/dtlz2_ax_constraints.yml`.
+- The complete DTLZ2 example is defined in `examples/dtlz2/configurations/dtlz2_ax_joblib.yml`.
 
 ### Load a Full Configuration
 
@@ -49,7 +49,7 @@ print(cfg.design_config.get_parameter_names())
 from aid2e.utilities.configurations import load_config
 
 # Load a full configuration
-`config = load_config("examples/dtlz2/configurations/dtlz2_ax_constraints.yml")`
+`config = load_config("examples/dtlz2/configurations/dtlz2_ax_joblib.yml")`
 
 # Access configuration components
 print(config.problem)
@@ -235,4 +235,3 @@ See the checked-in configuration for all ten design parameters and constraint de
 - [DesignConfig API Documentation](../api-reference/utilities.md)
 - [SearchSpace API Documentation](../api-reference/optimizers.md)
 - [AxOptimizer API Documentation](../api-reference/optimizers.md)
-- [Constraint Test Suite](https://github.com/aid2e/AID2E-framework/blob/main/tests/test_optimizers/test_constraint_integration.py)

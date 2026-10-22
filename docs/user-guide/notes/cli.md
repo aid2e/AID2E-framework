@@ -1,38 +1,49 @@
 # CLI and runtime
 
-See the [CLI guide](../cli.md) for commands and output files.
-
-## Responsibilities
-
-| Owner | Responsibility |
-|---|---|
-| `src/aid2e/cli/` | Parse arguments, validate inputs, and display results. |
-| `run_optimization()` | Request candidate batches, schedule trials, update the optimizer, apply failure policy, and export results. |
-| `run_trial_workflow()` | Prepare and execute one trial with its own work/output directories. |
-
-Both runtime functions live in `src/aid2e/utilities/runtime_builders.py`.
-Reuse this loop for new entrypoints.
-
-The global scheduler receives `run_trial_workflow` with a config path, trial
-index, and design point. Jobs inside the workflow receive `JobContext`.
-Scheduler adapters must preserve the submitted callable's argument contract.
+See the [CLI guide](../cli.md) for commands, options, and output files.
 
 ## CLI structure
 
-`aid2e_cli.py` registers commands; `_helpers.py` handles shared formatting.
-`config_commands.py`, `workflow_commands.py`, and `utility_commands.py` group
-commands by purpose. Plugins use the `aid2e.commands` entrypoint group.
+```text
+src/aid2e/cli/
+├── __init__.py           # Exports the CLI group
+├── aid2e_cli.py          # Command registration and plugin loading
+├── _helpers.py           # Configuration detection and formatting
+├── config_commands.py    # describe, inspect, validate
+├── workflow_commands.py  # optimize and planned workflow commands
+└── utility_commands.py   # list, version and planned utilities
+```
 
-Main's [CLI design](https://github.com/aid2e/AID2E-framework/blob/ed8149a2f99c545235369224c52434c4136355d6/docs/CLI_DESIGN.md)
-keeps commands independently testable, with compact output, optional detail,
-and JSON/YAML for scripting.
+The CLI keeps commands independently testable, with compact output, optional detail, and JSON/YAML for scripting. Plugins use the `aid2e.commands` entrypoint group.
 
-## Reporting
+## Command structure
 
-Run records stay in the existing runtime; backend-specific files are returned
-by `save_optimization_results()`. Submission/collection timestamps do not measure
-worker start times. Model export does not trigger an extra fit; see
-[optimizer state](optimizers.md#state-and-model-export).
+Commands marked `planned` are not registered or available through the CLI.
 
-`run`, `resume`, `status`, `stop`, `clean`, `init`, and `graph` are unregistered
-placeholders, not available commands.
+```text
+aid2e
+├── Config inspection
+│   ├── describe     # Configuration summary with automatic type detection
+│   ├── inspect      # Detailed inspection with section filtering
+│   └── validate     # Syntax and structure validation
+├── Workflow execution
+│   ├── optimize     # Run optimization from a full configuration
+│   ├── run          # Execute a workflow without optimization (planned)
+│   ├── resume       # Restart from a checkpoint (planned)
+│   ├── stop         # Halt a running optimization (planned)
+│   ├── status       # Check progress (planned)
+│   └── clean        # Remove temporary files (planned)
+└── Utilities
+    ├── list         # Available optimizers, templates, and problems
+    ├── version      # Installed framework version
+    ├── init         # Create configurations from templates (planned)
+    └── graph        # Visualize a workflow (planned)
+```
+
+## Runtime responsibilities
+
+`run_optimization()` schedules trial batches, updates the optimizer, and exports results. `run_trial_workflow()` prepares and executes one trial with its own work/output directories. Both functions live in `src/aid2e/utilities/runtime_builders.py`.
+
+The global scheduler receives `run_trial_workflow` with a configuration path, trial index, and design point. Jobs inside the workflow receive `JobContext`. Scheduler adapters must preserve the submitted callable's argument.
+
+Run records stay in the existing runtime; files are returned by `save_optimization_results()`. 

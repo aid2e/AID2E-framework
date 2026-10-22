@@ -1,0 +1,59 @@
+# Separate objective plans: script evaluation for f1, dependent inline steps for f2.
+
+problem:
+  name: "DTLZ2 Objective Plans"
+  problem_type: "DTLZ2"
+  output_location: "./output/objective_plans"
+  work_location: "./work/objective_plans"
+
+  design_parameters_file: "../dtlz2_design.params"
+
+  objectives:
+    - name: "f1"
+      direction: "minimize"
+      metrics_keys: ["f1"]
+      objective_plan:
+        steps:
+          stages:
+            - name: "evaluate_f1"
+              script:
+                path: "../dtlz2_evaluator.py"
+                output_file: "objectives.json"
+                timeout_sec: 300
+              produces_objective: true
+    - name: "f2"
+      direction: "minimize"
+      metrics_keys: ["f2"]
+      objective_plan:
+        steps:
+          stages:
+            - name: "prepare"
+              inline:
+                entrypoint: "examples.dtlz2.dtlz2_evaluator:prepare_objective_inputs"
+            - name: "evaluate"
+              depends_on: ["prepare"]
+              inline:
+                entrypoint: "examples.dtlz2.dtlz2_evaluator:evaluate_prepared_objective"
+              produces_objective: true
+
+optimizer:
+  name: "ax"
+  type: "bayesian"
+  parameters:
+    initialization_strategy: "sobol"
+    generator: "BOTORCH_MODULAR"
+    n_initial_samples: 20
+    n_iterations: 100
+    batch_size: 4
+    seed: 42
+
+scheduler:
+  runner_type: "JobLibRunner"
+  parameters:
+    n_jobs: 4
+    backend: "threading"
+
+workflows:
+  workflows:
+    - name: "dtlz2_objective_plans"
+      description: "Evaluate the problem-level objective plans"

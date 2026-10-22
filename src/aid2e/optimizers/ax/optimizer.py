@@ -202,10 +202,32 @@ class AxOptimizer(BaseOptimizer):
         )
     
     
-    def save_ax_client_snapshot(self, path: str | Path) -> Path:
-        """Save the current Ax experiment and generation strategy as an Ax Client snapshot."""
-        snapshot_path = Path(path)
-        snapshot_path.parent.mkdir(parents=True, exist_ok=True)
+    def save_ax_client_snapshot(self, output_dir: str | Path) -> Path:
+        """Save the current Ax experiment and generation strategy as a JSON snapshot."""
+        output_dir = Path(output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        parameters = "-".join(sorted(self.experiment.search_space.parameters))
+        objectives = []
+        for name in sorted(self.objective_names):
+            direction = getattr(
+                self.objective_directions.get(name, "minimize"),
+                "value",
+                self.objective_directions.get(name, "minimize"),
+            )
+            short_direction = "max" if str(direction).lower() == "maximize" else "min"
+            objectives.append(f"{name}-{short_direction}")
+
+        snapshot_path = output_dir / (
+            f"ax_snapshot__params-{parameters}"
+            f"__objectives-{'-'.join(objectives)}.json")
+
+        for trial in self.get_trials():
+            ax_trial = self.experiment.trials.get(trial.index)
+            if ax_trial is not None:
+                ax_trial.update_run_metadata(
+                    {"aid2e_trial_info": dict(trial.metadata or {})}
+                )
 
         client = Client()
         client.set_experiment(self.experiment)
@@ -213,6 +235,15 @@ class AxOptimizer(BaseOptimizer):
         client.save_to_json_file(filepath=str(snapshot_path))
 
         return snapshot_path
+    
+    def save_optimization_results(self, output_path, *, errors_by_trial=None):
+        outputs = super().save_optimization_results(
+            output_path,
+            errors_by_trial=errors_by_trial)
+
+        if self.config.save_snapshot:
+            outputs["ax_client_snapshot"] = self.save_ax_client_snapshot(output_path)
+        return outputs
     
     def _warm_start_from_ax_snapshot(self, warm_start_path: str) -> None:
         """Seed this new AID2E Ax experiment from an Ax Client JSON snapshot."""
@@ -344,12 +375,20 @@ class AxOptimizer(BaseOptimizer):
                 for metric_name, metric_rows in rows.groupby("metric_name")}
             
             status = status_map.get(ax_trial.status.name, "pending")
+            saved_metadata = dict(
+                (getattr(ax_trial, "run_metadata", {}) or {}).get(
+                    "aid2e_trial_info", {}
+                )
+            )
             self.set_trial_status(trial_index = ax_trial.index,
                                 status = status,            
                                 parameters=dict(ax_trial.arm.parameters),
                                 metrics=metrics or None,
-                                metadata={"ax_status": ax_trial.status.name,
-                                        "warm_started": True})
+                                metadata={
+                                    **saved_metadata,
+                                    "ax_status": ax_trial.status.name,
+                                    "warm_started": True,
+                                })
 
         self._trial_counter = (max((trial.index for trial in ax_trials), default=-1) + 1)
 
@@ -1026,6 +1065,7 @@ class AxOptimizer(BaseOptimizer):
                 "n_iterations": self.config.n_iterations,
                 "batch_size": self.config.batch_size,
                 "seed": self.config.seed,
+                "save_snapshot": self.config.save_snapshot,
             },
             "trials": [
                 {

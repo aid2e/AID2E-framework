@@ -121,7 +121,7 @@ Supported fields are:
 
 - `initialization_strategy`: `sobol`, `uniform`, or `center`
 - `generator`: currently validated to `BOTORCH_MODULAR`
-- `warm_start_path`: optional path to a native Ax Client JSON snapshot used to initialize the optimization with compatible trials and results from a previous run.
+- `warm_start_path`: optional path to Ax JSON snapshot for initializing optimization from a previous run
 - `generator_kwargs`: runtime kwargs passed to the Ax generator spec
 - `generator_gen_kwargs`: generation-time kwargs passed through to Ax
 - `objective_thresholds`: optional multi-objective thresholds by metric name
@@ -129,6 +129,7 @@ Supported fields are:
 - `n_iterations`
 - `batch_size`
 - `seed`
+- `save_snapshot`: save Ax snapshots after each completed batch
 
 The config explicitly rejects retired fields such as `surrogate_model` and
 `acquisition_function`. The current surface expects the newer `generator` plus

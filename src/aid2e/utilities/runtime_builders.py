@@ -406,15 +406,9 @@ def run_optimization(
                         "completed",
                         metadata=metadata,
                     )
-            optimizer.save_optimization_results(
-                run_dir,
-                errors_by_trial=errors_by_trial,
-            )
-        if hasattr(optimizer, "save_ax_client_snapshot"):
-            snapshot_path = optimizer.save_ax_client_snapshot(
-                run_dir / "ax_client_snapshot.json"
-            )
-            outputs["ax_client_snapshot"] = snapshot_path
+            outputs.update(optimizer.save_optimization_results(
+                    run_dir,
+                    errors_by_trial=errors_by_trial))
     finally:
         scheduler.shutdown()
 

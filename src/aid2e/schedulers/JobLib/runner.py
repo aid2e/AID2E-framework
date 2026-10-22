@@ -67,11 +67,6 @@ class JobLibScheduler(BaseScheduler):
             execution_dir = payload.get("execution_dir")
             cwd = execution_dir or working_dir or os.getcwd()
 
-            if execution_dir:
-                # Isolate temporary files for concurrently running jobs.
-                env["TMPDIR"] = execution_dir
-                env["TMP"] = execution_dir
-                env["TEMP"] = execution_dir
             self.logger.info("Executing job '%s': %s", job_name, command)
 
             timeout_sec = self.config.timeout if self.config.timeout else None

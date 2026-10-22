@@ -5,6 +5,7 @@ import logging
 import os
 import pickle
 import subprocess
+from datetime import datetime, timezone
 from typing import Dict, Any, List, Optional
 
 import joblib
@@ -25,6 +26,16 @@ class JobLibScheduler(BaseScheduler):
         self.running_jobs: Dict[str, Dict[str, Any]] = {}
 
     def _execute_job(self, job_def: Dict[str, Any], working_dir: Optional[str] = None) -> Dict[str, Any]:
+        """Execute a job and record its start and end times."""
+        started_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        result = self._run_job(job_def, working_dir)
+        result["metrics"] = {
+            "started_at": started_at,
+            "finished_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        }
+        return result
+
+    def _run_job(self, job_def: Dict[str, Any], working_dir: Optional[str] = None) -> Dict[str, Any]:
         """Execute a single job command and collect outputs."""
 
         job_name = job_def.get("name", "unknown_job")
@@ -225,6 +236,7 @@ class JobLibScheduler(BaseScheduler):
                         stdout=result.get("stdout", ""),
                         stderr=result.get("stderr", ""),
                         outputs=result.get("outputs"),
+                        metrics=result.get("metrics"),
                     )
                 )
 

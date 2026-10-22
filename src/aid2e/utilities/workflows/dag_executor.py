@@ -282,12 +282,14 @@ class DAGExecutor:
             ):
                 stack_class = StackRegistry.get_experimental_stack(self.workflow.stack_type)
                 stack = stack_class()
+                self.logger.checkpoint("geometry_prepare_start", "start", "Preparing workflow geometry")
                 prepared_geometry_dir = stack.prepare_workflow_geometry(
                     workflow_dir=str(self.output_dir),
                     design_point=design_point,
                     problem_config=self.problem_config,
                     workflow_id=self.workflow.name,
                 )
+                self.logger.checkpoint("geometry_prepare_complete", "success", "Workflow geometry prepared")
                 self.workflow_context.parameters["prepared_geometry_dir"] = prepared_geometry_dir
                 self.logger.log_info(f"Prepared geometry once at: {prepared_geometry_dir}")
 
@@ -378,7 +380,14 @@ class DAGExecutor:
             for node in layer:
                 stage = self._get_stage_by_name(branch.stages, node.node_id)
                 if stage:
-                    self._execute_stage(stage, branch, branch_context, design_point)
+                    try:
+                        self._execute_stage(stage, branch, branch_context, design_point)
+                    except Exception as error:
+                        self.logger.checkpoint(
+                            "stage_error", "error", str(error),
+                            context={"stage_name": stage.name, "branch_name": branch.name},
+                        )
+                        raise
         
         self.logger.checkpoint(
             "branch_complete",
@@ -909,8 +918,10 @@ class DAGExecutor:
                     "success",
                     f"Job {job_id} completed via scheduler",
                     context={
+                        "stage_name": stage_name,
                         "job_id": job_id,
                         "return_code": job_status.return_code,
+                        "metrics": job_status.metrics,
                     },
                 )
             else:
@@ -919,8 +930,10 @@ class DAGExecutor:
                     "error",
                     f"Job {job_id} failed via scheduler",
                     context={
+                        "stage_name": stage_name,
                         "job_id": job_id,
                         "return_code": job_status.return_code,
+                        "metrics": job_status.metrics,
                         "stderr": job_status.stderr,
                     },
                 )

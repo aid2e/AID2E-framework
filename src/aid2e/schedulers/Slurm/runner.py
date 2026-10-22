@@ -5,12 +5,14 @@ from __future__ import annotations
 import importlib
 import json
 import logging
+import os
 import shlex
 import subprocess
 import sys
 import time
 import uuid
 from pathlib import Path
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from aid2e.schedulers.Slurm.config import SlurmRunnerConfig
@@ -140,6 +142,7 @@ class SlurmScheduler(BaseScheduler):
                 "stdout_path": str(stdout_path) if stdout_path else None,
                 "stderr_path": str(stderr_path) if stderr_path else None,
                 "slurm_job_id": slurm_job_id,
+                "accounting": {},
                 "status": "queued",
                 "raw_state": "PENDING",
                 "return_code": None,
@@ -186,6 +189,17 @@ class SlurmScheduler(BaseScheduler):
         stage_state = self.stages[stage_id]
         if stage_state["status"] not in TERMINAL_STATUSES:
             raise RuntimeError(f"Stage {stage_id} is not yet finished (status={stage_state['status']})")
+
+        missing_accounting = [
+            self.jobs[job_id] for job_id in stage_state["job_ids"]
+            if self.jobs[job_id]["status"] in TERMINAL_STATUSES and not self.jobs[job_id]["accounting"]
+        ]
+        if missing_accounting:
+            time.sleep(self.config.sacct_poll_interval)
+            for job_state in missing_accounting:
+                self._refresh_job_state(job_state)
+                if not job_state["accounting"]:
+                    self.logger.warning("Slurm accounting unavailable for job %s", job_state["slurm_job_id"])
 
         cached = stage_state.get("result")
         if cached is not None:
@@ -407,27 +421,31 @@ class SlurmScheduler(BaseScheduler):
             stage_state["status"] = "queued"
 
     def _refresh_job_state(self, job_state: Dict[str, Any]) -> None:
-        if job_state["status"] in TERMINAL_STATUSES:
+        terminal = job_state["status"] in TERMINAL_STATUSES
+        if terminal and job_state["accounting"]:
             return
 
         slurm_job_id = job_state["slurm_job_id"]
-        active_state = self._query_squeue_state(slurm_job_id)
+        active_state = None if terminal else self._query_squeue_state(slurm_job_id)
         if active_state is not None:
             job_state["raw_state"] = active_state
             job_state["status"] = self._normalize_state(active_state)
             job_state["last_update"] = time.time()
-            return
+            if job_state["status"] not in TERMINAL_STATUSES:
+                return
 
         account_state = self._query_sacct_state(slurm_job_id)
         if account_state is None:
             job_state["last_update"] = time.time()
             return
 
-        raw_state = account_state["state"]
-        job_state["raw_state"] = raw_state
-        job_state["status"] = self._normalize_state(raw_state)
+        if not terminal:
+            job_state["raw_state"] = account_state["state"]
+            job_state["status"] = self._normalize_state(account_state["state"])
         job_state["return_code"] = self._parse_exit_code(account_state.get("exit_code"), job_state["status"])
+        job_state["accounting"] = account_state["accounting"]
         job_state["last_update"] = time.time()
+        self.stages[job_state["stage_id"]]["result"] = None
 
     def _query_squeue_state(self, slurm_job_id: str) -> Optional[str]:
         proc = subprocess.run(
@@ -449,18 +467,20 @@ class SlurmScheduler(BaseScheduler):
                 return state.strip()
         return None
 
-    def _query_sacct_state(self, slurm_job_id: str) -> Optional[Dict[str, str]]:
+    def _query_sacct_state(self, slurm_job_id: str) -> Optional[Dict[str, Any]]:
         proc = subprocess.run(
-            ["sacct", "-n", "-P", "-j", str(slurm_job_id), "--format=JobIDRaw,State,ExitCode"],
+            ["sacct", "-n", "-P", "-j", str(slurm_job_id),
+             "--format=JobIDRaw,State,ExitCode,Submit,Eligible,Start,End"],
             capture_output=True,
             text=True,
             check=False,
+            env={**os.environ, "TZ": "UTC", "SLURM_TIME_FORMAT": "%Y-%m-%dT%H:%M:%S"},
         )
         if proc.returncode != 0:
             self.logger.debug("sacct failed for %s: %s", slurm_job_id, proc.stderr.strip())
             return None
 
-        best_match: Optional[Dict[str, str]] = None
+        best_match: Optional[Dict[str, Any]] = None
         for line in proc.stdout.splitlines():
             line = line.strip()
             if not line:
@@ -470,7 +490,17 @@ class SlurmScheduler(BaseScheduler):
                 continue
             job_id_raw, state, exit_code = parts[0].strip(), parts[1].strip(), parts[2].strip()
             if job_id_raw == str(slurm_job_id):
-                best_match = {"state": state, "exit_code": exit_code}
+                accounting = {}
+                for index, key in enumerate(("submitted_at", "eligible_at", "started_at", "finished_at"), start=3):
+                    value = parts[index].strip() if index < len(parts) else ""
+                    accounting[key] = None if value in {"", "Unknown", "N/A", "None"} else f"{value}+00:00"
+                submitted, started = accounting["submitted_at"], accounting["started_at"]
+                # Submission-to-start includes dependency and hold time.
+                accounting["queue_seconds"] = (
+                    (datetime.fromisoformat(started) - datetime.fromisoformat(submitted)).total_seconds()
+                    if submitted and started else None
+                )
+                best_match = {"state": state, "exit_code": exit_code, "accounting": accounting}
                 break
         return best_match
 
@@ -505,7 +535,11 @@ class SlurmScheduler(BaseScheduler):
             stdout=stdout,
             stderr=stderr,
             outputs=outputs,
-            metrics={"slurm_job_id": job_state["slurm_job_id"], "raw_state": job_state.get("raw_state")},
+            metrics={
+                "slurm_job_id": job_state["slurm_job_id"],
+                "raw_state": job_state.get("raw_state"),
+                "slurm_accounting": job_state["accounting"],
+            },
         )
 
     def _collect_job_outputs(self, job_state: Dict[str, Any]) -> Dict[str, Any]:

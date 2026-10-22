@@ -11,6 +11,7 @@ Commands for running optimization workflows and managing execution lifecycle:
 """
 
 import logging
+import time
 import sys
 from pathlib import Path
 from typing import Optional
@@ -75,10 +76,15 @@ def optimize(
         if log_file:
             log_path = Path(log_file).expanduser()
             log_path.parent.mkdir(parents=True, exist_ok=True)
+            handler = logging.FileHandler(log_path)
+            formatter = logging.Formatter(
+                "%(asctime)s [%(name)s] %(levelname)s: %(message)s", datefmt="%Y-%m-%dT%H:%M:%S+00:00"
+            )
+            formatter.converter = time.gmtime
+            handler.setFormatter(formatter)
             logging.basicConfig(
-                filename=log_path,
+                handlers=[handler],
                 level=getattr(logging, log_level),
-                format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
                 force=True,
             )
         results = run_optimization(

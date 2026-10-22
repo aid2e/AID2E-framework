@@ -37,7 +37,7 @@ class SlurmRunnerConfig(BaseModel):
     sacct_poll_interval: int = Field(
         default=10,
         ge=1,
-        description="Reserved poll interval for sacct checks in seconds.",
+        description="Wait before retrying missing accounting for finished jobs, in seconds.",
     )
     sbatch_extra_args: List[str] = Field(
         default_factory=list,

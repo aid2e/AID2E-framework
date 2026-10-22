@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import importlib
+import json
 import shlex
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional, Union
 
+from aid2e.utilities.workflows.execution_logger import ExecutionLogger
 from aid2e.utilities.configurations.full_config import FullConfig
 from aid2e.utilities.configurations.optimizer_config import OptimizerConfiguration
 from aid2e.utilities.configurations.problem_config import ProblemConfiguration
@@ -322,8 +324,10 @@ def run_optimization(
     run_dir = output_root / run_name
     run_work_dir = Path(config.problem.work_location).resolve() / run_name
     run_dir.mkdir(parents=True, exist_ok=True)
+    run_started_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
     outputs = {
         "run_dir": run_dir,
+        "summary": run_dir / "summary.json",
         "optimization_results": run_dir / "optimization_results.json",
         "pareto_front": run_dir / "pareto_front.json",
     }
@@ -354,9 +358,17 @@ def run_optimization(
     if scheduler is None:
         raise ValueError("Optimization execution requires a scheduler configuration")
 
+    logger = ExecutionLogger("optimizer", str(run_dir), log_level=log_level, enable_file_logging=False)
+    outputs["optimizer_checkpoints"] = logger.checkpoint_file
     completed = 0
     batch_id = 0
+
+    def save_summary(status: str) -> None:
+        summary = {"started_at": run_started_at, "updated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "status": status}
+        outputs["summary"].write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
+
     try:
+        save_summary("running")
         while completed < n_iterations:
             batch_id += 1
             n_new = (
@@ -365,7 +377,9 @@ def run_optimization(
                 else 1
             )
             existing_trial_indices = {trial.index for trial in optimizer.get_trials()}
+            logger.checkpoint("candidate_generation_start", "start", "Generating candidates", context={"batch_id": batch_id})
             design_points = optimizer.suggest_candidates(n_candidates=n_new)
+            logger.checkpoint("candidate_generation_complete", "success", "Candidates generated", context={"batch_id": batch_id})
             if not design_points:
                 raise RuntimeError("Optimizer did not suggest any candidates")
             new_trials = [
@@ -397,6 +411,7 @@ def run_optimization(
                 trial_failure_policy,
                 penalty_objectives,
                 log_level,
+                logger,
             )
             for trial_index, (design_point, raw_metrics, metadata) in batch_results.items():
                 metrics = {
@@ -419,6 +434,11 @@ def run_optimization(
                 run_dir,
                 errors_by_trial=errors_by_trial,
             )
+            save_summary("running")
+        save_summary("completed")
+    except BaseException as error:
+        save_summary("interrupted" if isinstance(error, (KeyboardInterrupt, SystemExit)) else "failed")
+        raise
     finally:
         scheduler.shutdown()
 
@@ -439,6 +459,7 @@ def _run_trial_batch(
     trial_failure_policy: str,
     penalty_objectives: Dict[str, float],
     log_level: str,
+    logger: ExecutionLogger,
 ) -> Dict[int, tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any]]]:
     """Submit one optimizer batch through the configured scheduler."""
     active_trials = {
@@ -462,12 +483,23 @@ def _run_trial_batch(
         for trial_index, design_point in assignments
     ]
 
+    logger.checkpoint("batch_execution_start", "start", "Executing trial batch", context={"batch_id": batch_id})
     result = scheduler.run_stage(
         f"optimizer_batch_{batch_id}_trials",
         job_definitions,
         parallelism_policy={"max_concurrent": len(assignments)},
         working_dir=str(run_work_dir),
     )
+    logger.checkpoint(
+        "batch_execution_complete", "success" if result.success else "error", "Trial batch returned",
+        context={"batch_id": batch_id},
+    )
+    for status in result.job_statuses:
+        if str(status.job_id).isdigit() and int(status.job_id) in active_trials:
+            logger.checkpoint(
+                "trial_collected", "success" if status.status == "completed" else "error", "Trial result collected",
+                context={"batch_id": batch_id, "trial_index": int(status.job_id), "status": status.status, "metrics": status.metrics},
+            )
     trial_results = {}
     if not result.success:
         failed_statuses = {

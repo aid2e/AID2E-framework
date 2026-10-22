@@ -977,6 +977,16 @@ class PanDAiDDSScheduler(BaseScheduler):
         }
         self.jobs[stage_name][job_id] = tf_id
 
+    @staticmethod
+    def _execution_timing(details: Optional[Dict[str, Any]]) -> Dict[str, str]:
+        """Format times returned by iDDS"""
+        metrics = (details or {}).get("metrics") or {}
+        return {
+            key: datetime.datetime.fromisoformat(str(metrics[field])).replace(tzinfo=datetime.timezone.utc).isoformat(timespec="seconds")
+            for key, field in (("started_at", "start_time"), ("finished_at", "end_time"))
+            if metrics.get(field) is not None
+        }
+
     def check_single_job_status(self, job: Dict[str, Any], job_context: Any = None) -> None:
         """Check status of a single submitted job and update running_funcs state.
 
@@ -1061,7 +1071,7 @@ class PanDAiDDSScheduler(BaseScheduler):
                     "stdout": "",
                     "stderr": "",
                     "outputs": outputs,
-                    "metrics": {"transform_id": tf_id},
+                    "metrics": {"transform_id": tf_id, **self._execution_timing(details)},
                 }
             info["status"] = "finished"
             self.running_funcs[stage_name].pop(job_id, None)

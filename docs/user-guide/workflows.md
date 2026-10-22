@@ -184,7 +184,7 @@ from aid2e.utilities.epic_utils import EpicStack
 
 Geometry is prepared once per trial before branches execute. In `no_build` mode, EpicStack copies `<epic_install>/share/epic` into the workflow output under `geometry/epic`, applies the design-point XML modifications, and uses that copy as `DETECTOR_PATH`. In `build` mode, it copies the configured geometry source, applies the modifications, and builds and installs that workflow copy.
 
-Generated ePIC driver scripts use `set -euo pipefail`, initialize the selected geometry, and run through `EIC_SINGULARITY_IMAGE` or `EIC_SHELL`. The workflow therefore requires a valid ePIC environment configuration and an ePIC design configuration. See the [dRICH example](https://github.com/aid2e/AID2E-framework/tree/main/examples/drich) for a complete `geo`, `sim`/`rec`, and `ana` workflow, and the [BIC example](https://github.com/aid2e/AID2E-framework/tree/main/examples/bic) for another ePIC detector workflow.
+Generated ePIC driver scripts use `set -euo pipefail`, initialize the selected geometry, and run through `EIC_SINGULARITY_IMAGE` or `EIC_SHELL`. The workflow therefore requires a valid ePIC environment configuration and an ePIC design configuration. See the [dRICH example](https://github.com/aid2e/AID2E-framework/tree/main/examples/epic/drich) for a complete `geo`, `sim`/`rec`, and `ana` workflow, and the [BIC example](https://github.com/aid2e/AID2E-framework/tree/main/examples/epic/bic) for another ePIC detector workflow.
 
 The current full-config loader selects stack-specific workflow models when a workflow declares `stack_type`. A `WorkflowsConfiguration` should currently use one registered stack type; mixed stacks in one workflow collection are not yet supported reliably.
 

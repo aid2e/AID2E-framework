@@ -109,6 +109,7 @@ def main():
     for param_name, param_config in parameters.items():
         search_space_params[param_name] = {
             "type": "range",
+            "value": 0.5,
             "bounds": param_config["bounds"]
         }
     

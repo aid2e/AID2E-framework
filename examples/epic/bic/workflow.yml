@@ -54,7 +54,7 @@ problem:
   # be defined directly in this file. Parameters can also be defined
   # in a separate file, such as
   #
-  #   examples/dtlz2/configurations/design.params
+  #   examples/dtlz2/dtlz2_design.params
   inline_design:
     epic_design_space:
       epic_design_parameters:

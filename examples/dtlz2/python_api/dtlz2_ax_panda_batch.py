@@ -171,9 +171,9 @@ def run_pool_optimization(
     # Search space and optimizer
     search_space = SearchSpace(
         parameters={
-            "x1": {"type": "range", "bounds": [0.0, 1.0]},
-            "x2": {"type": "range", "bounds": [0.0, 1.0]},
-            "x3": {"type": "range", "bounds": [0.0, 1.0]},
+            "x1": {"type": "range", "value": 0.5, "bounds": [0.0, 1.0]},
+            "x2": {"type": "range", "value": 0.5, "bounds": [0.0, 1.0]},
+            "x3": {"type": "range", "value": 0.5, "bounds": [0.0, 1.0]},
         }
     )
 
@@ -334,9 +334,9 @@ def run_case_2_separate_branches():
     # Create search space
     search_space = SearchSpace(
         parameters={
-            "x1": {"type": "range", "bounds": [0.0, 1.0]},
-            "x2": {"type": "range", "bounds": [0.0, 1.0]},
-            "x3": {"type": "range", "bounds": [0.0, 1.0]},
+            "x1": {"type": "range", "value": 0.5, "bounds": [0.0, 1.0]},
+            "x2": {"type": "range", "value": 0.5, "bounds": [0.0, 1.0]},
+            "x3": {"type": "range", "value": 0.5, "bounds": [0.0, 1.0]},
         }
     )
     

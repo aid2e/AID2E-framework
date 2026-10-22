@@ -311,6 +311,6 @@ scheduler:
 - [Workflow Guide](workflows.md)
 - [Optimizer Guide](optimizers.md)
 - [DTLZ2 configuration](https://github.com/aid2e/AID2E-framework/blob/main/examples/dtlz2/configurations/dtlz2_ax_constraints.yml)
-- [dRICH workflow](https://github.com/aid2e/AID2E-framework/blob/main/examples/drich/workflow.yml)
+- [dRICH workflow](https://github.com/aid2e/AID2E-framework/blob/main/examples/epic/drich/workflow.yml)
 - [PanDA Documentation](https://panda-wms.readthedocs.io/)
 - [iDDS Documentation](https://idds.readthedocs.io/)

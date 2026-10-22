@@ -44,7 +44,7 @@ Reduce `n_iterations` for a shorter initial run. The optimizer, scheduler, and t
 Each run creates a directory under:
 
 ```text
-examples/dtlz2/output/dtlz2/<run-id>/
+examples/dtlz2/configurations/output/ax_joblib/<run-id>/
 ```
 
 The primary outputs are `optimization_results.json` and `pareto_front.json`.

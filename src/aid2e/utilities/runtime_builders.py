@@ -328,6 +328,8 @@ def run_optimization(
     outputs = {
         "run_dir": run_dir,
         "summary": run_dir / "summary.json",
+        "run_metadata": run_dir / "run.json",
+        "resolved_config": run_dir / "resolved_config.json",
         "optimization_results": run_dir / "optimization_results.json",
         "pareto_front": run_dir / "pareto_front.json",
     }
@@ -363,11 +365,37 @@ def run_optimization(
     completed = 0
     batch_id = 0
 
-    def save_summary(status: str) -> None:
-        summary = {"started_at": run_started_at, "updated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "status": status}
+    def save_summary(status: str, error: Optional[str] = None) -> None:
+        trials = optimizer.get_trials()
+        summary = {
+            "run_id": run_name, "started_at": run_started_at,
+            "updated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "status": status, "error": error,
+            "n_trials": len(trials),
+            "completed_trials": sum(t.status == "completed" and t.index not in failed_trials for t in trials),
+            "failed_trials": len(failed_trials),
+            "penalized_trials": sum(bool((t.metadata or {}).get("penalized")) for t in trials),
+            "pending_trials": sum(t.index not in failed_trials and t.status not in {"completed", "failed", "aborted", "cancelled"} for t in trials),
+        }
         outputs["summary"].write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
 
     try:
+        metadata = {
+            "run_id": run_name, "config_path": str(config_path_obj),
+            "workflow": select_workflow(config.workflows, workflow_name=workflow_name).name,
+            "run_dir": str(run_dir), "work_dir": str(run_work_dir),
+        }
+        snapshot = config.model_dump(mode="python", serialize_as_any=True)
+        snapshot["problem"]["output_location"] = str(output_root)
+        snapshot["optimizer"]["parameters"] = optimizer_config.model_dump(mode="python")
+        # Parameter models currently serialize their type property incorrectly.
+        for group in snapshot["problem"]["design_config"]["design_parameters"].values():
+            for parameter in group["parameters"].values():
+                parameter["type"] = "range" if "bounds" in parameter else "choice"
+        for key, payload in (("run_metadata", metadata), ("resolved_config", snapshot)):
+            outputs[key].write_text(
+                json.dumps(payload, indent=2, default=lambda value: f"{value.__module__}:{value.__qualname__}" if callable(value) else str(value)) + "\n",
+                encoding="utf-8",
+            )
         save_summary("running")
         while completed < n_iterations:
             batch_id += 1
@@ -437,7 +465,7 @@ def run_optimization(
             save_summary("running")
         save_summary("completed")
     except BaseException as error:
-        save_summary("interrupted" if isinstance(error, (KeyboardInterrupt, SystemExit)) else "failed")
+        save_summary("interrupted" if isinstance(error, (KeyboardInterrupt, SystemExit)) else "failed", str(error))
         raise
     finally:
         scheduler.shutdown()
@@ -498,7 +526,11 @@ def _run_trial_batch(
         if str(status.job_id).isdigit() and int(status.job_id) in active_trials:
             logger.checkpoint(
                 "trial_collected", "success" if status.status == "completed" else "error", "Trial result collected",
-                context={"batch_id": batch_id, "trial_index": int(status.job_id), "status": status.status, "metrics": status.metrics},
+                context={
+                    "batch_id": batch_id, "trial_index": int(status.job_id), "status": status.status, "metrics": status.metrics,
+                    "parameters": active_trials[int(status.job_id)], "outputs": status.outputs, "return_code": status.return_code,
+                    "error": (status.stderr or result.error_message) if status.status != "completed" else None,
+                },
             )
     trial_results = {}
     if not result.success:

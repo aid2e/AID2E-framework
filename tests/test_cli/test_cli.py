@@ -106,3 +106,25 @@ workflows:
     assert calls[0][1] == str(config_path)
     assert calls[0][2]["workflow_name"] == "generic_eval"
     assert calls[0][2]["run_id"] == "run-1"
+
+
+def test_optimize_saves_run_outputs(tmp_path):
+    """Save run settings and collected results."""
+    import json
+    from pathlib import Path
+    from aid2e.utilities.configurations import load_config
+    from aid2e.utilities.runtime_builders import run_optimization
+
+    example = Path(__file__).parents[2] / "examples/dtlz2/configurations/dtlz2_ax_joblib.yml"
+    config = load_config(str(example))
+    config.problem.work_location = str(tmp_path / "work")
+    config.optimizer.parameters.update(n_iterations=2, n_initial_samples=3, batch_size=2)
+    outputs = run_optimization(config, str(example), output_dir=str(tmp_path / "output"), run_id="records")
+    snapshot = json.loads(outputs["resolved_config"].read_text())
+    assert snapshot["problem"]["output_location"] == str(tmp_path / "output")
+    assert snapshot["problem"]["design_config"]["design_parameters"]["DTLZ2_variables"]["parameters"]["x1"]["type"] == "range"
+    summary = json.loads(outputs["summary"].read_text())
+    assert summary["status"] == "completed" and summary["completed_trials"] == 2
+    checkpoints = json.loads(outputs["optimizer_checkpoints"].read_text())["checkpoints"]
+    collected = [cp["context"] for cp in checkpoints if cp["stage"] == "trial_collected"]
+    assert len(collected) == 2 and all(cp["outputs"] for cp in collected)

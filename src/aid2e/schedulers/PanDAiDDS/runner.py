@@ -188,6 +188,67 @@ class PanDAiDDSScheduler(BaseScheduler):
         self.submission_id = datetime.datetime.utcnow().strftime("%Y%m%d%H%M%S%f") + uuid.uuid4().hex[:8]
         self.work_counter: int = 0
 
+    # BEGIN modification Baptiste
+    # Add _execute_job
+    def _execute_job(
+        self,
+        job_def: Dict[str, Any],
+        working_dir: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Execute a command-based job locally."""
+
+        command = job_def.get("command")
+
+        if not command:
+            return {
+                "status": "failed",
+                "return_code": -1,
+                "stdout": "",
+                "stderr": (
+                    "Local job has no command. "
+                    f"Available keys: {list(job_def.keys())}"
+                ),
+                "outputs": {},
+            }
+
+        try:
+            completed = subprocess.run(
+                command,
+                shell=True,
+                cwd=working_dir,
+                capture_output=True,
+                text=True,
+            )
+
+            if completed.returncode != 0:
+                self.logger.error(
+                    "Local job failed: command=%r, return_code=%s\n"
+                    "STDOUT:\n%s\nSTDERR:\n%s",
+                    command,
+                    completed.returncode,
+                    completed.stdout,
+                    completed.stderr,
+                )
+
+            return {
+                "status": "completed" if completed.returncode == 0 else "failed",
+                "return_code": completed.returncode,
+                "stdout": completed.stdout,
+                "stderr": completed.stderr,
+                "outputs": {},
+            }
+
+        except Exception as exc:
+            self.logger.exception("Local job execution failed")
+
+            return {
+                "status": "failed",
+                "return_code": -1,
+                "stdout": "",
+                "stderr": str(exc),
+                "outputs": {},
+            }
+    # END modification Baptiste
 
     # --- Run stage (synchronous convenience wrapper) -----------------------
     def run_stage(
@@ -732,6 +793,18 @@ class PanDAiDDSScheduler(BaseScheduler):
         self.logger.info("Defining work %s", work_name)
 
         params = dict(job.get("params", {}))
+
+        # BEGIN modification Baptiste 
+        # Goal: remap local optimizer paths for execution on PanDA workers (/srv/...)
+        if self._is_trial_workflow_wrapper(job):
+            source_root = Path(self.config.source_dir).resolve()
+
+            for key in ("config_path", "run_dir", "run_work_dir"):
+                if key in params:
+                    local_path = Path(params[key]).resolve()
+                    params[key] = str(local_path.relative_to(source_root))
+        # END modification Baptiste
+
         with_context = (
             "context" in params
             or job.get("job_context") is not None

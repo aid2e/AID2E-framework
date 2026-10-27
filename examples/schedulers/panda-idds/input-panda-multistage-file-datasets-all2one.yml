@@ -97,7 +97,7 @@ workflows:
               parallelism:
                 max_concurrent: 1
                 retry_max: 0
-                timeout_sec: 600
+                timeout_sec: 3000
               jobs:
                 - name: "aggregate_simreco"
                   command: ""

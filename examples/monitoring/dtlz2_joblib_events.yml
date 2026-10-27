@@ -1,0 +1,73 @@
+# Small local optimization for exercising run_events.jsonl.
+#
+# Run from the repository root:
+#   aid2e optimize examples/monitoring/dtlz2_joblib_events.yml \
+#     --output /tmp/aid2e-dtlz2-events \
+#     --run-id dtlz2-events-demo -vv
+
+problem:
+  name: "DTLZ2 JobLib Event Journal Demo"
+  problem_type: "DTLZ2"
+  output_location: "/tmp/aid2e-dtlz2-events"
+  work_location: "/tmp/aid2e-dtlz2-events-work"
+
+  inline_design:
+    design_space:
+      design_parameters:
+        DTLZ2_variables:
+          parameters:
+            x1:
+              value: 0.5
+              bounds: [0.0, 1.0]
+            x2:
+              value: 0.5
+              bounds: [0.0, 1.0]
+            x3:
+              value: 0.5
+              bounds: [0.0, 1.0]
+            x4:
+              value: 0.5
+              bounds: [0.0, 1.0]
+            x5:
+              value: 0.5
+              bounds: [0.0, 1.0]
+      parameter_constraints: []
+
+  objectives:
+    - name: "f1"
+      direction: "minimize"
+    - name: "f2"
+      direction: "minimize"
+
+optimizer:
+  name: "ax"
+  type: "bayesian"
+  parameters:
+    initialization_strategy: "sobol"
+    generator: "BOTORCH_MODULAR"
+    n_initial_samples: 4
+    n_iterations: 4
+    batch_size: 2
+    seed: 42
+
+scheduler:
+  runner_type: "JobLibRunner"
+  parameters:
+    n_jobs: 2
+    backend: "threading"
+
+workflows:
+  workflows:
+    - name: "dtlz2_event_demo"
+      description: "Evaluate four DTLZ2 trials locally while recording events."
+      branches:
+        - name: "main"
+          stages:
+            - name: "evaluate"
+              objective_plan:
+                steps:
+                  stages:
+                    - name: "evaluate"
+                      inline:
+                        entrypoint: "aid2e.monitoring.demo:dtlz2_objective_payload"
+                      produces_objective: true

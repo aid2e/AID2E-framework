@@ -82,6 +82,7 @@ def test_cli_smoke_example_configs_load() -> None:
     """Relocated JobLib and PanDA CLI examples should remain self-contained."""
     example_paths = [
         Path("examples/basic/input-joblib.yml"),
+        Path("examples/monitoring/dtlz2_joblib_events.yml"),
         Path("examples/schedulers/panda-idds/input-panda.yml"),
         Path(
             "examples/schedulers/panda-idds/"

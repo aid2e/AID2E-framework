@@ -697,6 +697,15 @@ class PanDAiDDSScheduler(BaseScheduler):
             if normalized in allowed and value is not None:
                 if normalized == "output_dataset_name" and isinstance(value, str) and not value.endswith("/"):
                     value = f"{value}/"
+                if normalized == "parent_internal_id" and isinstance(value, (list, tuple)):
+                    if not value or any(not isinstance(item, str) or not item for item in value):
+                        raise ValueError(
+                            "parent_internal_id must be a non-empty string or sequence "
+                            "of non-empty strings"
+                        )
+                    # The iDDS transformer accepts multiple parents as one
+                    # comma-separated value and calls ``split(',')`` on it.
+                    value = ",".join(value)
                 kwargs[normalized] = value
         return kwargs
 

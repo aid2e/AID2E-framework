@@ -92,6 +92,8 @@ def optimize(
         click.echo(click.style("Optimization completed.", fg="green"))
         click.echo(f"  Run directory: {results['run_dir']}")
         click.echo(f"  Results: {results['optimization_results']}")
+        if results.get("events"):
+            click.echo(f"  Events: {results['events']}")
 
     except Exception as e:
         click.echo(click.style(f"✗ Error: {e}", fg="red"), err=True)

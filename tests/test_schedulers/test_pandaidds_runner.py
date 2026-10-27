@@ -90,6 +90,7 @@ def install_fake_idds(
     state = {
         "work_kwargs_history": [],
         "work_params_history": [],
+        "parent_internal_ids_history": [],
         "result_lookup_history": [],
         "work_history": [],
     }
@@ -184,6 +185,10 @@ def install_fake_idds(
     def work_def(**kwargs):
         state["work_kwargs"] = kwargs
         state["work_kwargs_history"].append(kwargs)
+        parent_internal_id = kwargs.get("parent_internal_id")
+        state["parent_internal_ids_history"].append(
+            parent_internal_id.split(",") if parent_internal_id is not None else None
+        )
         index = len(state["work_kwargs_history"]) - 1
 
         def builder(**params):
@@ -783,7 +788,8 @@ def test_panda_multistage_submits_remote_children_before_parent_completion(monke
     coordinator._submit_stage(coordinator.spec.stages[1])
 
     assert len(state["work_kwargs_history"]) == 3
-    assert state["work_kwargs_history"][2]["parent_internal_id"] == ["internal-1", "internal-2"]
+    assert state["work_kwargs_history"][2]["parent_internal_id"] == "internal-1,internal-2"
+    assert state["parent_internal_ids_history"][2] == ["internal-1", "internal-2"]
     assert state["work_kwargs_history"][2]["input_datasets"] == {
         "input_file_names__aid2e_0": "user.test.simreco.a",
         "input_file_names__aid2e_1": "user.test.simreco.b",
@@ -854,7 +860,8 @@ def test_panda_multistage_all2one_dataset_remote_to_remote(monkeypatch, tmp_path
         "input_file_names__aid2e_0": "user.test.simreco.a",
         "input_file_names__aid2e_1": "user.test.simreco.b",
     }
-    assert state["work_kwargs_history"][2]["parent_internal_id"] == ["internal-1", "internal-2"]
+    assert state["work_kwargs_history"][2]["parent_internal_id"] == "internal-1,internal-2"
+    assert state["parent_internal_ids_history"][2] == ["internal-1", "internal-2"]
     metrics = result.job_statuses[0].metrics["panda_multistage_stages"]
     assert [item["execution"] for item in metrics] == ["panda", "panda", "panda"]
 
@@ -1111,7 +1118,8 @@ workflows:
     assert len(state["work_kwargs_history"]) == 3
     assert state["work_kwargs_history"][0]["output_dataset_name"] == "user.test.trial.sim.a/"
     assert state["work_kwargs_history"][1]["output_dataset_name"] == "user.test.trial.sim.b/"
-    assert state["work_kwargs_history"][2]["parent_internal_id"] == ["internal-1", "internal-2"]
+    assert state["work_kwargs_history"][2]["parent_internal_id"] == "internal-1,internal-2"
+    assert state["parent_internal_ids_history"][2] == ["internal-1", "internal-2"]
     assert state["work_kwargs_history"][2]["input_datasets"] == {
         "input_file_names__aid2e_0": "user.test.trial.sim.a",
         "input_file_names__aid2e_1": "user.test.trial.sim.b",
@@ -1190,7 +1198,8 @@ def test_panda_multistage_graph_job_runs_stage_records(monkeypatch, tmp_path):
     assert result.success is True
     assert result.artifacts == {"objectives": {"f1": 8, "f2": 9}}
     assert len(state["work_kwargs_history"]) == 3
-    assert state["work_kwargs_history"][2]["parent_internal_id"] == ["internal-1", "internal-2"]
+    assert state["work_kwargs_history"][2]["parent_internal_id"] == "internal-1,internal-2"
+    assert state["parent_internal_ids_history"][2] == ["internal-1", "internal-2"]
     assert state["work_kwargs_history"][2]["input_datasets"] == {
         "input_file_names__aid2e_0": "user.test.graph.sim.a",
         "input_file_names__aid2e_1": "user.test.graph.sim.b",

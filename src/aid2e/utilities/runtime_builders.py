@@ -3,11 +3,21 @@
 from __future__ import annotations
 
 import importlib
+import os
 import shlex
+import socket
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Optional, Union
 
+from aid2e.monitoring.events import (
+    EventEntity,
+    EventError,
+    EventJournal,
+    EventSource,
+    EventType,
+)
 from aid2e.utilities.configurations.full_config import FullConfig
 from aid2e.utilities.configurations.optimizer_config import OptimizerConfiguration
 from aid2e.utilities.configurations.problem_config import ProblemConfiguration
@@ -317,39 +327,80 @@ def run_optimization(
         "run_dir": run_dir,
         "optimization_results": run_dir / "optimization_results.json",
         "pareto_front": run_dir / "pareto_front.json",
+        "events": run_dir / "run_events.jsonl",
     }
-    evaluation_config = config.problem.evaluation_config or {}
-    trial_failure_policy = evaluation_config.get("trial_failure_policy", "fail")
-    if trial_failure_policy not in {"fail", "penalty"}:
-        raise ValueError("trial_failure_policy must be 'fail' or 'penalty'")
-    penalty_objectives = evaluation_config.get("penalty_objectives", {})
-    if trial_failure_policy == "penalty":
-        try:
-            penalty_objectives = {
-                objective.name: float(penalty_objectives[objective.name])
-                for objective in config.problem.objectives
-            }
-        except KeyError as error:
-            raise ValueError(
-                f"penalty_objectives missing declared objective: {error.args[0]}"
-            ) from error
-    max_failed_trials = int(evaluation_config.get("max_failed_trials", 0))
-    failed_trials: set[int] = set()
-    errors_by_trial: Dict[int, Dict[str, float]] = {}
+    backend = getattr(config.scheduler, "runner_type", None)
+    source = EventSource(
+        component="aid2e.utilities.runtime_builders.run_optimization",
+        backend=backend,
+        host=socket.gethostname(),
+        process_id=os.getpid(),
+    )
+    journal = EventJournal(outputs["events"], run_name)
+    run_started_at = time.monotonic()
+    journal.append(
+        EventType.RUN_CREATED,
+        EventEntity.RUN,
+        source=source,
+        canonical_state="created",
+        data={
+            "config_path": str(config_path_obj),
+            "run_dir": str(run_dir),
+            "work_dir": str(run_work_dir),
+            "workflow_name": workflow_name,
+        },
+    )
 
-    optimizer = build_optimizer_from_config(config.problem, config.optimizer)
-    optimizer_config = optimizer.config
-    n_iterations = optimizer_config.n_iterations
-    batch_size = getattr(optimizer_config, "batch_size", None)
-    scheduler = build_scheduler_from_config(config.scheduler)
-    if scheduler is None:
-        raise ValueError("Optimization execution requires a scheduler configuration")
-
-    completed = 0
-    batch_id = 0
+    scheduler = None
+    run_state = "created"
     try:
+        evaluation_config = config.problem.evaluation_config or {}
+        trial_failure_policy = evaluation_config.get("trial_failure_policy", "fail")
+        if trial_failure_policy not in {"fail", "penalty"}:
+            raise ValueError("trial_failure_policy must be 'fail' or 'penalty'")
+        penalty_objectives = evaluation_config.get("penalty_objectives", {})
+        if trial_failure_policy == "penalty":
+            try:
+                penalty_objectives = {
+                    objective.name: float(penalty_objectives[objective.name])
+                    for objective in config.problem.objectives
+                }
+            except KeyError as error:
+                raise ValueError(
+                    f"penalty_objectives missing declared objective: {error.args[0]}"
+                ) from error
+        max_failed_trials = int(evaluation_config.get("max_failed_trials", 0))
+        failed_trials: set[int] = set()
+        errors_by_trial: Dict[int, Dict[str, float]] = {}
+
+        optimizer = build_optimizer_from_config(config.problem, config.optimizer)
+        optimizer_config = optimizer.config
+        n_iterations = optimizer_config.n_iterations
+        batch_size = getattr(optimizer_config, "batch_size", None)
+        scheduler = build_scheduler_from_config(config.scheduler)
+        if scheduler is None:
+            raise ValueError("Optimization execution requires a scheduler configuration")
+
+        journal.append(
+            EventType.RUN_STARTED,
+            EventEntity.RUN,
+            source=source,
+            previous_state="created",
+            canonical_state="running",
+            data={
+                "expected_trials": n_iterations,
+                "batch_size": batch_size,
+                "optimizer": config.optimizer.name,
+                "objectives": list(optimizer.objective_names),
+            },
+        )
+        run_state = "running"
+
+        completed = 0
+        batch_id = 0
         while completed < n_iterations:
             batch_id += 1
+            batch_started_at = time.monotonic()
             n_new = (
                 min(batch_size, n_iterations - completed)
                 if batch_size is not None
@@ -374,21 +425,66 @@ def run_optimization(
             ]
             completed += len(assignments) if batch_size is not None else 1
 
-            batch_results = _run_trial_batch(
-                scheduler,
-                batch_id,
-                assignments,
-                optimizer,
-                config_path_obj,
-                run_dir,
-                run_work_dir,
-                workflow_name,
-                failed_trials,
-                max_failed_trials,
-                trial_failure_policy,
-                penalty_objectives,
-                log_level,
+            trial_started_at = {
+                trial_index: time.monotonic()
+                for trial_index, _ in assignments
+            }
+            for trial_index, design_point in assignments:
+                journal.append(
+                    EventType.TRIAL_SUGGESTED,
+                    EventEntity.TRIAL,
+                    source=source,
+                    trial_index=trial_index,
+                    batch_id=batch_id,
+                    canonical_state="suggested",
+                    data={"design_parameters": design_point},
+                )
+            journal.append(
+                EventType.BATCH_STARTED,
+                EventEntity.BATCH,
+                source=source,
+                batch_id=batch_id,
+                canonical_state="running",
+                data={
+                    "trial_indices": [index for index, _ in assignments],
+                    "trial_count": len(assignments),
+                },
             )
+            failed_before_batch = len(failed_trials)
+
+            try:
+                batch_results = _run_trial_batch(
+                    scheduler,
+                    batch_id,
+                    assignments,
+                    optimizer,
+                    config_path_obj,
+                    run_dir,
+                    run_work_dir,
+                    workflow_name,
+                    failed_trials,
+                    max_failed_trials,
+                    trial_failure_policy,
+                    penalty_objectives,
+                    log_level,
+                    journal,
+                    source,
+                    trial_started_at,
+                )
+            except Exception as exc:
+                journal.append(
+                    EventType.BATCH_FAILED,
+                    EventEntity.BATCH,
+                    source=source,
+                    batch_id=batch_id,
+                    previous_state="running",
+                    canonical_state="failed",
+                    error=_event_error(exc),
+                    data={"elapsed_seconds": time.monotonic() - batch_started_at},
+                )
+                raise
+
+            penalized_count = 0
             for trial_index, (design_point, raw_metrics, metadata) in batch_results.items():
                 metrics = {
                     name: float(raw_metrics[name])
@@ -406,12 +502,96 @@ def run_optimization(
                         "completed",
                         metadata=metadata,
                     )
+                penalized = bool(metadata.get("penalized"))
+                penalized_count += int(penalized)
+                event_type = (
+                    EventType.TRIAL_PENALIZED
+                    if penalized
+                    else EventType.TRIAL_COMPLETED
+                )
+                journal.append(
+                    event_type,
+                    EventEntity.TRIAL,
+                    source=source,
+                    trial_index=trial_index,
+                    batch_id=batch_id,
+                    previous_state="failed" if penalized else "running",
+                    canonical_state="penalized" if penalized else "completed",
+                    data={
+                        "design_parameters": design_point,
+                        "objectives": metrics,
+                        "objective_errors": errors_by_trial[trial_index],
+                        "elapsed_seconds": (
+                            time.monotonic() - trial_started_at[trial_index]
+                        ),
+                        "metadata": metadata,
+                    },
+                )
             optimizer.save_optimization_results(
                 run_dir,
                 errors_by_trial=errors_by_trial,
             )
+            batch_failed_count = len(failed_trials) - failed_before_batch
+            journal.append(
+                EventType.BATCH_COMPLETED,
+                EventEntity.BATCH,
+                source=source,
+                batch_id=batch_id,
+                previous_state="running",
+                canonical_state=(
+                    "completed_with_failures"
+                    if batch_failed_count
+                    else "completed"
+                ),
+                data={
+                    "completed_trial_count": len(batch_results) - penalized_count,
+                    "penalized_trial_count": penalized_count,
+                    "batch_failed_trial_count": batch_failed_count,
+                    "failed_trial_count": len(failed_trials),
+                    "elapsed_seconds": time.monotonic() - batch_started_at,
+                    "results_path": str(outputs["optimization_results"]),
+                },
+            )
+
+        completed_with_failures = bool(failed_trials)
+        journal.append(
+            (
+                EventType.RUN_COMPLETED_WITH_FAILURES
+                if completed_with_failures
+                else EventType.RUN_COMPLETED
+            ),
+            EventEntity.RUN,
+            source=source,
+            previous_state="running",
+            canonical_state=(
+                "completed_with_failures" if completed_with_failures else "completed"
+            ),
+            data={
+                "completed_trials": n_iterations - len(failed_trials),
+                "failed_trials": len(failed_trials),
+                "expected_trials": n_iterations,
+                "elapsed_seconds": time.monotonic() - run_started_at,
+                "optimization_results": str(outputs["optimization_results"]),
+                "pareto_front": str(outputs["pareto_front"]),
+            },
+        )
+        run_state = (
+            "completed_with_failures" if completed_with_failures else "completed"
+        )
+    except Exception as exc:
+        journal.append(
+            EventType.RUN_FAILED,
+            EventEntity.RUN,
+            source=source,
+            previous_state=run_state,
+            canonical_state="failed",
+            error=_event_error(exc),
+            data={"elapsed_seconds": time.monotonic() - run_started_at},
+        )
+        raise
     finally:
-        scheduler.shutdown()
+        if scheduler is not None:
+            scheduler.shutdown()
 
     return outputs
 
@@ -430,6 +610,9 @@ def _run_trial_batch(
     trial_failure_policy: str,
     penalty_objectives: Dict[str, float],
     log_level: str,
+    journal: EventJournal,
+    event_source: EventSource,
+    trial_started_at: Dict[int, float],
 ) -> Dict[int, tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any]]]:
     """Submit one optimizer batch through the configured scheduler."""
     active_trials = {
@@ -453,6 +636,28 @@ def _run_trial_batch(
         for trial_index, design_point in assignments
     ]
 
+    local_backend = (event_source.backend or "").lower() == "joblibrunner"
+    for trial_index, _ in assignments:
+        journal.append(
+            EventType.TRIAL_SUBMITTED,
+            EventEntity.TRIAL,
+            source=event_source,
+            trial_index=trial_index,
+            batch_id=batch_id,
+            previous_state="suggested",
+            canonical_state="submitted",
+        )
+        if local_backend:
+            journal.append(
+                EventType.TRIAL_STARTED,
+                EventEntity.TRIAL,
+                source=event_source,
+                trial_index=trial_index,
+                batch_id=batch_id,
+                previous_state="submitted",
+                canonical_state="running",
+            )
+
     result = scheduler.run_stage(
         f"optimizer_batch_{batch_id}_trials",
         job_definitions,
@@ -473,6 +678,22 @@ def _run_trial_batch(
             design_point = active_trials.pop(trial_index)
             reason = failed_statuses[trial_index].stderr or result.error_message
             failed_trials.add(trial_index)
+            journal.append(
+                EventType.TRIAL_FAILED,
+                EventEntity.TRIAL,
+                source=event_source,
+                trial_index=trial_index,
+                batch_id=batch_id,
+                previous_state="running" if local_backend else "submitted",
+                canonical_state="failed",
+                error=EventError(
+                    error_type="TrialExecutionError",
+                    message=str(reason or "Optimizer trial failed")[:4000],
+                ),
+                data={
+                    "elapsed_seconds": time.monotonic() - trial_started_at[trial_index]
+                },
+            )
             if trial_failure_policy == "penalty":
                 trial_results[trial_index] = (
                     design_point,
@@ -514,6 +735,14 @@ def _run_trial_batch(
         for trial_index, design_point in active_trials.items()
     })
     return trial_results
+
+
+def _event_error(error: Exception) -> EventError:
+    """Create a bounded error record without persisting a traceback."""
+    return EventError(
+        error_type=error.__class__.__name__,
+        message=str(error)[:4000],
+    )
 
 
 def _completed_status_payload(

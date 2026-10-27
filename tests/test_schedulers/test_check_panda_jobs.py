@@ -8,6 +8,7 @@ from pathlib import Path
 SCRIPT_PATH = (
     Path(__file__).parents[2]
     / "examples"
+    / "dtlz2"
     / "schedulers"
     / "panda-idds"
     / "check_panda_jobs.py"

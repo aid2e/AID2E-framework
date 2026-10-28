@@ -660,6 +660,8 @@ class PyMOOOptimizer(BaseOptimizer):
         trial_index: int,
         parameters: Dict[str, Any],
         metrics: Dict[str, float],
+        *,
+        uncertainties: Optional[Dict[str, float]] = None,
     ) -> None:
         """Record evaluation results for one candidate and advance the algorithm.
 
@@ -674,6 +676,7 @@ class PyMOOOptimizer(BaseOptimizer):
                 bookkeeping; the underlying search point is already tracked).
             metrics: Objective values keyed by objective name.  All names
                 listed in ``objective_names`` must be present.
+            uncertainties: Standard errors stored in metadata; selection uses means only.
 
         Raises:
             ValueError: If any required objective is missing from ``metrics``.
@@ -685,12 +688,7 @@ class PyMOOOptimizer(BaseOptimizer):
             ...     metrics={"f1": 0.1, "f2": 0.9},
             ... )
         """
-        missing = [o for o in self.objective_names if o not in metrics]
-        if missing:
-            raise ValueError(
-                f"update_with_results: missing objectives {missing}. "
-                f"Expected {self.objective_names}, got {list(metrics.keys())}."
-            )
+        metrics, uncertainties = self.validate_results(metrics, uncertainties)
 
         # Buffer the result
         self._result_buffer[trial_index] = {k: float(v) for k, v in metrics.items()}
@@ -701,6 +699,7 @@ class PyMOOOptimizer(BaseOptimizer):
             parameters=parameters,
             metrics={k: float(v) for k, v in metrics.items()},
             status="completed",
+            metadata={"uncertainties": uncertainties},
         )
         while len(self._trials) <= trial_index:
             self._trials.append(None)

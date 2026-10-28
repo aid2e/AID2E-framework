@@ -11,6 +11,7 @@ logger = logging.getLogger(__name__)
 try:
     import ax
     from ax.core.experiment import Experiment
+    from ax.core.trial_status import TrialStatus
     from ax.core.search_space import SearchSpace as AxSearchSpace
     from ax.core.parameter import ChoiceParameter as AxChoiceParameter
     from ax.core.parameter import ParameterType, RangeParameter as AxRangeParameter
@@ -509,6 +510,8 @@ class AxOptimizer(BaseOptimizer):
                     threshold=num_trials,
                     transition_to=transition_to,
                     use_all_trials_in_exp=True,
+                    only_in_statuses=[TrialStatus.COMPLETED],
+                    count_only_trials_with_data=True,
                 )
             ],
         )
@@ -682,15 +685,28 @@ class AxOptimizer(BaseOptimizer):
             keep using single-trial ``update_with_results`` semantics.
             
             The GenerationStrategy still properly tracks progress: after
-            n_initial_samples individual trials complete (regardless of how
-            they were generated), it automatically switches from Sobol to BO.
+            n_initial_samples Sobol or uniform trials complete with observations
+            (including penalties), it automatically switches to BO.
         """
 
         candidates = []
         model_keys: List[str] = []
 
+        from ax.core.data import Data
+
+        data = self.experiment.lookup_data().df.copy()
+        penalties = {t.index for t in self.get_trials() if (t.metadata or {}).get("penalized")}
+        for name, rows in data.groupby("metric_name"):
+            penalized = rows["trial_index"].isin(penalties)
+            known = rows.loc[~penalized, "sem"].notna()
+            if known.any() and not known.all():
+                raise ValueError(f"Objective '{name}' requires standard errors for all real evaluations or none.")
+            # Synthetic penalties are fixed only when real observation errors are supplied.
+            data.loc[rows.index[penalized], "sem"] = 0.0 if known.any() else np.nan
+
         generator_run_result = self.generation_strategy.gen(
             experiment=self.experiment,
+            data=Data(df=data),
             n=n_candidates,
         )
         strategy_metadata = self._get_generation_strategy_metadata()
@@ -741,7 +757,9 @@ class AxOptimizer(BaseOptimizer):
         self,
         trial_index: int,
         parameters: Dict[str, Any],
-        metrics: Dict[str, float]
+        metrics: Dict[str, float],
+        *,
+        uncertainties: Optional[Dict[str, float]] = None,
     ) -> None:
         """Update optimizer with evaluation results from a trial.
         
@@ -749,6 +767,7 @@ class AxOptimizer(BaseOptimizer):
             trial_index: Unique identifier for the trial.
             parameters: Parameter values that were evaluated.
             metrics: Objective values obtained from evaluation.
+            uncertainties: Standard errors by objective name; omitted errors are unknown.
         
         Examples:
             >>> optimizer.update_with_results(
@@ -761,14 +780,8 @@ class AxOptimizer(BaseOptimizer):
             Completes the trial in Ax experiment and attaches data.
             This allows the surrogate model to learn from the evaluation.
         """
-        # Validate metrics
-        for obj_name in self.objective_names:
-            if obj_name not in metrics:
-                raise ValueError(
-                    f"Missing objective '{obj_name}' in metrics. "
-                    f"Expected: {self.objective_names}, got: {list(metrics.keys())}"
-                )
-        
+        metrics, uncertainties = self.validate_results(metrics, uncertainties)
+
         # Get the trial from experiment
         if trial_index < len(self.experiment.trials):
             trial = self.experiment.trials[trial_index]
@@ -789,7 +802,7 @@ class AxOptimizer(BaseOptimizer):
                         'metric_signature': metric_name,
                         'arm_name': trial.arm.name if trial.arm else f"arm_{trial_index}",
                         'mean': float(metric_value),
-                        'sem': 0.0  # Standard error of mean (0 for deterministic)
+                        'sem': uncertainties.get(metric_name, np.nan),
                     })
             
             if data_rows:
@@ -803,6 +816,7 @@ class AxOptimizer(BaseOptimizer):
             status="completed",
             parameters=parameters,
             metrics={k: float(v) for k, v in metrics.items()},
+            metadata={"uncertainties": uncertainties},
         )
         
         logger.debug(
@@ -949,7 +963,8 @@ class AxOptimizer(BaseOptimizer):
                 self.update_with_results(
                     trial_index=trial.index,
                     parameters=trial.parameters,
-                    metrics=trial.metrics
+                    metrics=trial.metrics,
+                    uncertainties=(trial.metadata or {}).get("uncertainties"),
                 )
         
         self._trial_counter = state.get("trial_counter", len(self._trials))

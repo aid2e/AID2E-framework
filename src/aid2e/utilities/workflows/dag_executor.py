@@ -55,7 +55,7 @@ from .dag_types import (
     DagNodeType,
     topological_sort,
 )
-from .execution_utils import build_objective_call
+from .execution_utils import InvalidDesignError, build_objective_call
 from .execution_engine import (
     BaseExecutionEngine,
     BashExecutionEngine,
@@ -605,6 +605,13 @@ class DAGExecutor:
             self._process_scheduler_results(result, jobs, stage.name)
 
             if not result.success:
+                failed = [status for status in result.job_statuses if status.status != "completed"]
+                invalid_codes = {job["job_id"]: job["job_context"].payload.get("invalid_design_exit_codes", []) for job in job_definitions}
+                if failed and all(
+                    status.status == "failed" and status.return_code in invalid_codes.get(status.job_id, [])
+                    for status in failed
+                ):
+                    raise InvalidDesignError(f"Stage {stage.name}: invalid design")
                 raise RuntimeError(
                     f"Stage {stage.name} failed: {result.error_message}"
                 )
@@ -1088,6 +1095,8 @@ class DAGExecutor:
             n_attempts = stage_context.parameters['retry_max'] + 1
             for attempt in range(0, n_attempts):
                 attempt_result = evaluator.execute(job_context)
+                if attempt_result and not attempt_result['completed'] and attempt_result.get('return_value') in job_context.payload.get("invalid_design_exit_codes", []):
+                    raise InvalidDesignError(f"Job {job_id}: invalid design")
                 if attempt_result is not None and attempt_result['completed']:
                     result = attempt_result
                     success = True

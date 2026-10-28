@@ -411,14 +411,12 @@ class SlurmScheduler(BaseScheduler):
             stage_state["status"] = "completed"
         elif all(status == "completed" for status in statuses):
             stage_state["status"] = "completed"
+        elif any(status not in TERMINAL_STATUSES for status in statuses):
+            stage_state["status"] = "running" if "running" in statuses else "queued"
         elif any(status == "failed" for status in statuses):
             stage_state["status"] = "failed"
         elif any(status == "cancelled" for status in statuses):
             stage_state["status"] = "cancelled"
-        elif any(status == "running" for status in statuses):
-            stage_state["status"] = "running"
-        else:
-            stage_state["status"] = "queued"
 
     def _refresh_job_state(self, job_state: Dict[str, Any]) -> None:
         terminal = job_state["status"] in TERMINAL_STATUSES

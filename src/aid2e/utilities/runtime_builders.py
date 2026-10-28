@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional, Union
 
 from aid2e.utilities.workflows.execution_logger import ExecutionLogger
+from aid2e.utilities.workflows.execution_utils import InvalidDesignError
 from aid2e.utilities.configurations.full_config import FullConfig
 from aid2e.utilities.configurations.optimizer_config import OptimizerConfiguration
 from aid2e.utilities.configurations.problem_config import ProblemConfiguration
@@ -296,7 +297,7 @@ def run_trial_workflow(
             for job in stage.jobs:
                 job.payload = {**job.payload, **trial_payload}
 
-    return build_workflow_executor_from_config(
+    executor = build_workflow_executor_from_config(
         workflow,
         problem_cfg=config.problem,
         scheduler_cfg=config.scheduler,
@@ -305,7 +306,11 @@ def run_trial_workflow(
         trial_metadata=trial_metadata,
         output_dir=str(output_dir),
         work_dir=str(work_dir),
-    ).execute(design_point)
+    )
+    try:
+        return executor.execute(design_point)
+    except InvalidDesignError as error:
+        return {"invalid_design": True, "reason": str(error)}
 
 
 def run_optimization(
@@ -435,7 +440,6 @@ def run_optimization(
                 run_work_dir,
                 workflow_name,
                 failed_trials,
-                max_failed_trials,
                 trial_failure_policy,
                 penalty_objectives,
                 log_level,
@@ -451,7 +455,10 @@ def run_optimization(
                     for name in optimizer.objective_names
                     if f"{name}_err" in raw_metrics
                 }
-                optimizer.update_with_results(trial_index, design_point, metrics)
+                optimizer.update_with_results(
+                    trial_index, design_point, metrics,
+                    uncertainties={name.removesuffix("_err"): error for name, error in errors_by_trial[trial_index].items()},
+                )
                 if metadata:
                     optimizer.set_trial_status(
                         trial_index,
@@ -463,8 +470,17 @@ def run_optimization(
                 errors_by_trial=errors_by_trial,
             )
             save_summary("running")
+            if len(failed_trials) > max_failed_trials:
+                raise RuntimeError(
+                    f"Too many failed trials: {len(failed_trials)} failed, "
+                    f"max_failed_trials={max_failed_trials}"
+                )
         save_summary("completed")
     except BaseException as error:
+        try:
+            optimizer.save_optimization_results(run_dir)
+        except Exception as save_error:
+            logger.log_error(f"Could not save optimization results: {save_error}")
         save_summary("interrupted" if isinstance(error, (KeyboardInterrupt, SystemExit)) else "failed", str(error))
         raise
     finally:
@@ -483,7 +499,6 @@ def _run_trial_batch(
     run_work_dir: Path,
     workflow_name: Optional[str],
     failed_trials: set[int],
-    max_failed_trials: int,
     trial_failure_policy: str,
     penalty_objectives: Dict[str, float],
     log_level: str,
@@ -522,54 +537,50 @@ def _run_trial_batch(
         "batch_execution_complete", "success" if result.success else "error", "Trial batch returned",
         context={"batch_id": batch_id},
     )
+    failed_reasons = {}
+    completed_payloads = {}
+    invalid_designs = set()
     for status in result.job_statuses:
         if str(status.job_id).isdigit() and int(status.job_id) in active_trials:
+            trial_index = int(status.job_id)
+            if status.status == "completed":
+                try:
+                    completed_payloads[trial_index] = _completed_status_payload(status.outputs or {}, optimizer)
+                except ValueError as error:
+                    failed_reasons[trial_index] = str(error)
+                    if isinstance(error, InvalidDesignError):
+                        invalid_designs.add(trial_index)
+            else:
+                failed_reasons[trial_index] = status.stderr or result.error_message
+            failed = trial_index in failed_reasons
             logger.checkpoint(
-                "trial_collected", "success" if status.status == "completed" else "error", "Trial result collected",
+                "trial_collected", "error" if failed else "success", "Trial result collected",
                 context={
-                    "batch_id": batch_id, "trial_index": int(status.job_id), "status": status.status, "metrics": status.metrics,
-                    "parameters": active_trials[int(status.job_id)], "outputs": status.outputs, "return_code": status.return_code,
-                    "error": (status.stderr or result.error_message) if status.status != "completed" else None,
+                    "batch_id": batch_id, "trial_index": trial_index, "status": "failed" if failed else status.status, "metrics": status.metrics,
+                    "parameters": active_trials[trial_index], "outputs": status.outputs, "return_code": status.return_code,
+                    "error": failed_reasons.get(trial_index),
                 },
             )
     trial_results = {}
-    if not result.success:
-        failed_statuses = {
-            int(status.job_id): status
-            for status in result.job_statuses
-            if status.status != "completed" and str(status.job_id).isdigit()
-        }
-        if not failed_statuses:
-            raise RuntimeError(result.error_message or "Optimizer trial batch failed")
-
-        for trial_index in sorted(failed_statuses.keys() & active_trials.keys()):
-            design_point = active_trials.pop(trial_index)
-            reason = failed_statuses[trial_index].stderr or result.error_message
-            failed_trials.add(trial_index)
-            if trial_failure_policy == "penalty":
-                trial_results[trial_index] = (
-                    design_point,
-                    penalty_objectives,
-                    {"penalized": True, "reason": reason},
-                )
-            else:
-                optimizer.mark_trial_failed(
-                    trial_index,
-                    parameters=design_point,
-                    reason=reason,
-                )
-
-        if len(failed_trials) > max_failed_trials:
-            raise RuntimeError(
-                f"Too many failed trials: {len(failed_trials)} failed, "
-                f"max_failed_trials={max_failed_trials}"
+    if not result.success and not failed_reasons:
+        raise RuntimeError(result.error_message or "Optimizer trial batch failed")
+    for trial_index, reason in sorted(failed_reasons.items()):
+        design_point = active_trials.pop(trial_index)
+        failed_trials.add(trial_index)
+        if trial_failure_policy == "penalty" and trial_index in invalid_designs:
+            trial_results[trial_index] = (
+                design_point,
+                penalty_objectives,
+                {"penalized": True, "reason": reason},
             )
-    completed_statuses = {
-        int(status.job_id): status
-        for status in result.job_statuses
-        if status.status == "completed" and str(status.job_id).isdigit()
-    }
-    missing_results = sorted(set(active_trials) - set(completed_statuses))
+        else:
+            optimizer.mark_trial_failed(
+                trial_index,
+                parameters=design_point,
+                reason=reason,
+            )
+
+    missing_results = sorted(set(active_trials) - set(completed_payloads))
     if missing_results:
         raise RuntimeError(
             "Completed optimizer batch missing trial results: "
@@ -578,10 +589,7 @@ def _run_trial_batch(
     trial_results.update({
         trial_index: (
             design_point,
-            _completed_status_payload(
-                completed_statuses[trial_index].outputs or {},
-                optimizer.objective_names,
-            ),
+            completed_payloads[trial_index],
             {},
         )
         for trial_index, design_point in active_trials.items()
@@ -591,13 +599,21 @@ def _run_trial_batch(
 
 def _completed_status_payload(
     outputs: Dict[str, Any],
-    objective_names: list[str],
+    optimizer,
 ) -> Dict[str, Any]:
     """Return the objective payload from scheduler job outputs."""
     if "result" in outputs:
-        return outputs["result"]
-    if "objectives" in outputs:
-        return outputs["objectives"]
-    if all(name in outputs for name in objective_names):
-        return outputs
-    raise RuntimeError("Completed optimizer trial did not return objective outputs")
+        payload = outputs["result"]
+    elif "objectives" in outputs:
+        payload = outputs["objectives"]
+    else:
+        payload = outputs
+    if not isinstance(payload, dict):
+        raise ValueError("Completed optimizer trial did not return objective outputs")
+    if payload.get("invalid_design") is True:
+        raise InvalidDesignError(payload.get("reason") or "Invalid design")
+    optimizer.validate_results(
+        {name: payload[name] for name in optimizer.objective_names if name in payload},
+        {name: payload[f"{name}_err"] for name in optimizer.objective_names if f"{name}_err" in payload},
+    )
+    return payload

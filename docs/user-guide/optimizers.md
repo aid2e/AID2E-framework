@@ -54,6 +54,8 @@ Ax initialization strategies are:
 - `uniform`: Independent pseudorandom sampling over each parameter range.
 - `center`: One search-space center point followed by Sobol initialization when additional initial samples are requested.
 
+`n_initial_samples` is the number of completed Sobol or uniform initialization trials, including penalized trials. Failed trials without results count toward `n_iterations`, but not `n_initial_samples`.
+
 If the installed Ax version has no uniform generator, `uniform` falls back to Sobol.
 
 ## Shared Behavior
@@ -62,16 +64,18 @@ All optimizer backends use the same search-space representation, trial lifecycle
 
 Trials record parameters, objective values, status, and metadata. Results include all recorded trials. The Pareto front includes only completed trials with metrics and respects each objective's `minimize` or `maximize` direction. Failed trials have no objective values; penalized trials have user-configured values that influence optimization.
 
-Objective `<name>_err` values are saved with results, but the current Ax backend attaches observations with zero standard error. PyMOO selects candidates using objective means only.
+Objective `<name>_err` values are saved with results and trial metadata and passed to Ax as standard errors. When omitted, Ax estimates noise. For each objective, supply errors for all real evaluations or none. PyMOO selects candidates using objective means only.
 
 ### Failed and Penalized Trials
 
 `problem.evaluation_config.trial_failure_policy` controls workflow evaluation failures and defaults to `fail`:
 
 - `fail` calls the backend's `mark_trial_failed()` without objective values. Failed trials remain in optimizer history, are excluded from Pareto calculations, and are included in subsequently saved results.
-- `penalty` requires a `penalty_objectives` value for every declared objective. The optimizer receives those values through `update_with_results()`, and the completed trial retains `penalized: true` and the failure `reason` in metadata. Choose poor values for each objective's direction; the framework does not derive them automatically.
+- `penalty` requires a `penalty_objectives` value for every declared objective. The optimizer receives those values through `update_with_results()`, and the completed trial retains `penalized: true` and the failure `reason` in metadata. Choose poor values for each objective's direction; the framework does not derive them automatically. Penalties apply only to confirmed invalid designs and are excluded from the reported Pareto front.
 
-Both outcomes count toward `max_failed_trials`, which defaults to `0`. The optimization stops when the number of failed evaluations exceeds that configured limit, so the first failure stops the run unless a larger limit is configured.
+EpicStack identifies geometry overlaps as invalid designs. Other failures are marked failed without penalties.
+
+Both outcomes count toward `max_failed_trials`, which defaults to `0`. The optimization stops when the number of failed evaluations exceeds that configured limit, so the first failure stops the run unless a larger limit is configured. Results are updated and saved before stopping.
 
 ## Ax Backend
 

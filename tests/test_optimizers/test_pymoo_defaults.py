@@ -36,6 +36,7 @@ def _complete_generation(optimizer: PyMOOOptimizer) -> None:
             trial_index=trial_index,
             parameters=parameters,
             metrics=metrics,
+            uncertainties={name: 0.2 for name in metrics},
         )
 
 
@@ -96,6 +97,8 @@ def test_single_objective_optimizer_defaults_to_ga_and_round_trips_state() -> No
     assert restored.resolved_algorithm == "ga"
     assert restored.get_optimization_results()["n_trials"] == 8
     assert len(restored.get_trials()) == 8
+    assert all(t.metadata["uncertainties"] == {"loss": 0.2} for t in restored.get_trials())
+    assert restored.get_optimization_results()["trials"][0]["objective_errors"] == {"loss_err": 0.2}
 
 
 def test_multi_objective_optimizer_defaults_to_nsga2() -> None:
@@ -111,6 +114,9 @@ def test_multi_objective_optimizer_defaults_to_nsga2() -> None:
     assert optimizer._algorithm.__class__.__name__ == "NSGA2"
 
     candidates = optimizer.suggest_candidates()
+    for metrics, errors in [({"f1": float("nan"), "f2": 0.0}, {}), ({"f1": 0.0, "f2": 0.0}, {"f1": -0.2})]:
+        with pytest.raises(ValueError):
+            optimizer.update_with_results(0, candidates[0], metrics, uncertainties=errors)
     optimizer.mark_trial_failed(0, parameters=candidates[0], reason="evaluation failed")
     for trial_index, parameters in enumerate(candidates[1:], start=1):
         optimizer.update_with_results(

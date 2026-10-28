@@ -59,9 +59,11 @@ class EpicGeoLayer(StackLayer):
         output = outputs[0]
 
         checks = [
-            f' >& {output}',
+            f' >& {output} || exit 1',
             "grep -Eq 'Number of illegal overlaps/extrusions[[:space:]]*"
-            rf":[[:space:]]*0[[:space:]]+found' {output} || exit 9",
+            rf":[[:space:]]*[1-9][0-9]*[[:space:]]+found' {output} && exit 9",
+            "grep -Eq 'Number of illegal overlaps/extrusions[[:space:]]*"
+            rf":[[:space:]]*0[[:space:]]+found' {output} || exit 1",
         ]
         return '\n'.join(checks)
 
@@ -296,6 +298,8 @@ class EpicStack(ExperimentStack):
         if preparations != None:
             commands.append(preparations)
         commands.extend(self._make_commands(configs))
+        if any(config.layer == "geo" for config in configs):
+            context.payload.setdefault("invalid_design_exit_codes", []).append(9)
 
         text = "\n\n".join(commands)
         with open(script, 'w') as driver:

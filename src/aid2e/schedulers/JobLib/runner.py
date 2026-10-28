@@ -63,7 +63,10 @@ class JobLibScheduler(BaseScheduler):
                 env["JOB_PAYLOAD"] = json.dumps(serializable_payload)
                 env["JOB_PAYLOAD_TYPE"] = "json"
 
-            cwd = working_dir or os.getcwd()
+            # cwd = working_dir or os.getcwd()
+            execution_dir = payload.get("execution_dir")
+            cwd = execution_dir or working_dir or os.getcwd()
+
             self.logger.info("Executing job '%s': %s", job_name, command)
 
             timeout_sec = self.config.timeout if self.config.timeout else None

@@ -20,6 +20,7 @@ optimizer:
   parameters:
     initialization_strategy: "sobol"
     generator: "BOTORCH_MODULAR"
+    warm_start_path: null
     generator_kwargs:
       surrogate_spec:
         model_configs:

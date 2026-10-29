@@ -24,6 +24,8 @@ class AxOptimizerConfig(BaseModel):
             ``"sobol"``, ``"uniform"``, and ``"center"``.
         generator: Specify the Ax generator enum name used for model-based
             candidate generation. The default is ``"BOTORCH_MODULAR"``.
+        warm_start_path: Import prior trials from an Ax snapshot. Disable
+            by setting to `null` (default).
         generator_kwargs: Provide keyword arguments for Ax ``GeneratorSpec``
             setup (for example, model configuration details).
         generator_gen_kwargs: Provide generation-time keyword arguments passed
@@ -35,17 +37,21 @@ class AxOptimizerConfig(BaseModel):
         n_iterations: Set the total optimization iteration budget.
         batch_size: Set the number of candidates proposed per iteration.
         seed: Set an optional random seed for reproducibility.
-
-    Examples:
+        save_snapshot: saves an Ax Client snapshot after each completed 
+            optimization batch by setting to `True` (default). 
+     
+    Examples:        
         >>> config = AxOptimizerConfig(
         ...     initialization_strategy="sobol",
         ...     generator="BOTORCH_MODULAR",
+        ...     warm_start_path="previous_run/ax_snapshot__params-x-y__objectives-loss-min.json",
         ...     generator_kwargs={"fit_out_of_design": False},
         ...     generator_gen_kwargs={"model_gen_options": {"acqf_optimizer_kwargs": {"num_restarts": 8}}},
         ...     n_initial_samples=12,
         ...     n_iterations=60,
         ...     batch_size=2,
         ...     seed=42,
+        ...    save_snapshot=True
         ... )
         >>> config.generator
         'BOTORCH_MODULAR'
@@ -69,6 +75,13 @@ class AxOptimizerConfig(BaseModel):
         description=(
             "Ax generator enum name. This backend currently supports "
             "'BOTORCH_MODULAR' and treats it as the default model-based backend."
+        ),
+    )
+    warm_start_path: Optional[str] = Field(
+        default=None,
+        description=(
+            "Optional path to an Ax Client JSON snapshot used to seed this "
+            "optimization with compatible previous trials and results."
         ),
     )
     generator_kwargs: dict[str, Any] = Field(
@@ -112,6 +125,13 @@ class AxOptimizerConfig(BaseModel):
         default=None,
         description="Random seed for reproducibility. If None, results are non-deterministic.",
     )
+    save_snapshot: bool = Field(
+        default=True,
+        description=(
+            "Whether to save an Ax Client JSON snapshot after each completed "
+            "optimization batch."
+        ),
+    )
 
     @model_validator(mode="before")
     @classmethod
@@ -139,6 +159,5 @@ class AxOptimizerConfig(BaseModel):
     def normalize_generator(cls, value: str) -> str:
         """Normalize the configured generator to an Ax enum-style name."""
         return validate_generator_name(value)
-
 
 register("ax", AxOptimizerConfig)

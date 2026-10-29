@@ -1,6 +1,8 @@
 """Ax-based Bayesian optimizer for AID2E framework."""
 
 from copy import deepcopy
+from pathlib import Path
+import pickle
 from typing import List, Dict, Any, Optional, TYPE_CHECKING, Union
 import logging, sys
 import numpy as np
@@ -41,6 +43,7 @@ try:
         GeneratorSpec = None
         AX_NODE_STRATEGY_AVAILABLE = False
     from ax.adapter.registry import Generators
+    from ax.adapter.torch import TorchAdapter
     AX_AVAILABLE = True
 except ImportError as e:
     AX_AVAILABLE = False
@@ -839,6 +842,24 @@ class AxOptimizer(BaseOptimizer):
             reason=reason,
         )
     
+    def save_optimization_results(
+        self,
+        output_path: Union[str, Path],
+        *,
+        errors_by_trial: Optional[Dict[int, Dict[str, float]]] = None,
+    ) -> Dict[str, Path]:
+        """Save results and the latest fitted Ax model, without refitting."""
+        outputs = super().save_optimization_results(output_path, errors_by_trial=errors_by_trial)
+        adapter = self.generation_strategy.adapter
+        if isinstance(adapter, TorchAdapter):
+            model_path = Path(output_path) / "ax_model.pkl"
+            temporary = model_path.with_suffix(".pkl.tmp")
+            with temporary.open("wb") as handle:
+                pickle.dump(adapter, handle, protocol=pickle.HIGHEST_PROTOCOL)
+            temporary.replace(model_path)
+            outputs["ax_model"] = model_path
+        return outputs
+
     def serialize_state(self) -> Dict[str, Any]:
         """Serialize optimizer state for distributed execution.
         

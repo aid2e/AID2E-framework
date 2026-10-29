@@ -407,6 +407,24 @@ class TestAxOptimizer(AbstractOptimizerTestSuite):
     
     config_class = None
     
+    def test_fitted_model_export_preserves_predictions(self, tmp_path):
+        import pickle
+        from ax.core.observation import ObservationFeatures
+
+        optimizer = self.create_optimizer(self.get_search_space(), self.get_config_class()(n_initial_samples=2), ['loss'])
+        for index in range(2):
+            point = optimizer.suggest_candidates(1)[0]
+            optimizer.update_with_results(index, point, {'loss': point['x'] ** 2 + point['y']}, uncertainties={'loss': 0.1})
+        assert 'ax_model' not in optimizer.save_optimization_results(tmp_path)
+        adapter = optimizer.generation_strategy.fit(optimizer.experiment)
+        features = [ObservationFeatures(parameters={'x': 0.3, 'y': 0.6})]
+        expected = adapter.predict(features)
+        paths = optimizer.save_optimization_results(tmp_path)
+        with paths['ax_model'].open('rb') as handle:
+            actual = pickle.load(handle).predict(features)
+        np.testing.assert_allclose(actual[0]['loss'], expected[0]['loss'])
+        np.testing.assert_allclose(actual[1]['loss']['loss'], expected[1]['loss']['loss'])
+
     @classmethod
     def setup_class(cls):
         """Setup test class by importing AxOptimizer."""

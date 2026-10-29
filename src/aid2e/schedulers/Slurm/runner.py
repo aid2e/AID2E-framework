@@ -468,7 +468,7 @@ class SlurmScheduler(BaseScheduler):
     def _query_sacct_state(self, slurm_job_id: str) -> Optional[Dict[str, Any]]:
         proc = subprocess.run(
             ["sacct", "-n", "-P", "-j", str(slurm_job_id),
-             "--format=JobIDRaw,State,ExitCode,Submit,Eligible,Start,End"],
+             "--format=JobIDRaw,State,ExitCode,Submit,Eligible,Start,End,AllocCPUS,NNodes"],
             capture_output=True,
             text=True,
             check=False,
@@ -492,6 +492,9 @@ class SlurmScheduler(BaseScheduler):
                 for index, key in enumerate(("submitted_at", "eligible_at", "started_at", "finished_at"), start=3):
                     value = parts[index].strip() if index < len(parts) else ""
                     accounting[key] = None if value in {"", "Unknown", "N/A", "None"} else f"{value}+00:00"
+                for index, key in enumerate(("allocated_cpus", "allocated_nodes"), start=7):
+                    value = parts[index].strip() if index < len(parts) else ""
+                    accounting[key] = None if value in {"", "Unknown", "N/A", "None"} else int(value)
                 submitted, started = accounting["submitted_at"], accounting["started_at"]
                 # Submission-to-start includes dependency and hold time.
                 accounting["queue_seconds"] = (

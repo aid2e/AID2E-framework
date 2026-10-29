@@ -465,10 +465,10 @@ def run_optimization(
                         "completed",
                         metadata=metadata,
                     )
-            optimizer.save_optimization_results(
+            outputs.update(optimizer.save_optimization_results(
                 run_dir,
                 errors_by_trial=errors_by_trial,
-            )
+            ))
             save_summary("running")
             if len(failed_trials) > max_failed_trials:
                 raise RuntimeError(
@@ -478,7 +478,7 @@ def run_optimization(
         save_summary("completed")
     except BaseException as error:
         try:
-            optimizer.save_optimization_results(run_dir)
+            outputs.update(optimizer.save_optimization_results(run_dir))
         except Exception as save_error:
             logger.log_error(f"Could not save optimization results: {save_error}")
         save_summary("interrupted" if isinstance(error, (KeyboardInterrupt, SystemExit)) else "failed", str(error))

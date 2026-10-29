@@ -35,9 +35,11 @@ def test_slurm_accounting_timing(monkeypatch):
     from types import SimpleNamespace
     from aid2e.schedulers.Slurm import SlurmScheduler
 
-    response = SimpleNamespace(returncode=0, stdout="12345|COMPLETED|0:0|2026-10-22T10:00:00|Unknown|2026-10-22T10:03:00|Unknown|")
+    response = SimpleNamespace(returncode=0, stdout="12345|COMPLETED|0:0|2026-10-22T10:00:00|Unknown|2026-10-22T10:03:00|Unknown|4|1|")
     monkeypatch.setattr("aid2e.schedulers.Slurm.runner.subprocess.run", lambda *args, **kwargs: response)
     timing = SlurmScheduler()._query_sacct_state("12345")["accounting"]
     assert timing["submitted_at"] == "2026-10-22T10:00:00+00:00"
     assert timing["started_at"] == "2026-10-22T10:03:00+00:00"
     assert timing["queue_seconds"] == 180.0
+    assert timing["allocated_cpus"] == 4
+    assert timing["allocated_nodes"] == 1

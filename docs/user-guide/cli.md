@@ -137,7 +137,9 @@ aid2e version
 
 After each completed batch, `aid2e optimize` saves `optimization_results.json` (trial results) and `pareto_front.json` (Pareto solutions) under `<output>/<run-id>/`. Records include design parameters, objectives, objective errors, and trial metadata. Trial results also include status. Trial workflow outputs are kept under `trials/trial_<index>/`. Use `--log FILE` and verbosity settings to save trial progress.
 
-Objective fields named `<objective>_err` are saved as `objective_errors`; they are not yet passed to Ax as standard errors. Penalized trials retain the penalty flag and failure reason in metadata, and count toward `max_failed_trials`.
+Objective fields named `<objective>_err` are saved as `objective_errors` and passed to Ax as standard errors. Penalized trials retain the penalty flag and failure reason in metadata, and count toward `max_failed_trials`.
+
+Slurm accounting records allocated CPUs and nodes. Ax saves the latest fitted model as `ax_model.pkl`. Load it in the same Ax/BoTorch environment for prediction and plotting.
 
 `--validate-only` checks configuration loading; it does not execute jobs or verify the external software environment. Saved results do not provide automatic CLI resume.
 

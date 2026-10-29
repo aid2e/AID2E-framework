@@ -332,8 +332,7 @@ def run_optimization(
     run_started_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
     outputs = {
         "run_dir": run_dir,
-        "summary": run_dir / "summary.json",
-        "run_metadata": run_dir / "run.json",
+        "summary": run_dir / "run.json",
         "resolved_config": run_dir / "resolved_config.json",
         "optimization_results": run_dir / "optimization_results.json",
         "pareto_front": run_dir / "pareto_front.json",
@@ -373,7 +372,9 @@ def run_optimization(
     def save_summary(status: str, error: Optional[str] = None) -> None:
         trials = optimizer.get_trials()
         summary = {
-            "run_id": run_name, "started_at": run_started_at,
+            "run_id": run_name, "started_at": run_started_at, "config_path": str(config_path_obj),
+            "workflow": select_workflow(config.workflows, workflow_name=workflow_name).name,
+            "run_dir": str(run_dir), "work_dir": str(run_work_dir),
             "updated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "status": status, "error": error,
             "n_trials": len(trials),
             "completed_trials": sum(t.status == "completed" and t.index not in failed_trials for t in trials),
@@ -384,11 +385,6 @@ def run_optimization(
         outputs["summary"].write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
 
     try:
-        metadata = {
-            "run_id": run_name, "config_path": str(config_path_obj),
-            "workflow": select_workflow(config.workflows, workflow_name=workflow_name).name,
-            "run_dir": str(run_dir), "work_dir": str(run_work_dir),
-        }
         snapshot = config.model_dump(mode="python", serialize_as_any=True)
         snapshot["problem"]["output_location"] = str(output_root)
         snapshot["optimizer"]["parameters"] = optimizer_config.model_dump(mode="python")
@@ -396,11 +392,10 @@ def run_optimization(
         for group in snapshot["problem"]["design_config"]["design_parameters"].values():
             for parameter in group["parameters"].values():
                 parameter["type"] = "range" if "bounds" in parameter else "choice"
-        for key, payload in (("run_metadata", metadata), ("resolved_config", snapshot)):
-            outputs[key].write_text(
-                json.dumps(payload, indent=2, default=lambda value: f"{value.__module__}:{value.__qualname__}" if callable(value) else str(value)) + "\n",
-                encoding="utf-8",
-            )
+        outputs["resolved_config"].write_text(
+            json.dumps(snapshot, indent=2, default=lambda value: f"{value.__module__}:{value.__qualname__}" if callable(value) else str(value)) + "\n",
+            encoding="utf-8",
+        )
         save_summary("running")
         while completed < n_iterations:
             batch_id += 1
@@ -513,6 +508,7 @@ def _run_trial_batch(
             "job_id": str(trial_index),
             "name": f"trial_{trial_index}",
             "function": run_trial_workflow,
+            "payload": {"output_dir": str(run_dir / "trials" / f"trial_{trial_index}" / "log")},
             "params": {
                 "config_path": str(config_path),
                 "run_dir": str(run_dir),

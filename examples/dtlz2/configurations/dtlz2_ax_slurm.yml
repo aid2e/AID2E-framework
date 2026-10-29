@@ -1,9 +1,9 @@
-# Slurm trial and workflow-job submission; update setup_commands for your cluster.
+# Slurm trial submission with inline objectives; update setup_commands for your cluster.
 problem:
   name: "DTLZ2 Slurm Workflow Example"
   problem_type: "DTLZ2"
-  output_location: "./output/ax_slurm"
-  work_location: "./work/ax_slurm"
+  output_location: "./output"
+  work_location: "./work"
   design_parameters_file: "../dtlz2_design.params"
   objectives:
     - name: "f1"
@@ -50,50 +50,16 @@ scheduler:
 
 workflows:
   workflows:
-    - name: "dtlz2_slurm_eval"
+    - name: "dtlz2_eval"
       description: "Canonical global-scheduler Slurm workflow example"
       branches:
         - name: "main"
           stages:
             - name: "evaluate"
-              jobs:
-                - name: "compute_dtlz2"
-                  command: "python examples/dtlz2/dtlz2_evaluator.py"
-                  rule: >-
-                    {command}
-                    --x1 {payload[x1]}
-                    --x2 {payload[x2]}
-                    --x3 {payload[x3]}
-                    --x4 {payload[x4]}
-                    --x5 {payload[x5]}
-                    --x6 {payload[x6]}
-                    --x7 {payload[x7]}
-                    --x8 {payload[x8]}
-                    --x9 {payload[x9]}
-                    --x10 {payload[x10]}
-                    --output {payload[output_file]}
-                    --label {payload[label]}
-                    --sleep-sec {payload[sleep_sec]}
-                    --repeat {payload[repeat]}
-                  payload:
-                    x1: "{design_point[DTLZ2_variables.x1]}"
-                    x2: "{design_point[DTLZ2_variables.x2]}"
-                    x3: "{design_point[DTLZ2_variables.x3]}"
-                    x4: "{design_point[DTLZ2_variables.x4]}"
-                    x5: "{design_point[DTLZ2_variables.x5]}"
-                    x6: "{design_point[DTLZ2_variables.x6]}"
-                    x7: "{design_point[DTLZ2_variables.x7]}"
-                    x8: "{design_point[DTLZ2_variables.x8]}"
-                    x9: "{design_point[DTLZ2_variables.x9]}"
-                    x10: "{design_point[DTLZ2_variables.x10]}"
-                    output_file: "{output_dir}/objectives.json"
-                    label: "config-driven-slurm"
-                    sleep_sec: 0.3
-                    repeat: 2
-                  outputs:
-                    - path: "{payload[output_file]}"
-                      format: "json"
-              parallelism:
-                max_concurrent: 1
-                retry_max: 1
-                timeout_sec: 300
+              objective_plan:
+                steps:
+                  stages:
+                    - name: "compute_objectives"
+                      inline:
+                        entrypoint: "examples.dtlz2.dtlz2_evaluator:objective_payload"
+                      produces_objective: true

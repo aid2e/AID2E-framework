@@ -85,9 +85,7 @@ aid2e validate problem.yml
 
 - `--validate-only`: Validate the configuration without executing it.
 - `-v`, `--verbosity`: Increase logging verbosity; may be repeated.
-- `--log FILE`: Write logs to a file.
 - `--workflow TEXT`: Select a workflow when the configuration declares more than one.
-- `--output DIRECTORY`: Override the configured output directory.
 - `--run-id TEXT`: Set the run directory name under the output directory. When
   omitted, AID2E uses a timestamp in `YYYYMMDD_HHMM` format.
 
@@ -97,7 +95,7 @@ aid2e validate problem.yml
 aid2e optimize workflow.yml
 aid2e optimize workflow.yml --validate-only
 aid2e optimize workflow.yml --workflow workflow_name
-aid2e optimize workflow.yml -vv --log output.log
+aid2e optimize workflow.yml -vv
 ```
 
 ### `aid2e list [optimizers|templates|problems]`
@@ -135,7 +133,7 @@ aid2e version
 
 ## Run records
 
-After each completed batch, `aid2e optimize` saves `optimization_results.json` (trial results) and `pareto_front.json` (Pareto solutions) under `<output>/<run-id>/`. Records include design parameters, objectives, objective errors, and trial metadata. Trial results also include status. Trial workflow outputs are kept under `trials/trial_<index>/`. Use `--log FILE` and verbosity settings to save trial progress.
+After each completed batch, `aid2e optimize` saves `optimization_results.json` (trial results) and `pareto_front.json` (Pareto solutions) under `<output>/<run-id>/`. Records include design parameters, objectives, objective errors, and trial metadata. Trial results also include status. Trial workflow outputs are kept under `trials/trial_<index>/`. Output and work directories come from `problem.output_location` and `problem.work_location`. Trial progress is logged to `run.log` in the run output directory.
 
 Objective fields named `<objective>_err` are saved as `objective_errors` and passed to Ax as standard errors. Penalized trials retain the penalty flag and failure reason in metadata, and count toward `max_failed_trials`.
 

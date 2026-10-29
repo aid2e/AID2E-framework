@@ -2,8 +2,8 @@
   "problem": {
     "name": "DTLZ2 Ax with JobLib",
     "problem_type": "DTLZ2",
-    "output_location": "./output/ax_joblib",
-    "work_location": "./work/ax_joblib",
+    "output_location": "./output",
+    "work_location": "./work",
     "design_parameters_file": "../dtlz2_design.params",
     "objectives": [
       {
@@ -75,7 +75,7 @@
                   "steps": {
                     "stages": [
                       {
-                        "name": "evaluate",
+                        "name": "compute_objectives",
                         "inline": {
                           "entrypoint": "examples.dtlz2.dtlz2_evaluator:objective_payload"
                         },

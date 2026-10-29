@@ -17,6 +17,8 @@ def test_cli_help(runner):
     assert result.exit_code == 0
     assert 'AID2E' in result.output
     assert 'Usage:' in result.output
+    help_text = runner.invoke(cli, ['optimize', '--help']).output
+    assert '--output' not in help_text and '--log' not in help_text
 
 
 def test_cli_version(runner):
@@ -106,6 +108,9 @@ workflows:
     assert calls[0][1] == str(config_path)
     assert calls[0][2]["workflow_name"] == "generic_eval"
     assert calls[0][2]["run_id"] == "run-1"
+    assert "output_dir" not in calls[0][2]
+    assert (output_dir / "run-1/run.log").is_file()
+    assert calls[0][0].problem.work_location == str(work_dir)
 
 
 @pytest.fixture
@@ -148,6 +153,9 @@ def test_optimize_saves_run_outputs(tmp_path, monkeypatch, optimization_config, 
     assert snapshot["problem"]["design_config"]["design_parameters"]["DTLZ2_variables"]["parameters"]["x1"]["type"] == "range"
     summary = json.loads(outputs["summary"].read_text())
     assert summary["status"] == "completed" and summary["completed_trials"] == 2
+    assert outputs["summary"].name == "run.json"
+    assert summary["config_path"] == str(example.resolve()) and summary["work_dir"] == str(tmp_path / "work/records")
+    assert not (outputs["run_dir"] / "summary.json").exists()
     checkpoints = json.loads(outputs["optimizer_checkpoints"].read_text())["checkpoints"]
     collected = [cp["context"] for cp in checkpoints if cp["stage"] == "trial_collected"]
     assert len(collected) == 2 and all(cp["outputs"] for cp in collected)
@@ -174,7 +182,12 @@ def test_failure_limit_preserves_batch_results(tmp_path, monkeypatch, optimizati
             JobStatus(job_id="1", status="completed", outputs={"f1": 0.0, "f2": 2.0, "f1_err": 0.0}),
         ],
     )
-    monkeypatch.setattr(JobLibScheduler, "run_stage", lambda *args, **kwargs: batch)
+    def run_stage(self, stage_name, jobs, **kwargs):
+        assert jobs[0]["payload"]["output_dir"] == str(tmp_path / "records/trials/trial_0/log")
+        assert kwargs["working_dir"] == str(tmp_path / "work/records")
+        return batch
+
+    monkeypatch.setattr(JobLibScheduler, "run_stage", run_stage)
     with pytest.raises(RuntimeError, match="Too many failed trials"):
         runtime.run_optimization(config, str(example), output_dir=str(tmp_path), run_id="records")
     results = json.loads((tmp_path / "records/optimization_results.json").read_text())["trials"]
@@ -185,5 +198,5 @@ def test_failure_limit_preserves_batch_results(tmp_path, monkeypatch, optimizati
     assert results[1]["metadata"]["uncertainties"] == {"f1": 0.0}
     pareto = json.loads((tmp_path / "records/pareto_front.json").read_text())
     assert results[1]["objective_errors"] == pareto[0]["objective_errors"] == {"f1_err": 0.0}
-    summary = json.loads((tmp_path / "records/summary.json").read_text())
+    summary = json.loads((tmp_path / "records/run.json").read_text())
     assert summary["status"] == "failed" and summary["failed_trials"] == summary["completed_trials"] == 1

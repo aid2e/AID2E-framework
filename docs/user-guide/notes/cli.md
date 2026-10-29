@@ -46,6 +46,6 @@ aid2e
 
 The global scheduler receives `run_trial_workflow` with a configuration path, trial index, and design point. Jobs inside the workflow receive `JobContext`. Scheduler adapters must preserve the submitted callable's argument.
 
-`run.json` saves run settings and paths; `resolved_config.json` includes optimizer defaults and the output override. Results use `save_optimization_results()`.
+`resolved_config.json` includes optimizer defaults and resolved paths. Results use `save_optimization_results()`.
 
-`summary.json` saves run timing, status, trial counts, and errors; failed counts include penalized evaluations. Optimizer checkpoints save batch/trial timing, parameters, outputs, and failure details. Workflow checkpoints retain stage/job timing.
+`run.json` saves run settings, paths, timing, status, trial counts, and errors; failed counts include penalized evaluations. Optimizer checkpoints save batch/trial timing, parameters, outputs, and failure details. Workflow checkpoints retain stage/job timing.

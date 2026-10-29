@@ -13,6 +13,7 @@ Commands for running optimization workflows and managing execution lifecycle:
 import logging
 import time
 import sys
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
@@ -25,17 +26,13 @@ from aid2e.utilities.runtime_builders import run_optimization
 @click.argument("config_file", type=click.Path(exists=True))
 @click.option("--validate-only", is_flag=True, help="Validate config but do not run")
 @click.option("-v", "--verbosity", count=True, help="Increase verbosity (can be used multiple times)")
-@click.option("--log", "log_file", type=click.Path(dir_okay=False), help="Path to log file")
 @click.option("--workflow", "workflow_name", help="Workflow name to execute")
-@click.option("--output", "output_dir", type=click.Path(file_okay=False), help="Output directory for this run")
 @click.option("--run-id", help="Run directory name under the output directory")
 def optimize(
     config_file: str,
     validate_only: bool,
     verbosity: int,
-    log_file: Optional[str],
     workflow_name: Optional[str],
-    output_dir: Optional[str],
     run_id: Optional[str],
 ):
     """
@@ -46,7 +43,7 @@ def optimize(
     Example:
         aid2e optimize optimization.yml
         aid2e optimize optimization.yml --validate-only
-        aid2e optimize optimization.yml -vv --log output.log
+        aid2e optimize optimization.yml -vv
     """
     try:
         if verbosity > 0:
@@ -58,40 +55,38 @@ def optimize(
             click.echo(click.style("✓ Configuration validated; skipping execution.", fg="green"))
             return
         
+        run_id = run_id or datetime.now().strftime("%Y%m%d_%H%M")
+        log_path = Path(config.problem.output_location) / run_id / "run.log"
+
         # Display optimization info
         click.echo(click.style(f"Running optimization: {config.optimizer.name}", fg="cyan", bold=True))
         click.echo(f"  Algorithm: {config.optimizer.name} ({config.optimizer.type})")
         click.echo(f"  Iterations: {config.optimizer.parameters.get('n_iterations', 'N/A')}")
         click.echo(f"  Verbosity: {verbosity}")
-        if log_file:
-            click.echo(f"  Log file: {log_file}")
+        click.echo(f"  Log file: {log_path}")
         if workflow_name:
             click.echo(f"  Workflow: {workflow_name}")
-        if output_dir:
-            click.echo(f"  Output: {output_dir}")
+        click.echo(f"  Output: {config.problem.output_location}")
         if run_id:
             click.echo(f"  Run ID: {run_id}")
         click.echo()
         log_level = "DEBUG" if verbosity > 1 else "INFO" if verbosity else "WARNING"
-        if log_file:
-            log_path = Path(log_file).expanduser()
-            log_path.parent.mkdir(parents=True, exist_ok=True)
-            handler = logging.FileHandler(log_path)
-            formatter = logging.Formatter(
-                "%(asctime)s [%(name)s] %(levelname)s: %(message)s", datefmt="%Y-%m-%dT%H:%M:%S+00:00"
-            )
-            formatter.converter = time.gmtime
-            handler.setFormatter(formatter)
-            logging.basicConfig(
-                handlers=[handler],
-                level=getattr(logging, log_level),
-                force=True,
-            )
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        handler = logging.FileHandler(log_path)
+        formatter = logging.Formatter(
+            "%(asctime)s [%(name)s] %(levelname)s: %(message)s", datefmt="%Y-%m-%dT%H:%M:%S+00:00"
+        )
+        formatter.converter = time.gmtime
+        handler.setFormatter(formatter)
+        logging.basicConfig(
+            handlers=[handler],
+            level=getattr(logging, log_level),
+            force=True,
+        )
         results = run_optimization(
             config,
             config_file,
             workflow_name=workflow_name,
-            output_dir=output_dir,
             run_id=run_id,
             log_level=log_level,
         )

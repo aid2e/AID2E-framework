@@ -1,42 +1,98 @@
-"""Planner-oriented MCP tools.
+"""Read-only Source Reference tools: subsystem blueprints, file listing, and file reading.
 
-These tools expose high-level architecture context intended for planning
-models before code generation begins.
+These tools expose the installed AID2E package and its `examples/` tree (the
+Reference Source). None of them can modify files.
 """
 
 from __future__ import annotations
-from pathlib import Path
-from .repository import RepositoryIndex
+
+from typing import Annotated
+
+from pydantic import Field
+
+from .repository import RepositoryIndex, _SKIP_DIRS
+
+_REFERENCE_CHUNK_LINES = 80
+_REFERENCE_CHUNK_CHARS = 12000
+
+
+def _format_reference_chunk(content: str, display: str, start_line: int, end_line: int, max_chars: int = _REFERENCE_CHUNK_CHARS) -> str:
+    """Return one bounded, line-numbered reference chunk with an explicit continuation."""
+    lines = content.splitlines()
+    total = len(lines)
+    if not total:
+        return f"# {display} (empty file)"
+
+    start = max(1, start_line or 1)
+    if start > total:
+        return f"# {display} ({total} lines total)\n\nLine {start} is past end of file; no more content."
+
+    limit = min(_REFERENCE_CHUNK_CHARS, max_chars) if max_chars > 0 else _REFERENCE_CHUNK_CHARS
+    limit = max(200, limit)
+    stop = min(total, start + _REFERENCE_CHUNK_LINES - 1)
+    if end_line > 0:
+        stop = min(stop, max(start, end_line))
+
+    rendered_lines = []
+    used = 0
+    for line_number in range(start, stop + 1):
+        numbered = f"{line_number}: {lines[line_number - 1]}"
+        available = limit - used - (1 if rendered_lines else 0)
+        if len(numbered) > available:
+            if rendered_lines:
+                break
+            numbered = numbered[: max(0, available - len(" [line clipped]"))] + " [line clipped]"
+        rendered_lines.append(numbered)
+        used += len(numbered) + (1 if len(rendered_lines) > 1 else 0)
+        if numbered.endswith(" [line clipped]"):
+            break
+
+    actual_end = start + len(rendered_lines) - 1
+    continuation = f"\n\nNext chunk: start_line={actual_end + 1}" if actual_end < total else "\n\nEnd of file."
+    return f"# {display} (lines {start}-{actual_end} of {total})\n\n" + "\n".join(rendered_lines) + continuation
 
 
 def register_planner_tools(mcp, index: RepositoryIndex) -> None:
-    """Register planner-only MCP tools.
+    """Register planner MCP tools for Reference Source exploration.
 
     Args:
         mcp: FastMCP server instance.
         index: Repository semantic index.
     """
 
-    @mcp.tool()
-    def get_subsystem_blueprints(subsystem: str, reference_engine: str = "") -> str:
-        """Get abstract base and implementation blueprint context in one call.
+    @mcp.tool(
+        description="AID2E source: blueprint of an AID2E subsystem (base class, implementations, registries, example configs). "
+        "Empty subsystem lists them."
+    )
+    def get_subsystem_blueprints(
+        subsystem: Annotated[str, Field(description="e.g. 'schedulers', 'optimizers', 'workflows', 'configurations'.")] = "",
+        reference_engine: Annotated[str, Field(description="Optional implementation to focus on, e.g. 'Slurm', 'ax'.")] = "",
+    ) -> str:
+        """Get abstract base, implementation folders, registries, and example configs for a subsystem.
 
         Args:
-            subsystem: Component family such as schedulers or optimizers.
-            reference_engine: Optional implementation preference.
+            subsystem: Component family such as 'schedulers', 'optimizers', 'workflows',
+                'configurations', 'epic_utils', 'cli', or '' to list all available subsystems.
+            reference_engine: Optional implementation preference (e.g., 'Slurm', 'JobLib', 'ax', 'pymoo').
 
         Returns:
             Structured blueprint text for planning new implementations.
         """
+        subsystems = index.discover_subsystems()
+        if not subsystem or not subsystem.strip():
+            available = ", ".join(sorted(k for k in subsystems if "/" not in k and "." not in k))
+            return f"Available AID2E subsystems: {available}"
+
         blueprint = index.build_component_blueprint(subsystem, reference_engine)
         if not blueprint.directory.exists():
+            available = ", ".join(sorted(k for k in subsystems if "/" not in k and "." not in k))
             return (
-                f"Error: Subsystem '{subsystem}' directory not found at "
-                f"{blueprint.directory}"
+                f"Subsystem '{subsystem}' not found. "
+                f"Available subsystems: {available}"
             )
 
         lines = [f"# {subsystem.title()} Blueprint", ""]
-        lines.append(f"- Directory: `{blueprint.directory}`")
+        lines.append(f"- Directory: `{index.display_path(blueprint.directory)}`")
         lines.append(f"- Abstract base: `{blueprint.abstract_base or 'not found'}`")
 
         if blueprint.implementations:
@@ -45,200 +101,156 @@ def register_planner_tools(mcp, index: RepositoryIndex) -> None:
                 lines.append(f"  - `{impl}`")
 
         if blueprint.registration_files:
-            lines.append("- Registration files:")
-            for path in blueprint.registration_files[:10]:
+            lines.append("- Registration & configuration schema files:")
+            for path in blueprint.registration_files[:15]:
                 lines.append(f"  - `{path}`")
 
         if blueprint.configuration_files:
-            lines.append("- Related configs:")
-            for path in blueprint.configuration_files[:10]:
+            lines.append("- Related example & config files:")
+            for path in blueprint.configuration_files[:15]:
                 lines.append(f"  - `{path}`")
 
         lines.append("")
         lines.append("Planner instructions:")
-        lines.append("1. Read abstract base contracts first.")
+        lines.append("1. Read abstract base contracts and registry files first.")
         lines.append("2. Compare one production implementation end-to-end.")
-        lines.append("3. Produce file-by-file implementation plan before coding.")
+        lines.append("3. Produce a verified file-by-file implementation plan before coding.")
         return "\n".join(lines)
 
-    @mcp.tool()
-    def plan_symbol_search(query: str, limit: int = 20) -> str:
-        """Search semantic symbols to seed implementation planning.
-
-        Args:
-            query: Free-text architecture question or symbol hint.
-            limit: Maximum number of matches to return.
-
-        Returns:
-            Ranked list of candidate modules and symbols.
-        """
-        results = index.search(query=query, limit=limit)
-        if not results:
-            return f"No semantic matches found for '{query}'."
-
-        lines = [f"# Planning matches for '{query}'", ""]
-        for item in results:
-            lines.append(
-                f"- [{item.kind}] `{item.symbol}` (score={item.score:.2f}) - {item.summary}"
-            )
-        return "\n".join(lines)
-
-    @mcp.tool()
+    @mcp.tool(description="AID2E source: read an AID2E source file. Returns at most 80 numbered lines per call; continue with start_line.")
     def read_framework_file(
-        path_input: str | None = None,
-        path: str | None = None,
-        file_path: str | None = None,
-        relative_path: str | None = None,
-        max_chars: int = 50000,
+        path: Annotated[str, Field(description="Path relative to the aid2e package, e.g. 'schedulers/base.py'.")],
+        start_line: Annotated[int, Field(description="First line, 1-indexed.")] = 1,
+        end_line: Annotated[int, Field(description="Last line; 0 = one 80-line chunk.")] = 0,
     ) -> str:
-        """Read a source file from the AID2E reference source tree.
+        """Read a file from the AID2E Reference Source with 1-indexed line numbers.
 
         Args:
-            path_input: Primary path input.
-            path: Generic path alias.
-            file_path: File-path alias.
-            relative_path: Relative path alias.
-            max_chars: Maximum number of characters returned.
+            path: File path relative to `src/aid2e/` or the repository root.
+            start_line: 1-indexed first line to read.
+            end_line: 1-indexed last line requested (0 means one default chunk).
 
         Returns:
-            File content or an error message.
+            Numbered file content (at most 80 lines / 12000 characters) or an error message.
         """
-        raw = path_input or path or file_path or relative_path
-        if raw is None or not raw.strip():
-            return (
-                "Missing path argument. Provide one of: "
-                "path_input, path, file_path, relative_path."
-            )
+        raw = path
+        if not raw or not raw.strip():
+            return "Missing `path` argument: pass the file as `path`, e.g. 'schedulers/base.py'."
 
-        root = (index.root / "src" / "aid2e").resolve()
-        cleaned = raw.strip().strip('"').strip("'").replace("\\", "/")
-
-        # Keep planner reads anchored to reference source package.
-        if cleaned.startswith("src/aid2e/"):
-            cleaned = cleaned[len("src/aid2e/"):]
-        elif cleaned.startswith("aid2e/"):
-            cleaned = cleaned[len("aid2e/"):]
-
-        incoming = Path(cleaned)
-        if incoming.is_absolute():
-            target = incoming.resolve()
-        else:
-            target = (root / incoming).resolve()
-
-        try:
-            target.relative_to(root)
-        except ValueError:
-            return f"Access denied: {target.as_posix()} is outside {root.as_posix()}"
-
-        if not target.exists() or not target.is_file():
-            return f"Not found: {target.as_posix()}"
+        target = index.resolve_reference_file(raw)
+        if target is None or not target.exists() or not target.is_file():
+            return f"Not found in AID2E reference source: {raw}"
 
         content = target.read_text(encoding="utf-8", errors="replace")
-        if max_chars > 0 and len(content) > max_chars:
-            content = content[:max_chars]
-            return (
-                f"# {target.as_posix()}\n"
-                f"(truncated to {max_chars} chars)\n\n{content}"
-            )
+        display = index.display_path(target)
+        return _format_reference_chunk(content, display, start_line, end_line)
 
-        return f"# {target.as_posix()}\n\n{content}"
-
-    @mcp.tool()
+    @mcp.tool(description="AID2E source: read an AID2E example script or config. Returns at most 80 numbered lines per call; continue with start_line.")
     def read_example_file(
-        path_input: str | None = None,
-        path: str | None = None,
-        file_path: str | None = None,
-        relative_path: str | None = None,
-        max_chars: int = 50000,
+        path: Annotated[str, Field(description="Path relative to examples/, e.g. 'dtlz2/dtlz2_evaluator.py'.")],
+        start_line: Annotated[int, Field(description="First line, 1-indexed.")] = 1,
+        end_line: Annotated[int, Field(description="Last line; 0 = one 80-line chunk.")] = 0,
     ) -> str:
-        """Read a source file from the AID2E example source tree.
+        """Read a file from the AID2E `examples/` tree with 1-indexed line numbers.
 
         Args:
-            path_input: Primary path input.
-            path: Generic path alias.
-            file_path: File-path alias.
-            relative_path: Relative path alias.
-            max_chars: Maximum number of characters returned.
+            path: File path relative to `examples/`.
+            start_line: 1-indexed first line to read.
+            end_line: 1-indexed last line requested (0 means one default chunk).
 
         Returns:
-            File content or an error message.
+            Numbered file content (at most 80 lines / 12000 characters) or an error message.
         """
-        raw = path_input or path or file_path or relative_path
-        if raw is None or not raw.strip():
-            return (
-                "Missing path argument. Provide one of: "
-                "path_input, path, file_path, relative_path."
-            )
+        raw = path
+        if not raw or not raw.strip():
+            return "Missing `path` argument: pass the file as `path`, e.g. 'dtlz2/dtlz2_evaluator.py'."
 
-        root = (index.package_examples).resolve()
         cleaned = raw.strip().strip('"').strip("'").replace("\\", "/")
+        if cleaned.startswith("examples/"):
+            cleaned = cleaned[len("examples/") :]
 
-        incoming = Path(cleaned)
-        if incoming.is_absolute():
-            target = incoming.resolve()
-        else:
-            target = (root / incoming).resolve()
-
+        root = index.package_examples.resolve()
+        candidate = (root / cleaned).resolve()
         try:
-            target.relative_to(root)
+            candidate.relative_to(root)
         except ValueError:
-            return f"Access denied: {target.as_posix()} is outside {root.as_posix()}"
+            return f"Access denied: {candidate.as_posix()} is outside {root.as_posix()}"
 
-        if not target.exists() or not target.is_file():
-            return f"Not found: {target.as_posix()}"
+        if not candidate.exists() or not candidate.is_file():
+            # Fall back to general reference resolver in case a framework path was passed
+            alt = index.resolve_reference_file(raw)
+            if alt is not None and alt.is_file():
+                candidate = alt
+            else:
+                return f"Not found in examples: {raw}"
 
-        content = target.read_text(encoding="utf-8", errors="replace")
-        if max_chars > 0 and len(content) > max_chars:
-            content = content[:max_chars]
-            return (
-                f"# {target.as_posix()}\n"
-                f"(truncated to {max_chars} chars)\n\n{content}"
-            )
+        content = candidate.read_text(encoding="utf-8", errors="replace")
+        display = index.display_path(candidate)
+        return _format_reference_chunk(content, display, start_line, end_line)
 
-        return f"# {target.as_posix()}\n\n{content}"
-
-    @mcp.tool()
-    def list_files_in_framework_subdirectory(subsystem: str, pattern: str = "*") -> str:
-        """List files in a subsystem directory.
+    @mcp.tool(description="AID2E source: list AID2E source files in a subsystem ('' or 'all' = whole package).")
+    def list_files_in_framework_subdirectory(
+        subsystem: Annotated[str, Field(description="e.g. 'schedulers', 'optimizers', 'configurations'.")] = "",
+        pattern: Annotated[str, Field(description="Glob filter, e.g. '*.py'.")] = "*",
+    ) -> str:
+        """List files in an AID2E subsystem directory (or the entire `aid2e` package when `subsystem` is empty or `'all'`).
 
         Args:
-            subsystem: Component family such as schedulers or optimizers.
-            pattern: Glob pattern to filter files.
-        """
+            subsystem: Subsystem name (e.g., 'schedulers', 'optimizers', 'utilities',
+                'configurations', 'workflows', 'epic_utils', 'cli', or 'all').
+            pattern: Glob pattern to filter files (default '*').
 
-        blueprint = index.build_component_blueprint(subsystem)
-        if not blueprint.directory.exists():
+        Returns:
+            Markdown list of files in the subsystem.
+        """
+        target_dir = index.resolve_subsystem_path(subsystem)
+        if target_dir is None or not target_dir.exists():
+            subsystems = index.discover_subsystems()
+            available = ", ".join(sorted(k for k in subsystems if "/" not in k and "." not in k))
             return (
-                f"Error: Subsystem '{subsystem}' directory not found at "
-                f"{blueprint.directory}"
+                f"Subsystem '{subsystem}' not found. "
+                f"Available subsystems: {available}"
             )
 
-        files = list(blueprint.directory.rglob(pattern))
+        files = [
+            f
+            for f in sorted(target_dir.rglob(pattern))
+            if f.is_file() and not any(part.startswith(".") or part in _SKIP_DIRS for part in f.parts)
+        ]
         if not files:
-            return f"No files found in '{subsystem}' matching pattern '{pattern}'."
+            return f"No files found in '{subsystem or 'aid2e'}' matching pattern '{pattern}'."
 
-        lines = [f"# Files in '{subsystem}' matching '{pattern}'", ""]
+        lines = [f"# Files in '{subsystem or 'aid2e'}' matching '{pattern}'", ""]
         for file in files:
-            rel_path = file.relative_to(blueprint.directory)
-            lines.append(f"- `{rel_path}`")
+            lines.append(f"- `{index.display_path(file)}`")
         return "\n".join(lines)
 
-    @mcp.tool()
-    def list_example_directory_files(pattern: str = "*") -> str:
-        """List files in the example source tree.
+    @mcp.tool(description="AID2E source: list AID2E example files (scripts, YAML configs, .params).")
+    def list_example_directory_files(
+        pattern: Annotated[str, Field(description="Glob filter, e.g. '*.yml'.")] = "*",
+    ) -> str:
+        """List files in the AID2E `examples/` directory tree.
 
         Args:
-            pattern: Glob pattern to filter files.
-        """
+            pattern: Glob pattern to filter files (default '*').
 
+        Returns:
+            Markdown list of example files.
+        """
         root = index.package_examples
-        files = list(root.rglob(pattern))
+        if not root.exists():
+            return "Examples directory not found."
+
+        files = [
+            f
+            for f in sorted(root.rglob(pattern))
+            if f.is_file() and not any(part.startswith(".") or part in _SKIP_DIRS for part in f.parts)
+        ]
         if not files:
             return f"No files found in example source tree matching pattern '{pattern}'."
 
-        lines = [f"# Example source tree files matching '{pattern}'", ""]
+        lines = [f"# Example files matching '{pattern}'", ""]
         for file in files:
-            rel_path = file.relative_to(root)
+            rel_path = file.relative_to(root).as_posix()
             lines.append(f"- `{rel_path}`")
         return "\n".join(lines)
-

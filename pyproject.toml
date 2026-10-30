@@ -100,8 +100,10 @@ Issues = "https://github.com/aid2e/AID2E-framework/issues"
 aid2e = "aid2e.cli.aid2e_cli:cli"
 
 [tool.setuptools]
-packages = ["aid2e", "aid2e.cli", "aid2e.mcp", "aid2e.optimizers", "aid2e.optimizers.ax", "aid2e.optimizers.pymoo", "aid2e.schedulers", "aid2e.utilities", "aid2e.utilities.configurations", "aid2e.utilities.epic_utils"]
 package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
 
 [tool.setuptools.package-data]
 "aid2e" = ["py.typed"]

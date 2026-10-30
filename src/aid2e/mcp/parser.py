@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import ast
 from pathlib import Path
+import warnings
 
 from .models import ClassInfo, FunctionInfo, ModuleInfo, SourceLocation
 
@@ -178,7 +179,9 @@ class RepositoryParser(ast.NodeVisitor):
             Parsed module metadata.
         """
         source = path.read_text(encoding="utf-8")
-        tree = ast.parse(source)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", SyntaxWarning)
+            tree = ast.parse(source, filename=path.as_posix())
         parser = cls(module_name, path)
         parser.module.docstring = ast.get_docstring(tree) or ""
         parser.visit(tree)

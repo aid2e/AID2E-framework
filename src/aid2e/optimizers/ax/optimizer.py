@@ -172,6 +172,7 @@ class AxOptimizer(BaseOptimizer):
         )
 
         self.config = config
+        self._model_history = None
         # self.objective_names and self.n_objectives are inherited from BaseOptimizer
         
         # TODO Version check removed for now, re-enable when ready
@@ -254,6 +255,15 @@ class AxOptimizer(BaseOptimizer):
                 pickle.dump(adapter, handle, protocol=pickle.HIGHEST_PROTOCOL)
             temporary.replace(model_path)
             outputs["ax_model"] = model_path
+        if self._model_history is not None:
+            first_trial, snapshot = self._model_history
+            history_path = Path(output_path) / "ax_models" / f"generation_{first_trial}.pkl"
+            history_path.parent.mkdir(parents=True, exist_ok=True)
+            temporary = history_path.with_suffix(".pkl.tmp")
+            temporary.write_bytes(snapshot)
+            temporary.replace(history_path)
+            outputs["ax_model_history"] = history_path
+            self._model_history = None
         return outputs
     
     def _warm_start_from_ax_snapshot(self, warm_start_path: str) -> None:
@@ -798,8 +808,9 @@ class AxOptimizer(BaseOptimizer):
             single_run = GeneratorRun(
                 arms=[arm],
                 weights=[weight],
-                fit_time=getattr(generator_run, "fit_time", None),
-                gen_time=getattr(generator_run, "gen_time", None),
+                # Record generation timing once when splitting a batch.
+                fit_time=getattr(generator_run, "fit_time", None) if index == 0 else None,
+                gen_time=getattr(generator_run, "gen_time", None) if index == 0 else None,
                 generation_node_name=getattr(generator_run, "_generation_node_name", None),
             )
             for attr_name in ("_model_key", "_generation_node_name"):
@@ -897,6 +908,7 @@ class AxOptimizer(BaseOptimizer):
         """
 
         candidates = []
+        trial_indices = []
         model_keys: List[str] = []
 
         from ax.core.data import Data
@@ -938,10 +950,22 @@ class AxOptimizer(BaseOptimizer):
                 metadata={
                     "ax_model_key": model_key,
                     **strategy_metadata,
+                    **{key: value for key, value in (
+                        ("ax_fit_duration", generator_run.fit_time),
+                        ("ax_generation_duration", generator_run.gen_time),
+                    ) if value is not None},
                 },
             )
             candidates.append(candidate_params)
             model_keys.append(model_key)
+            trial_indices.append(trial.index)
+
+        adapter = self.generation_strategy.adapter
+        if self.config.save_model_history and trial_indices and isinstance(adapter, TorchAdapter):
+            # Capture the model used to propose this batch before attaching its results.
+            self._model_history = (trial_indices[0], pickle.dumps(
+                {"adapter": adapter, "trial_indices": trial_indices}, protocol=pickle.HIGHEST_PROTOCOL,
+            ))
 
         self._trial_counter = max(self._trial_counter, len(self.experiment.trials))
         strategy_metadata = self._get_generation_strategy_metadata()

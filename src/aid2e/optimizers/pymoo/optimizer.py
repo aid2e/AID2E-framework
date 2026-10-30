@@ -516,8 +516,13 @@ class PyMOOOptimizer(BaseOptimizer):
                 F[pos, j] = metrics[obj] * sign
 
         self._generation_infills.set("F", F)
+        self._generation_infills.set("aid2e_trial_index", [self._gen_pos_to_trial_idx[pos] for pos in range(n_gen)])
         self._algorithm.tell(infills=self._generation_infills)
         self.n_gen_completed += 1
+        for individual in self._algorithm.pop:
+            trial_index = individual.get("aid2e_trial_index")
+            if trial_index is not None:
+                self._trials[int(trial_index)].metadata.setdefault("population_generations", []).append(self.n_gen_completed)
 
         logger.debug(
             "Generation %d completed: %d individuals evaluated.",

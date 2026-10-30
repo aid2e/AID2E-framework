@@ -159,6 +159,8 @@ def test_optimize_saves_run_outputs(tmp_path, monkeypatch, optimization_config, 
     checkpoints = json.loads(outputs["optimizer_checkpoints"].read_text())["checkpoints"]
     collected = [cp["context"] for cp in checkpoints if cp["stage"] == "trial_collected"]
     assert len(collected) == 2 and all(cp["outputs"] for cp in collected)
+    assert "." in checkpoints[0]["timestamp"]
+    assert next(cp["context"]["duration"] for cp in checkpoints if cp["stage"] == "optimizer_update_complete") >= 0
 
 
 @pytest.mark.parametrize("policy,invalid", [

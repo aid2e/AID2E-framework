@@ -99,6 +99,7 @@ def test_single_objective_optimizer_defaults_to_ga_and_round_trips_state() -> No
     assert len(restored.get_trials()) == 8
     assert all(t.metadata["uncertainties"] == {"loss": 0.2} for t in restored.get_trials())
     assert restored.get_optimization_results()["trials"][0]["objective_errors"] == {"loss_err": 0.2}
+    assert [t.metadata for t in restored.get_trials()] == [t.metadata for t in optimizer.get_trials()]
 
 
 def test_multi_objective_optimizer_defaults_to_nsga2() -> None:
@@ -124,6 +125,7 @@ def test_multi_objective_optimizer_defaults_to_nsga2() -> None:
             parameters,
             {"f1": parameters["x"], "f2": parameters["y"]},
         )
+    assert all(t.metadata["population_generations"] == [1] for t in optimizer.get_trials())
     objective_values = optimizer._algorithm.pop.get("F").tolist()
     assert [float("inf"), float("inf")] in objective_values
     assert any(
@@ -136,6 +138,12 @@ def test_multi_objective_optimizer_defaults_to_nsga2() -> None:
     results = optimizer.get_optimization_results()
     assert results["n_trials"] == len(optimizer.get_trials()) == 8
     assert len(optimizer.get_pareto_front()) >= 1
+    survivors = [t for t in results["trials"] if 2 in t["metadata"].get("population_generations", [])]
+    assert len(survivors) == optimizer.config.pop_size
+    assert {tuple(t["design_parameters"][name] for name in ("x", "y")) for t in survivors} == {
+        tuple(point) for point in optimizer._algorithm.pop.get("X")
+    }
+    assert all(1 in optimizer.get_trials()[i].metadata["population_generations"] for i in range(4))
 
 
 def test_explicit_incompatible_algorithm_fails_on_optimizer_init() -> None:

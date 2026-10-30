@@ -48,7 +48,7 @@ def _make_epic_stack_payload() -> dict:
     }
 
 
-@pytest.mark.parametrize("summary,command_status,expected", [("0", 0, 0), ("2", 0, 9), ("", 0, 1), ("2", 1, 1)])
+@pytest.mark.parametrize("summary,command_status,expected", [("0", 0, 0), ("2", 0, 9), ("0 found", 0, 0), ("2 found", 0, 9), ("", 0, 1), ("2", 1, 1)])
 def test_epic_geo_layer(tmp_path, summary, command_status, expected):
     """EpicGeoLayer functionality"""
     payload  = _make_epic_stack_payload()
@@ -62,8 +62,8 @@ def test_epic_geo_layer(tmp_path, summary, command_status, expected):
         "checkOverlaps --tolerance 0.01 -c ./epic/my_epic.xml"
         " >& overlap_output.log || exit 1\ngrep"
     )
-    assert ":[[:space:]]*0[[:space:]]+found" in command
-    stub = f"checkOverlaps() {{ echo 'Number of illegal overlaps/extrusions: {summary} found'; return {command_status}; }}; "
+    assert ":[[:space:]]*0([[:space:]]|$)" in command
+    stub = f"checkOverlaps() {{ echo 'Number of illegal overlaps/extrusions : {summary}'; return {command_status}; }}; "
     assert subprocess.run(["bash", "-c", stub + command], cwd=tmp_path).returncode == expected
 
 
@@ -119,7 +119,7 @@ def test_epic_stack(tmp_path, monkeypatch):
         payload["rec_output"],
         payload["rec_args"]
     )
-    assert ":[[:space:]]*0[[:space:]]+found" in geocomm
+    assert ":[[:space:]]*0([[:space:]]|$)" in geocomm
     assert simcomm == "npsim --compactFile $DETECTOR_PATH/$DETECTOR_CONFIG.xml --numberOfEvents 100 --skipNEvents 10 --enableG4GPS -G --steeringFile steering_input.py -I hepmc_input.hepmc -I hepmc_tree_input.hepmc3.root --macroFile macro_input.mac --outputFile sim_output.edm4hep.root"
     assert reccomm == "eicrecon -Pnthreads=8 -Pjana:global_loglevel=debug -Ppodio:output_file=rec_output.edm4eic.root sim_output.edm4hep.root"
 

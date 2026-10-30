@@ -161,6 +161,7 @@ class TestJobLibSchedulerExecution:
         assert result.job_statuses[0].return_code == 1
         timing = result.job_statuses[0].metrics
         assert timing['started_at'] <= timing['finished_at']
+        assert all('.' in timing[key] for key in ('started_at', 'finished_at'))
         assert all(timing[key].endswith('+00:00') for key in ('started_at', 'finished_at'))
     
     def test_job_with_payload_environment(self):

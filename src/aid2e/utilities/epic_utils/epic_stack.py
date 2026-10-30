@@ -61,9 +61,9 @@ class EpicGeoLayer(StackLayer):
         checks = [
             f' >& {output} || exit 1',
             "grep -Eq 'Number of illegal overlaps/extrusions[[:space:]]*"
-            rf":[[:space:]]*[1-9][0-9]*[[:space:]]+found' {output} && exit 9",
+            rf":[[:space:]]*[1-9][0-9]*([[:space:]]|$)' {output} && exit 9",
             "grep -Eq 'Number of illegal overlaps/extrusions[[:space:]]*"
-            rf":[[:space:]]*0[[:space:]]+found' {output} || exit 1",
+            rf":[[:space:]]*0([[:space:]]|$)' {output} || exit 1",
         ]
         return '\n'.join(checks)
 

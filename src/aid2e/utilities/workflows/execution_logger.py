@@ -151,7 +151,7 @@ class ExecutionLogger:
         checkpoint = Checkpoint(
             stage=stage,
             status=status,
-            timestamp=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            timestamp=datetime.now(timezone.utc).isoformat(timespec="microseconds"),
             message=message,
             context=context or {},
             details=details

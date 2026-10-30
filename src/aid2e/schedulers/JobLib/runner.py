@@ -27,11 +27,11 @@ class JobLibScheduler(BaseScheduler):
 
     def _execute_job(self, job_def: Dict[str, Any], working_dir: Optional[str] = None) -> Dict[str, Any]:
         """Execute a job and record its start and end times."""
-        started_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        started_at = datetime.now(timezone.utc).isoformat(timespec="microseconds")
         result = self._run_job(job_def, working_dir)
         result["metrics"] = {
             "started_at": started_at,
-            "finished_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "finished_at": datetime.now(timezone.utc).isoformat(timespec="microseconds"),
         }
         return result
 

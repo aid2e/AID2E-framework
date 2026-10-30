@@ -14,7 +14,7 @@ aid2e optimize examples/dtlz2/configurations/dtlz2_ax_joblib.yml
 
 See [configurations](configurations/) for optimization settings, [python_api](python_api/) for direct API examples, and [schedulers](schedulers/) for Slurm and PanDA examples. The [configuration guide](../../docs/user-guide/configuration.md) explains the supported schema.
 
-[dtlz2_design.params](dtlz2_design.params) provides the shared unconstrained design with ten variables. [dtlz2_evaluator.py](dtlz2_evaluator.py) supports Python callables, direct `--x1` through `--x10` arguments, and `--design` JSON input. PanDA stage and dataset examples use a separate evaluator.
+[dtlz2_design.params](dtlz2_design.params) provides the shared unconstrained design with ten variables. [dtlz2_evaluator.py](dtlz2_evaluator.py) supports Python callables, direct `--x1` through `--x10` arguments, and `--design` JSON input. Inline evaluation uses the configured objective count; standalone evaluation uses `--n-objectives` (default: `2`). PanDA stage and dataset examples use a separate evaluator.
 
 ## Configuration examples
 

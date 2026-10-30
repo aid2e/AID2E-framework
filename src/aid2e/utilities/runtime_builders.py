@@ -7,6 +7,7 @@ import json
 import shlex
 from datetime import datetime, timezone
 from pathlib import Path
+from time import perf_counter
 from typing import Any, Dict, Optional, Union
 
 from aid2e.utilities.workflows.execution_logger import ExecutionLogger
@@ -329,7 +330,7 @@ def run_optimization(
     run_dir = output_root / run_name
     run_work_dir = Path(config.problem.work_location).resolve() / run_name
     run_dir.mkdir(parents=True, exist_ok=True)
-    run_started_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    run_started_at = datetime.now(timezone.utc).isoformat(timespec="microseconds")
     outputs = {
         "run_dir": run_dir,
         "summary": run_dir / "run.json",
@@ -375,7 +376,7 @@ def run_optimization(
             "run_id": run_name, "started_at": run_started_at, "config_path": str(config_path_obj),
             "workflow": select_workflow(config.workflows, workflow_name=workflow_name).name,
             "run_dir": str(run_dir), "work_dir": str(run_work_dir),
-            "updated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "status": status, "error": error,
+            "updated_at": datetime.now(timezone.utc).isoformat(timespec="microseconds"), "status": status, "error": error,
             "n_trials": len(trials),
             "completed_trials": sum(t.status == "completed" and t.index not in failed_trials for t in trials),
             "failed_trials": len(failed_trials),
@@ -389,7 +390,9 @@ def run_optimization(
         snapshot["problem"]["output_location"] = str(output_root)
         snapshot["optimizer"]["parameters"] = optimizer_config.model_dump(mode="python")
         # Parameter models currently serialize their type property incorrectly.
-        for group in snapshot["problem"]["design_config"]["design_parameters"].values():
+        design = snapshot["problem"]["design_config"]
+        groups = design["design_parameters"] or design["epic_design_parameters"]
+        for group in groups.values():
             for parameter in group["parameters"].values():
                 parameter["type"] = "range" if "bounds" in parameter else "choice"
         outputs["resolved_config"].write_text(
@@ -440,6 +443,7 @@ def run_optimization(
                 log_level,
                 logger,
             )
+            update_started = perf_counter()
             for trial_index, (design_point, raw_metrics, metadata) in batch_results.items():
                 metrics = {
                     name: float(raw_metrics[name])
@@ -460,6 +464,7 @@ def run_optimization(
                         "completed",
                         metadata=metadata,
                     )
+            logger.checkpoint("optimizer_update_complete", "success", "Optimizer updated", context={"batch_id": batch_id, "duration": perf_counter() - update_started})
             outputs.update(optimizer.save_optimization_results(
                 run_dir,
                 errors_by_trial=errors_by_trial,
@@ -560,6 +565,7 @@ def _run_trial_batch(
     trial_results = {}
     if not result.success and not failed_reasons:
         raise RuntimeError(result.error_message or "Optimizer trial batch failed")
+    update_started = perf_counter()
     for trial_index, reason in sorted(failed_reasons.items()):
         design_point = active_trials.pop(trial_index)
         failed_trials.add(trial_index)
@@ -575,6 +581,9 @@ def _run_trial_batch(
                 parameters=design_point,
                 reason=reason,
             )
+
+    if failed_reasons:
+        logger.checkpoint("optimizer_update_complete", "success", "Failed trials updated", context={"batch_id": batch_id, "duration": perf_counter() - update_started})
 
     missing_results = sorted(set(active_trials) - set(completed_payloads))
     if missing_results:

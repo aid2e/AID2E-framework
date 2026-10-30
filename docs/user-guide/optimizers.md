@@ -98,6 +98,7 @@ Supported fields are:
 - `batch_size`
 - `seed`
 - `save_snapshot`: save Ax snapshots after each completed batch
+- `save_model_history`: save model history for each Bayesian batch (default: `false`)
 
 `generator_kwargs` accepts supported class names as strings, including model and acquisition choices. `BOTORCH_MODULAR` uses Ax defaults unless those choices are supplied explicitly; defaults can depend on the problem and Ax version. The retired `surrogate_model` and `acquisition_function` fields are rejected; use `generator_kwargs` instead.
 
@@ -111,7 +112,7 @@ Each objective follows its direction from `problem.objectives`. For multi-object
 
 ## PyMOO Backend
 
-PyMOO provides evolutionary single- and multi-objective optimization through an external-evaluation ask/tell loop. AID2E schedules each generated population and returns the completed objective values to PyMOO as one generation.
+PyMOO provides evolutionary single- and multi-objective optimization through an external-evaluation ask/tell loop. AID2E schedules each generated population and returns the completed objective values to PyMOO as one generation. Trial metadata in `optimization_results.json` records `population_generations`: population membership after selection, including failed trials. 
 
 ### Configuration
 

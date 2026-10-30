@@ -1,6 +1,7 @@
 """Ax-based Bayesian optimizer for AID2E framework."""
 
 from copy import deepcopy
+import pickle
 from typing import List, Dict, Any, Optional, TYPE_CHECKING, Union
 import logging, sys
 import numpy as np
@@ -12,6 +13,7 @@ logger = logging.getLogger(__name__)
 try:
     import ax
     from ax.core.experiment import Experiment
+    from ax.core.trial_status import TrialStatus
     from ax.core.search_space import SearchSpace as AxSearchSpace
     from ax.core.parameter import ChoiceParameter as AxChoiceParameter
     from ax.core.parameter import ParameterType, RangeParameter as AxRangeParameter
@@ -42,6 +44,7 @@ try:
         GeneratorSpec = None
         AX_NODE_STRATEGY_AVAILABLE = False
     from ax.adapter.registry import Generators
+    from ax.adapter.torch import TorchAdapter
     AX_AVAILABLE = True
 except ImportError as e:
     AX_AVAILABLE = False
@@ -169,6 +172,7 @@ class AxOptimizer(BaseOptimizer):
         )
 
         self.config = config
+        self._model_history = None
         # self.objective_names and self.n_objectives are inherited from BaseOptimizer
         
         # TODO Version check removed for now, re-enable when ready
@@ -243,6 +247,23 @@ class AxOptimizer(BaseOptimizer):
 
         if self.config.save_snapshot:
             outputs["ax_client_snapshot"] = self.save_ax_client_snapshot(output_path)
+        adapter = self.generation_strategy.adapter
+        if isinstance(adapter, TorchAdapter):
+            model_path = Path(output_path) / "ax_model.pkl"
+            temporary = model_path.with_suffix(".pkl.tmp")
+            with temporary.open("wb") as handle:
+                pickle.dump(adapter, handle, protocol=pickle.HIGHEST_PROTOCOL)
+            temporary.replace(model_path)
+            outputs["ax_model"] = model_path
+        if self._model_history is not None:
+            first_trial, snapshot = self._model_history
+            history_path = Path(output_path) / "ax_models" / f"generation_{first_trial}.pkl"
+            history_path.parent.mkdir(parents=True, exist_ok=True)
+            temporary = history_path.with_suffix(".pkl.tmp")
+            temporary.write_bytes(snapshot)
+            temporary.replace(history_path)
+            outputs["ax_model_history"] = history_path
+            self._model_history = None
         return outputs
     
     def _warm_start_from_ax_snapshot(self, warm_start_path: str) -> None:
@@ -706,6 +727,8 @@ class AxOptimizer(BaseOptimizer):
                     threshold=num_trials,
                     transition_to=transition_to,
                     use_all_trials_in_exp=True,
+                    only_in_statuses=[TrialStatus.COMPLETED],
+                    count_only_trials_with_data=True,
                 )
             ],
         )
@@ -785,8 +808,9 @@ class AxOptimizer(BaseOptimizer):
             single_run = GeneratorRun(
                 arms=[arm],
                 weights=[weight],
-                fit_time=getattr(generator_run, "fit_time", None),
-                gen_time=getattr(generator_run, "gen_time", None),
+                # Record generation timing once when splitting a batch.
+                fit_time=getattr(generator_run, "fit_time", None) if index == 0 else None,
+                gen_time=getattr(generator_run, "gen_time", None) if index == 0 else None,
                 generation_node_name=getattr(generator_run, "_generation_node_name", None),
             )
             for attr_name in ("_model_key", "_generation_node_name"):
@@ -879,15 +903,29 @@ class AxOptimizer(BaseOptimizer):
             keep using single-trial ``update_with_results`` semantics.
             
             The GenerationStrategy still properly tracks progress: after
-            n_initial_samples individual trials complete (regardless of how
-            they were generated), it automatically switches from Sobol to BO.
+            n_initial_samples Sobol or uniform trials complete with observations
+            (including penalties), it automatically switches to BO.
         """
 
         candidates = []
+        trial_indices = []
         model_keys: List[str] = []
+
+        from ax.core.data import Data
+
+        data = self.experiment.lookup_data().df.copy()
+        penalties = {t.index for t in self.get_trials() if (t.metadata or {}).get("penalized")}
+        for name, rows in data.groupby("metric_name"):
+            penalized = rows["trial_index"].isin(penalties)
+            known = rows.loc[~penalized, "sem"].notna()
+            if known.any() and not known.all():
+                raise ValueError(f"Objective '{name}' requires standard errors for all real evaluations or none.")
+            # Synthetic penalties are fixed only when real observation errors are supplied.
+            data.loc[rows.index[penalized], "sem"] = 0.0 if known.any() else np.nan
 
         generator_run_result = self.generation_strategy.gen(
             experiment=self.experiment,
+            data=Data(df=data),
             n=n_candidates,
         )
         strategy_metadata = self._get_generation_strategy_metadata()
@@ -912,10 +950,22 @@ class AxOptimizer(BaseOptimizer):
                 metadata={
                     "ax_model_key": model_key,
                     **strategy_metadata,
+                    **{key: value for key, value in (
+                        ("ax_fit_duration", generator_run.fit_time),
+                        ("ax_generation_duration", generator_run.gen_time),
+                    ) if value is not None},
                 },
             )
             candidates.append(candidate_params)
             model_keys.append(model_key)
+            trial_indices.append(trial.index)
+
+        adapter = self.generation_strategy.adapter
+        if self.config.save_model_history and trial_indices and isinstance(adapter, TorchAdapter):
+            # Capture the model used to propose this batch before attaching its results.
+            self._model_history = (trial_indices[0], pickle.dumps(
+                {"adapter": adapter, "trial_indices": trial_indices}, protocol=pickle.HIGHEST_PROTOCOL,
+            ))
 
         self._trial_counter = max(self._trial_counter, len(self.experiment.trials))
         strategy_metadata = self._get_generation_strategy_metadata()
@@ -938,7 +988,9 @@ class AxOptimizer(BaseOptimizer):
         self,
         trial_index: int,
         parameters: Dict[str, Any],
-        metrics: Dict[str, float]
+        metrics: Dict[str, float],
+        *,
+        uncertainties: Optional[Dict[str, float]] = None,
     ) -> None:
         """Update optimizer with evaluation results from a trial.
         
@@ -946,6 +998,7 @@ class AxOptimizer(BaseOptimizer):
             trial_index: Unique identifier for the trial.
             parameters: Parameter values that were evaluated.
             metrics: Objective values obtained from evaluation.
+            uncertainties: Standard errors by objective name; omitted errors are unknown.
         
         Examples:
             >>> optimizer.update_with_results(
@@ -958,14 +1011,8 @@ class AxOptimizer(BaseOptimizer):
             Completes the trial in Ax experiment and attaches data.
             This allows the surrogate model to learn from the evaluation.
         """
-        # Validate metrics
-        for obj_name in self.objective_names:
-            if obj_name not in metrics:
-                raise ValueError(
-                    f"Missing objective '{obj_name}' in metrics. "
-                    f"Expected: {self.objective_names}, got: {list(metrics.keys())}"
-                )
-        
+        metrics, uncertainties = self.validate_results(metrics, uncertainties)
+
         # Get the trial from experiment
         if trial_index < len(self.experiment.trials):
             trial = self.experiment.trials[trial_index]
@@ -986,7 +1033,7 @@ class AxOptimizer(BaseOptimizer):
                         'metric_signature': metric_name,
                         'arm_name': trial.arm.name if trial.arm else f"arm_{trial_index}",
                         'mean': float(metric_value),
-                        'sem': 0.0  # Standard error of mean (0 for deterministic)
+                        'sem': uncertainties.get(metric_name, np.nan),
                     })
             
             if data_rows:
@@ -1000,6 +1047,7 @@ class AxOptimizer(BaseOptimizer):
             status="completed",
             parameters=parameters,
             metrics={k: float(v) for k, v in metrics.items()},
+            metadata={"uncertainties": uncertainties},
         )
         
         logger.debug(
@@ -1148,7 +1196,8 @@ class AxOptimizer(BaseOptimizer):
                 self.update_with_results(
                     trial_index=trial.index,
                     parameters=trial.parameters,
-                    metrics=trial.metrics
+                    metrics=trial.metrics,
+                    uncertainties=(trial.metadata or {}).get("uncertainties"),
                 )
         
         self._trial_counter = state.get("trial_counter", len(self._trials))

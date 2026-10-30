@@ -32,8 +32,10 @@ problem:
     eic_recon_install: "./work/eic-software/share/epic/local"
 
   evaluation_config:
-    npart: 500
-    bootstrap_samples: 50
+    npart: 2000 # Total events per scan point and particle
+    events_per_job: 1000
+    simulation_seed: 1
+    bootstrap_samples: 2000
     nbootstraps: 50
     particles: ["pi+", "kaon+"]
     analysis_executable: "script/dRICHAna_bootstrap"
@@ -134,6 +136,7 @@ workflows:
                         - "{{geometry_dir}}/${DETECTOR_CONFIG}.xml"
                         - "-G"
                         - "-N {{payload[npart]}}"
+                        - "--random.seed {{payload[seed]}}"
                         - "--gun.etaMax {{payload[eta_max]}}"
                         - "--gun.etaMin {{payload[eta_min]}}"
                         - "--gun.phiMin 0"

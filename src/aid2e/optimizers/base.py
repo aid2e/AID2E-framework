@@ -22,6 +22,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 import json
 import logging
 from pathlib import Path
+from math import isfinite
 
 logger = logging.getLogger(__name__)
 
@@ -294,6 +295,7 @@ def compute_pareto_front(
     completed = [
         t for t in trials
         if t is not None and t.status == "completed" and t.metrics
+        and not (t.metadata or {}).get("penalized", False)
     ]
     if not completed:
         return []
@@ -460,7 +462,9 @@ class BaseOptimizer(ABC):
         self,
         trial_index: int,
         parameters: Dict[str, Any],
-        metrics: Dict[str, float]
+        metrics: Dict[str, float],
+        *,
+        uncertainties: Optional[Dict[str, float]] = None,
     ) -> None:
         """Update optimizer with evaluation results from a trial.
         
@@ -469,6 +473,7 @@ class BaseOptimizer(ABC):
             parameters: Parameter values that were evaluated.
             metrics: Objective values obtained from evaluation.
                 Keys are metric names, values are metric values.
+            uncertainties: Optional standard errors by objective name.
         
         Raises:
             ValueError: If metrics don't match expected objectives.
@@ -485,6 +490,27 @@ class BaseOptimizer(ABC):
             suggest better candidates in subsequent calls to suggest_candidates().
         """
         pass
+
+    def validate_results(self, metrics: Dict[str, float], uncertainties: Optional[Dict[str, float]] = None) -> Tuple[Dict[str, float], Dict[str, float]]:
+        """Return finite objective values and supplied nonnegative standard errors."""
+        metrics, uncertainties = dict(metrics), dict(uncertainties or {})
+        for name in self.objective_names:
+            if name not in metrics:
+                raise ValueError(f"Missing objective: {name}")
+        for name in uncertainties:
+            if name not in self.objective_names:
+                raise ValueError(f"Unknown objective uncertainty: {name}")
+        for values, is_error in ((metrics, False), (uncertainties, True)):
+            for name, value in values.items():
+                key = f"{name}_err" if is_error else name
+                try:
+                    value = float(value)
+                except (TypeError, ValueError, OverflowError) as error:
+                    raise ValueError(f"Invalid numeric value for {key}") from error
+                if not isfinite(value) or (is_error and value < 0):
+                    raise ValueError(f"Invalid value for {key}: {value}")
+                values[name] = value
+        return metrics, uncertainties
 
     def get_trials(self) -> List[Trial]:
         """Return all recorded trials (pending, completed, and failed).
@@ -581,6 +607,7 @@ class BaseOptimizer(ABC):
         errors_by_trial = errors_by_trial or {}
         trials_payload: List[Dict[str, Any]] = []
         for trial in self.get_trials():
+            errors = {f"{name}_err": error for name, error in (trial.metadata or {}).get("uncertainties", {}).items()}
             trials_payload.append(
                 {
                     "trial_index": trial.index,
@@ -591,7 +618,7 @@ class BaseOptimizer(ABC):
                     ),
                     "design_parameters": dict(trial.parameters or {}),
                     "objectives": dict(trial.metrics or {}),
-                    "objective_errors": dict(errors_by_trial.get(trial.index, {})),
+                    "objective_errors": dict(errors_by_trial.get(trial.index, errors)),
                     "metadata": dict(trial.metadata or {}),
                 }
             )
@@ -627,7 +654,7 @@ class BaseOptimizer(ABC):
         with results_path.open("w", encoding="utf-8") as handle:
             json.dump(payload, handle, indent=2, sort_keys=True)
 
-        errors_by_trial = errors_by_trial or {}
+        errors_by_trial = {trial["trial_index"]: trial["objective_errors"] for trial in payload["trials"]}
         pareto_payload = [
             {
                 "trial_index": trial.index,

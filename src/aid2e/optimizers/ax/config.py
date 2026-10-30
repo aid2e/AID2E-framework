@@ -133,6 +133,11 @@ class AxOptimizerConfig(BaseModel):
         ),
     )
 
+    save_model_history: bool = Field(
+        default=False,
+        description="Save the fitted model and acquisition state for each Bayesian batch.",
+    )
+
     @model_validator(mode="before")
     @classmethod
     def reject_legacy_fields(cls, raw_value: Any) -> Any:

@@ -18,6 +18,7 @@ optimizer:
   parameters:
     initialization_strategy: "sobol"
     generator: "BOTORCH_MODULAR"
+    warm_start_path: null
     n_initial_samples: 20
     n_iterations: 100
     batch_size: 4

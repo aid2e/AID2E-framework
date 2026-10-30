@@ -39,7 +39,7 @@ flowchart TB
     G["geo"]
     G --> S1["sim + rec 1"]
     G --> S2["sim + rec 2"]
-    G --> SN["... 8 jobs"]
+    G --> SN["... 16 jobs"]
 
     S1 --> SF["sim + rec complete"]
     S2 --> SF

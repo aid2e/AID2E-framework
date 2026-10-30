@@ -2,6 +2,8 @@
 
 [dtlz2_ax_joblib.yml](configurations/dtlz2_ax_joblib.yml) configures Ax optimization with 10 design variables, 2 minimized objectives, and JobLib execution.
 
+The Ax/PyMOO JobLib and Ax Slurm configs use `problem.output_location` and `problem.work_location`; set absolute paths in the YAML. The CLI log is saved as `run.log` inside the run output directory. Slurm trial stdout/stderr are saved under `trials/trial_<index>/log/`; submission scripts and Python handoff files are under the run work directory. 
+
 From the repository root:
 
 ```bash
@@ -12,7 +14,7 @@ aid2e optimize examples/dtlz2/configurations/dtlz2_ax_joblib.yml
 
 See [configurations](configurations/) for optimization settings, [python_api](python_api/) for direct API examples, and [schedulers](schedulers/) for Slurm and PanDA examples. The [configuration guide](../../docs/user-guide/configuration.md) explains the supported schema.
 
-[dtlz2_design.params](dtlz2_design.params) provides the shared unconstrained design with ten variables. [dtlz2_evaluator.py](dtlz2_evaluator.py) supports Python callables, direct `--x1` through `--x10` arguments, and `--design` JSON input. PanDA stage and dataset examples use a separate evaluator.
+[dtlz2_design.params](dtlz2_design.params) provides the shared unconstrained design with ten variables. [dtlz2_evaluator.py](dtlz2_evaluator.py) supports Python callables, direct `--x1` through `--x10` arguments, and `--design` JSON input. Inline evaluation uses the configured objective count; standalone evaluation uses `--n-objectives` (default: `2`). PanDA stage and dataset examples use a separate evaluator.
 
 ## Configuration examples
 
@@ -20,7 +22,7 @@ See [configurations](configurations/) for optimization settings, [python_api](py
 | --- | --- |
 | [dtlz2_ax_joblib.yml](configurations/dtlz2_ax_joblib.yml) | Bayesian optimization with local trial batches. |
 | [dtlz2_ax_joblib.json](configurations/dtlz2_ax_joblib.json) | The same configuration in JSON. |
-| [dtlz2_ax_slurm.yml](configurations/dtlz2_ax_slurm.yml) | Slurm submission and command-based evaluation. |
+| [dtlz2_ax_slurm.yml](configurations/dtlz2_ax_slurm.yml) | Slurm trial submission with inline evaluation. |
 | [dtlz2_ax_panda.yml](configurations/dtlz2_ax_panda.yml) | PanDA/iDDS callable submission. |
 | [dtlz2_ax_constraints.yml](configurations/dtlz2_ax_constraints.yml) | Inline design parameters and linear Ax constraints. |
 | [dtlz2_objective_collection.yml](configurations/dtlz2_objective_collection.yml) | Extract both objectives from one script execution. |

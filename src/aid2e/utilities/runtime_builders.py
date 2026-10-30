@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 import importlib
+import json
 import shlex
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
+from time import perf_counter
 from typing import Any, Dict, Optional, Union
 
+from aid2e.utilities.workflows.execution_logger import ExecutionLogger
+from aid2e.utilities.workflows.execution_utils import InvalidDesignError
 from aid2e.utilities.configurations.full_config import FullConfig
 from aid2e.utilities.configurations.optimizer_config import OptimizerConfiguration
 from aid2e.utilities.configurations.problem_config import ProblemConfiguration
@@ -294,7 +298,7 @@ def run_trial_workflow(
             for job in stage.jobs:
                 job.payload = {**job.payload, **trial_payload}
 
-    return build_workflow_executor_from_config(
+    executor = build_workflow_executor_from_config(
         workflow,
         problem_cfg=config.problem,
         scheduler_cfg=config.scheduler,
@@ -303,7 +307,11 @@ def run_trial_workflow(
         trial_metadata=trial_metadata,
         output_dir=str(output_dir),
         work_dir=str(work_dir),
-    ).execute(design_point)
+    )
+    try:
+        return executor.execute(design_point)
+    except InvalidDesignError as error:
+        return {"invalid_design": True, "reason": str(error)}
 
 
 def run_optimization(
@@ -322,8 +330,11 @@ def run_optimization(
     run_dir = output_root / run_name
     run_work_dir = Path(config.problem.work_location).resolve() / run_name
     run_dir.mkdir(parents=True, exist_ok=True)
+    run_started_at = datetime.now(timezone.utc).isoformat(timespec="microseconds")
     outputs = {
         "run_dir": run_dir,
+        "summary": run_dir / "run.json",
+        "resolved_config": run_dir / "resolved_config.json",
         "optimization_results": run_dir / "optimization_results.json",
         "pareto_front": run_dir / "pareto_front.json",
     }
@@ -354,9 +365,41 @@ def run_optimization(
     if scheduler is None:
         raise ValueError("Optimization execution requires a scheduler configuration")
 
+    logger = ExecutionLogger("optimizer", str(run_dir), log_level=log_level, enable_file_logging=False)
+    outputs["optimizer_checkpoints"] = logger.checkpoint_file
     completed = 0
     batch_id = 0
+
+    def save_summary(status: str, error: Optional[str] = None) -> None:
+        trials = optimizer.get_trials()
+        summary = {
+            "run_id": run_name, "started_at": run_started_at, "config_path": str(config_path_obj),
+            "workflow": select_workflow(config.workflows, workflow_name=workflow_name).name,
+            "run_dir": str(run_dir), "work_dir": str(run_work_dir),
+            "updated_at": datetime.now(timezone.utc).isoformat(timespec="microseconds"), "status": status, "error": error,
+            "n_trials": len(trials),
+            "completed_trials": sum(t.status == "completed" and t.index not in failed_trials for t in trials),
+            "failed_trials": len(failed_trials),
+            "penalized_trials": sum(bool((t.metadata or {}).get("penalized")) for t in trials),
+            "pending_trials": sum(t.index not in failed_trials and t.status not in {"completed", "failed", "aborted", "cancelled"} for t in trials),
+        }
+        outputs["summary"].write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
+
     try:
+        snapshot = config.model_dump(mode="python", serialize_as_any=True)
+        snapshot["problem"]["output_location"] = str(output_root)
+        snapshot["optimizer"]["parameters"] = optimizer_config.model_dump(mode="python")
+        # Parameter models currently serialize their type property incorrectly.
+        design = snapshot["problem"]["design_config"]
+        groups = design["design_parameters"] or design["epic_design_parameters"]
+        for group in groups.values():
+            for parameter in group["parameters"].values():
+                parameter["type"] = "range" if "bounds" in parameter else "choice"
+        outputs["resolved_config"].write_text(
+            json.dumps(snapshot, indent=2, default=lambda value: f"{value.__module__}:{value.__qualname__}" if callable(value) else str(value)) + "\n",
+            encoding="utf-8",
+        )
+        save_summary("running")
         while completed < n_iterations:
             batch_id += 1
             n_new = (
@@ -365,7 +408,9 @@ def run_optimization(
                 else 1
             )
             existing_trial_indices = {trial.index for trial in optimizer.get_trials()}
+            logger.checkpoint("candidate_generation_start", "start", "Generating candidates", context={"batch_id": batch_id})
             design_points = optimizer.suggest_candidates(n_candidates=n_new)
+            logger.checkpoint("candidate_generation_complete", "success", "Candidates generated", context={"batch_id": batch_id})
             if not design_points:
                 raise RuntimeError("Optimizer did not suggest any candidates")
             new_trials = [
@@ -393,11 +438,12 @@ def run_optimization(
                 run_work_dir,
                 workflow_name,
                 failed_trials,
-                max_failed_trials,
                 trial_failure_policy,
                 penalty_objectives,
                 log_level,
+                logger,
             )
+            update_started = perf_counter()
             for trial_index, (design_point, raw_metrics, metadata) in batch_results.items():
                 metrics = {
                     name: float(raw_metrics[name])
@@ -408,16 +454,35 @@ def run_optimization(
                     for name in optimizer.objective_names
                     if f"{name}_err" in raw_metrics
                 }
-                optimizer.update_with_results(trial_index, design_point, metrics)
+                optimizer.update_with_results(
+                    trial_index, design_point, metrics,
+                    uncertainties={name.removesuffix("_err"): error for name, error in errors_by_trial[trial_index].items()},
+                )
                 if metadata:
                     optimizer.set_trial_status(
                         trial_index,
                         "completed",
                         metadata=metadata,
                     )
+            logger.checkpoint("optimizer_update_complete", "success", "Optimizer updated", context={"batch_id": batch_id, "duration": perf_counter() - update_started})
             outputs.update(optimizer.save_optimization_results(
-                    run_dir,
-                    errors_by_trial=errors_by_trial))
+                run_dir,
+                errors_by_trial=errors_by_trial,
+            ))
+            save_summary("running")
+            if len(failed_trials) > max_failed_trials:
+                raise RuntimeError(
+                    f"Too many failed trials: {len(failed_trials)} failed, "
+                    f"max_failed_trials={max_failed_trials}"
+                )
+        save_summary("completed")
+    except BaseException as error:
+        try:
+            outputs.update(optimizer.save_optimization_results(run_dir))
+        except Exception as save_error:
+            logger.log_error(f"Could not save optimization results: {save_error}")
+        save_summary("interrupted" if isinstance(error, (KeyboardInterrupt, SystemExit)) else "failed", str(error))
+        raise
     finally:
         scheduler.shutdown()
 
@@ -434,10 +499,10 @@ def _run_trial_batch(
     run_work_dir: Path,
     workflow_name: Optional[str],
     failed_trials: set[int],
-    max_failed_trials: int,
     trial_failure_policy: str,
     penalty_objectives: Dict[str, float],
     log_level: str,
+    logger: ExecutionLogger,
 ) -> Dict[int, tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any]]]:
     """Submit one optimizer batch through the configured scheduler."""
     active_trials = {
@@ -448,6 +513,7 @@ def _run_trial_batch(
             "job_id": str(trial_index),
             "name": f"trial_{trial_index}",
             "function": run_trial_workflow,
+            "payload": {"output_dir": str(run_dir / "trials" / f"trial_{trial_index}" / "log")},
             "params": {
                 "config_path": str(config_path),
                 "run_dir": str(run_dir),
@@ -461,50 +527,65 @@ def _run_trial_batch(
         for trial_index, design_point in assignments
     ]
 
+    logger.checkpoint("batch_execution_start", "start", "Executing trial batch", context={"batch_id": batch_id})
     result = scheduler.run_stage(
         f"optimizer_batch_{batch_id}_trials",
         job_definitions,
         parallelism_policy={"max_concurrent": len(assignments)},
         working_dir=str(run_work_dir),
     )
-    trial_results = {}
-    if not result.success:
-        failed_statuses = {
-            int(status.job_id): status
-            for status in result.job_statuses
-            if status.status != "completed" and str(status.job_id).isdigit()
-        }
-        if not failed_statuses:
-            raise RuntimeError(result.error_message or "Optimizer trial batch failed")
-
-        for trial_index in sorted(failed_statuses.keys() & active_trials.keys()):
-            design_point = active_trials.pop(trial_index)
-            reason = failed_statuses[trial_index].stderr or result.error_message
-            failed_trials.add(trial_index)
-            if trial_failure_policy == "penalty":
-                trial_results[trial_index] = (
-                    design_point,
-                    penalty_objectives,
-                    {"penalized": True, "reason": reason},
-                )
+    logger.checkpoint(
+        "batch_execution_complete", "success" if result.success else "error", "Trial batch returned",
+        context={"batch_id": batch_id},
+    )
+    failed_reasons = {}
+    completed_payloads = {}
+    invalid_designs = set()
+    for status in result.job_statuses:
+        if str(status.job_id).isdigit() and int(status.job_id) in active_trials:
+            trial_index = int(status.job_id)
+            if status.status == "completed":
+                try:
+                    completed_payloads[trial_index] = _completed_status_payload(status.outputs or {}, optimizer)
+                except ValueError as error:
+                    failed_reasons[trial_index] = str(error)
+                    if isinstance(error, InvalidDesignError):
+                        invalid_designs.add(trial_index)
             else:
-                optimizer.mark_trial_failed(
-                    trial_index,
-                    parameters=design_point,
-                    reason=reason,
-                )
-
-        if len(failed_trials) > max_failed_trials:
-            raise RuntimeError(
-                f"Too many failed trials: {len(failed_trials)} failed, "
-                f"max_failed_trials={max_failed_trials}"
+                failed_reasons[trial_index] = status.stderr or result.error_message
+            failed = trial_index in failed_reasons
+            logger.checkpoint(
+                "trial_collected", "error" if failed else "success", "Trial result collected",
+                context={
+                    "batch_id": batch_id, "trial_index": trial_index, "status": "failed" if failed else status.status, "metrics": status.metrics,
+                    "parameters": active_trials[trial_index], "outputs": status.outputs, "return_code": status.return_code,
+                    "error": failed_reasons.get(trial_index),
+                },
             )
-    completed_statuses = {
-        int(status.job_id): status
-        for status in result.job_statuses
-        if status.status == "completed" and str(status.job_id).isdigit()
-    }
-    missing_results = sorted(set(active_trials) - set(completed_statuses))
+    trial_results = {}
+    if not result.success and not failed_reasons:
+        raise RuntimeError(result.error_message or "Optimizer trial batch failed")
+    update_started = perf_counter()
+    for trial_index, reason in sorted(failed_reasons.items()):
+        design_point = active_trials.pop(trial_index)
+        failed_trials.add(trial_index)
+        if trial_failure_policy == "penalty" and trial_index in invalid_designs:
+            trial_results[trial_index] = (
+                design_point,
+                penalty_objectives,
+                {"penalized": True, "reason": reason},
+            )
+        else:
+            optimizer.mark_trial_failed(
+                trial_index,
+                parameters=design_point,
+                reason=reason,
+            )
+
+    if failed_reasons:
+        logger.checkpoint("optimizer_update_complete", "success", "Failed trials updated", context={"batch_id": batch_id, "duration": perf_counter() - update_started})
+
+    missing_results = sorted(set(active_trials) - set(completed_payloads))
     if missing_results:
         raise RuntimeError(
             "Completed optimizer batch missing trial results: "
@@ -513,10 +594,7 @@ def _run_trial_batch(
     trial_results.update({
         trial_index: (
             design_point,
-            _completed_status_payload(
-                completed_statuses[trial_index].outputs or {},
-                optimizer.objective_names,
-            ),
+            completed_payloads[trial_index],
             {},
         )
         for trial_index, design_point in active_trials.items()
@@ -526,13 +604,21 @@ def _run_trial_batch(
 
 def _completed_status_payload(
     outputs: Dict[str, Any],
-    objective_names: list[str],
+    optimizer,
 ) -> Dict[str, Any]:
     """Return the objective payload from scheduler job outputs."""
     if "result" in outputs:
-        return outputs["result"]
-    if "objectives" in outputs:
-        return outputs["objectives"]
-    if all(name in outputs for name in objective_names):
-        return outputs
-    raise RuntimeError("Completed optimizer trial did not return objective outputs")
+        payload = outputs["result"]
+    elif "objectives" in outputs:
+        payload = outputs["objectives"]
+    else:
+        payload = outputs
+    if not isinstance(payload, dict):
+        raise ValueError("Completed optimizer trial did not return objective outputs")
+    if payload.get("invalid_design") is True:
+        raise InvalidDesignError(payload.get("reason") or "Invalid design")
+    optimizer.validate_results(
+        {name: payload[name] for name in optimizer.objective_names if name in payload},
+        {name: payload[f"{name}_err"] for name in optimizer.objective_names if f"{name}_err" in payload},
+    )
+    return payload

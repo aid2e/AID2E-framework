@@ -45,6 +45,7 @@ ax = ["ax-platform>=1.0.0; python_version >= '3.11'"]
 mobo = ["scikit-learn>=0.24"]
 moea = ["pymoo>=0.6"]
 joblib = ["joblib>=1.0"]
+kb = ["agenticwf-kb-client>=0.0.1"]
 panda = [
     "wheel",
     "idds-common>=2.5.5",

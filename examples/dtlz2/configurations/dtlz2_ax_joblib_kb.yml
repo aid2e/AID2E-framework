@@ -1,0 +1,66 @@
+# Ax with JobLib, warm-started from an AgenticWF knowledge base.
+#
+# Each run uploads its trials to the KB; the next run starts from the best
+# points of similar past runs. Needs agenticwf-kb-client (pip install 'aid2e[kb]')
+# and a records KB with the hpo plugin. Set the KB connection and sign in:
+#   export AGENTICWF_KB_URL=https://aipanda107.cern.ch/app/kb
+#   agenticwf login            # or AGENTICWF_TOKEN=pat_... (see the README)
+# and replace "aid2e:aid2e-dtlz2" with your records KB's "ref" (<owner>:<slug>) or "id".
+
+problem:
+  name: "DTLZ2 Ax with JobLib and KB warm start"
+  problem_type: "DTLZ2"
+  output_location: "./output/ax_joblib_kb"
+  work_location: "./work/ax_joblib_kb"
+
+  design_parameters_file: "../dtlz2_design.params"
+
+  objectives:
+    - name: "f1"
+      direction: "minimize"
+    - name: "f2"
+      direction: "minimize"
+
+optimizer:
+  name: "ax"
+  type: "bayesian"
+  parameters:
+    initialization_strategy: "sobol"
+    generator: "BOTORCH_MODULAR"
+    objective_thresholds:
+      f1: 1.0
+      f2: 1.0
+    n_initial_samples: 8
+    n_iterations: 24
+    batch_size: 4
+    seed: 42
+    kb_warm_start:
+      knowledge_base_ids: ["aid2e:aid2e-dtlz2"]
+      description: "DTLZ2, ten variables, two objectives, Ax BoTorch"
+      objective: "f1"       # past runs are ranked on f1
+      n: 4                  # 4 KB points, then 4 Sobol points
+      upload_kb_id: "aid2e:aid2e-dtlz2"
+      metadata:
+        problem: "DTLZ2"
+
+scheduler:
+  runner_type: "JobLibRunner"
+  parameters:
+    n_jobs: 4
+    backend: "threading"
+
+workflows:
+  workflows:
+    - name: "dtlz2_eval"
+      description: "DTLZ2 objective evaluation"
+      branches:
+        - name: "main"
+          stages:
+            - name: "evaluate"
+              objective_plan:
+                steps:
+                  stages:
+                    - name: "evaluate"
+                      inline:
+                        entrypoint: "examples.dtlz2.dtlz2_evaluator:objective_payload"
+                      produces_objective: true

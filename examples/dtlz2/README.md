@@ -28,6 +28,30 @@ See [configurations](configurations/) for optimization settings, [python_api](py
 | [dtlz2_pymoo_joblib.yml](configurations/dtlz2_pymoo_joblib.yml) | NSGA-II population and offspring evaluation. |
 | [dtlz2_scheduler_cascade.yml](configurations/dtlz2_scheduler_cascade.yml) | Global, workflow, branch, and stage scheduler precedence. |
 | [dtlz2_sobol_joblib.yml](configurations/dtlz2_sobol_joblib.yml) | Sobol sampling without Bayesian generation. |
+| [dtlz2_ax_joblib_kb.yml](configurations/dtlz2_ax_joblib_kb.yml) | Warm start from, and upload to, an AgenticWF knowledge base. |
+
+## KB warm start
+
+[dtlz2_ax_joblib_kb.yml](configurations/dtlz2_ax_joblib_kb.yml) takes its first four initial samples from the best trials of similar past runs stored in an AgenticWF knowledge base, and uploads every run back to it. The first run starts cold (the KB has no history yet), and later runs start from the points it stored.
+
+```bash
+python3 -m venv .venv
+.venv/bin/pip install -e . -e ../agenticwf-kb/client -e ../AgenticWF-auth/cli   # or: pip install -e '.[kb]'
+source setup_aid2e.sh            # activates .venv, puts the repository root on PYTHONPATH
+
+# The KB behind the AgenticWF server; the clients discover the sign-in settings from it
+export AGENTICWF_KB_URL=https://aipanda107.cern.ch/app/kb
+agenticwf login                  # or, for scripts: export AGENTICWF_TOKEN=pat_...
+# (a standalone KB instead: AGENTICWF_KB_URL=http://127.0.0.1:8766/kb and its AGENTICWF_KB_TOKEN)
+
+agenticwf kb list
+agenticwf kb call POST /knowledge-bases --data '{"name": "aid2e-dtlz2", "type": "records"}'
+
+aid2e optimize examples/dtlz2/configurations/dtlz2_ax_joblib_kb.yml   # cold start, uploads the run
+aid2e optimize examples/dtlz2/configurations/dtlz2_ax_joblib_kb.yml   # warm start from the first run
+```
+
+Warm-started trials carry `ax_model_key: kb_warm_start` and their source (`kb_source`) in `optimization_results.json`. The KB needs the `hpo` records plugin (`[records] plugins = hpo` in kb.cfg).
 
 The Ax, PyMOO, and Sobol JobLib baselines share the same unconstrained design and 100-evaluation budget. Ax uses 20 initial Sobol samples followed by 80 Bayesian candidates, in batches of four. PyMOO uses a population of 20 followed by 20 generations of four offspring; its `n_iterations` counts generations. These are example settings, not a convergence or performance guarantee. Slurm and PanDA require site-specific setup before execution.
 

@@ -79,6 +79,7 @@ from aid2e.utilities.configurations.base_models import (
     RangeParameter as DesignRangeParameter,
 )
 from aid2e.utilities.configurations.design_config import DesignConfig
+from aid2e.optimizers import kb_warm_start
 from ._resolver import resolve_generator_kwargs
 from .config import AxOptimizerConfig
 
@@ -191,7 +192,16 @@ class AxOptimizer(BaseOptimizer):
         
         if config.warm_start_path is not None:
             self._warm_start_from_ax_snapshot(config.warm_start_path)
-            
+
+        # KB-suggested points, served by suggest_candidates before the
+        # generation strategy (they count toward n_initial_samples).
+        self._kb_points: List[Dict[str, Any]] = []
+        self._kb_job_id: Optional[str] = None
+        if config.kb_warm_start is not None:
+            self._kb_job_id = config.kb_warm_start.job_id or kb_warm_start.default_job_id(
+                self.search_space.name)
+            self._warm_start_from_kb(config.kb_warm_start)
+
         # Track trials
         # self._trials and self._trial_counter are owned by BaseOptimizer
         
@@ -243,8 +253,92 @@ class AxOptimizer(BaseOptimizer):
 
         if self.config.save_snapshot:
             outputs["ax_client_snapshot"] = self.save_ax_client_snapshot(output_path)
+
+        kb_config = self.config.kb_warm_start
+        if kb_config is not None and kb_config.upload_kb_id:
+            self.upload_to_kb()
         return outputs
-    
+
+    def upload_to_kb(self) -> None:
+        """Upsert this run into the KB as ``hpo_job`` record(s).
+
+        Called after each saved batch; the upsert by ``job_id`` replaces the
+        previous upload. A KB failure is logged and does not stop the run.
+        """
+        kb_config = self.config.kb_warm_start
+        records = kb_warm_start.job_records(
+            self.get_trials(),
+            kb_config,
+            self._kb_job_id,
+            self.search_space.parameters,
+            self.objective_names,
+            self.objective_directions,
+            framework="aid2e-ax",
+        )
+        try:
+            with kb_warm_start.make_client(kb_config) as client:
+                report = kb_warm_start.upload(client, kb_config, records)
+        except Exception as error:
+            logger.warning("KB upload to %s failed: %s", kb_config.upload_kb_id, error)
+            return
+        logger.info("Uploaded run %s to KB %s: %s", self._kb_job_id, kb_config.upload_kb_id, report)
+
+    def _warm_start_from_kb(self, kb_config: Any) -> None:
+        """Queue KB-suggested points and, with include_history, import past trials."""
+        try:
+            with kb_warm_start.make_client(kb_config) as client:
+                result = kb_warm_start.suggest(
+                    client,
+                    kb_config,
+                    self.search_space.parameters,
+                    self.objective_names,
+                    self.objective_directions,
+                )
+        except (ValueError, ImportError):
+            raise
+        except Exception as error:
+            # An unreachable KB only costs the warm start, not the run.
+            logger.warning("KB warm start failed, starting cold: %s", error)
+            return
+
+        for point in result["points"]:
+            if self._accepts_kb_params(point["params"]):
+                self._kb_points.append(point)
+
+        for past in result["history"]:
+            if not self._accepts_kb_params(past["params"]):
+                continue
+            ax_trial = self._new_manual_trial(past["params"])
+            ax_trial.mark_running(no_runner_required=True)
+            self.update_with_results(
+                ax_trial.index, dict(past["params"]), {past["objective"]: past["value"]})
+            self.set_trial_status(
+                ax_trial.index,
+                "completed",
+                metadata={"warm_started": True, "kb_history": True,
+                          "kb_job_id": past.get("job_id")})
+
+        logger.info(
+            "KB warm start: %d point(s) queued, %d past trial(s) imported from %d source run(s).",
+            len(self._kb_points), len(result["history"]), len(result["source_jobs"]))
+
+    def _accepts_kb_params(self, params: Dict[str, Any]) -> bool:
+        """Whether a KB point lies in the Ax search space and meets the constraints."""
+        valid, failed = self.search_space.validate(params)
+        if valid and self.ax_search_space.check_membership(params, raise_error=False):
+            return True
+        logger.warning("KB point %s is outside the search space (%s); skipped.",
+                       params, ", ".join(failed) or "bounds")
+        return False
+
+    def _new_manual_trial(self, params: Dict[str, Any]) -> Any:
+        """Add a single-arm Ax trial with given parameters."""
+        from ax.core.arm import Arm
+        from ax.core.generator_run import GeneratorRun
+
+        return self.experiment.new_trial(
+            generator_run=GeneratorRun(arms=[Arm(parameters=dict(params))]))
+
     def _warm_start_from_ax_snapshot(self, warm_start_path: str) -> None:
         """Seed this new AID2E Ax experiment from an Ax Client JSON snapshot."""
         path = Path(warm_start_path)
@@ -886,19 +980,41 @@ class AxOptimizer(BaseOptimizer):
         candidates = []
         model_keys: List[str] = []
 
-        generator_run_result = self.generation_strategy.gen(
-            experiment=self.experiment,
-            n=n_candidates,
-        )
-        strategy_metadata = self._get_generation_strategy_metadata()
-        generator_runs = self._normalize_generator_runs(generator_run_result)
-        if len(generator_runs) < n_candidates:
-            raise RuntimeError(
-                "Ax returned fewer generator runs than requested: "
-                f"requested={n_candidates}, got={len(generator_runs)}"
+        while self._kb_points and len(candidates) < n_candidates:
+            point = self._kb_points.pop(0)
+            trial = self._new_manual_trial(point["params"])
+            trial.mark_running(no_runner_required=True)
+            candidate_params = dict(point["params"])
+            self.set_trial_status(
+                trial_index=trial.index,
+                status=TRIAL_STATUS_SUGGESTED,
+                parameters=candidate_params,
+                metrics=None,
+                metadata={
+                    "ax_model_key": "kb_warm_start",
+                    "kb_score": point.get("score"),
+                    "kb_source": point.get("source", {}),
+                },
             )
+            candidates.append(candidate_params)
+            model_keys.append("kb_warm_start")
 
-        for generator_run in generator_runs[:n_candidates]:
+        n_generated = n_candidates - len(candidates)
+        generator_runs = []
+        if n_generated > 0:
+            generator_run_result = self.generation_strategy.gen(
+                experiment=self.experiment,
+                n=n_generated,
+            )
+            generator_runs = self._normalize_generator_runs(generator_run_result)
+            if len(generator_runs) < n_generated:
+                raise RuntimeError(
+                    "Ax returned fewer generator runs than requested: "
+                    f"requested={n_generated}, got={len(generator_runs)}"
+                )
+        strategy_metadata = self._get_generation_strategy_metadata()
+
+        for generator_run in generator_runs[:n_generated]:
             trial = self.experiment.new_trial(generator_run=generator_run)
             trial.mark_running(no_runner_required=True)
             arm = generator_run.arms[0]
@@ -1054,6 +1170,11 @@ class AxOptimizer(BaseOptimizer):
                 "initialization_strategy": self.config.initialization_strategy,
                 "generator": self.config.generator,
                 "warm_start_path": self.config.warm_start_path,
+                "kb_warm_start": (
+                    self.config.kb_warm_start.model_dump(exclude={"token"})
+                    if self.config.kb_warm_start is not None
+                    else None
+                ),
                 "generator_kwargs": deepcopy(self.config.generator_kwargs),
                 "generator_gen_kwargs": deepcopy(self.config.generator_gen_kwargs),
                 "objective_thresholds": (
@@ -1077,7 +1198,8 @@ class AxOptimizer(BaseOptimizer):
                 }
                 for t in self._trials if t is not None
             ],
-            "trial_counter": self._trial_counter
+            "trial_counter": self._trial_counter,
+            "kb_job_id": self._kb_job_id,
         }
     
     def load_state(self, state: Dict[str, Any]) -> None:
@@ -1122,7 +1244,14 @@ class AxOptimizer(BaseOptimizer):
             optimization_config=self.optimization_config,
         )
         self.generation_strategy = self._create_generation_strategy()
-        
+        # The restored history replaces any KB warm start; keep uploading
+        # under the same record id.
+        self._kb_points = []
+        self._kb_job_id = state.get("kb_job_id")
+        if self.config.kb_warm_start is not None and self._kb_job_id is None:
+            self._kb_job_id = self.config.kb_warm_start.job_id or kb_warm_start.default_job_id(
+                self.search_space.name)
+
         # Restore trials
         self._trials = []
         for trial_data in state["trials"]:

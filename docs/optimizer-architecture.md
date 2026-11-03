@@ -122,6 +122,7 @@ Supported fields are:
 - `initialization_strategy`: `sobol`, `uniform`, or `center`
 - `generator`: currently validated to `BOTORCH_MODULAR`
 - `warm_start_path`: optional path to Ax JSON snapshot for initializing optimization from a previous run
+- `kb_warm_start`: optional warm start from an AgenticWF knowledge base (see [KB warm start](#kb-warm-start))
 - `generator_kwargs`: runtime kwargs passed to the Ax generator spec
 - `generator_gen_kwargs`: generation-time kwargs passed through to Ax
 - `objective_thresholds`: optional multi-objective thresholds by metric name
@@ -195,6 +196,52 @@ when available.
 `update_with_results()` validates that every configured objective is present in
 the metrics payload, attaches the results to the Ax experiment as deterministic
 data, marks the Ax trial completed, and updates the shared `Trial` history.
+
+### KB warm start
+
+`kb_warm_start` connects the Ax backend to an AgenticWF knowledge base
+(agenticwf-kb, `hpo` records plugin) through `agenticwf-kb-client`
+(`pip install 'aid2e[kb]'`). The shared code is
+`src/aid2e/optimizers/kb_warm_start.py`.
+
+```yaml
+optimizer:
+  name: "ax"
+  parameters:
+    n_initial_samples: 12
+    kb_warm_start:
+      knowledge_base_ids: ["aid2e:aid2e-history"]  # omit: every records KB you can read
+      description: "BIC calorimeter layer thickness scan"
+      objective: "f1"           # multi-objective: the objective past runs are ranked on
+      n: 4                      # KB points; the other 8 initial samples come from Sobol
+      filter: {field: "metadata.detector", op: "eq", value: "bic"}
+      upload_kb_id: "aid2e:aid2e-history"           # store this run for later ones
+      metadata: {detector: "bic"}
+```
+
+The KB is found from `url`/`token`, else `AGENTICWF_KB_URL`/`AGENTICWF_KB_TOKEN`,
+else the `agenticwf login` sign-in.
+
+- At construction the optimizer calls the KB's `suggest` operation with the AID2E
+  search space (range parameters as `float`, choice parameters as
+  `categorical`). Returned points outside the bounds or violating the parameter
+  constraints are dropped; the rest are queued.
+- `suggest_candidates()` serves queued points before calling the generation
+  strategy. They become ordinary Ax trials (metadata `ax_model_key:
+  kb_warm_start`, `kb_source`, `kb_score`) and count toward
+  `n_initial_samples`.
+- With `include_history: true` (single objective only), trials of past runs with
+  the identical search space and objective are imported as completed trials, as
+  the snapshot warm start does.
+- With `upload_kb_id`, `save_optimization_results()` upserts the run as `hpo_job`
+  records keyed by `job_id`: one record per objective, `<job_id>:<objective>`
+  when there are several. Imported trials (`warm_started`) are not uploaded.
+- A KB that cannot be reached only logs a warning: the run starts cold, or skips
+  the upload.
+
+The KB stores names in lowercase `snake_case` (`DTLZ2.x1` → `dtlz2_x1`) and the
+backend maps them back, so two parameters must not share that form, and the KB
+must not alias AID2E parameters to other names.
 
 ### State model
 

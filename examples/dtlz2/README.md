@@ -44,12 +44,12 @@ export AGENTICWF_KB_URL=https://aipanda107.cern.ch/app/kb
 agenticwf login                  # or, for scripts: export AGENTICWF_TOKEN=pat_...
 # (a standalone KB instead: AGENTICWF_KB_URL=http://127.0.0.1:8766/kb and its AGENTICWF_KB_TOKEN)
 
-agenticwf kb list
-agenticwf kb call POST /knowledge-bases --data '{"name": "aid2e-dtlz2", "type": "records"}'
-
-aid2e optimize examples/dtlz2/configurations/dtlz2_ax_joblib_kb.yml   # cold start, uploads the run
+aid2e optimize examples/dtlz2/configurations/dtlz2_ax_joblib_kb.yml   # creates the KB, cold start, uploads the run
 aid2e optimize examples/dtlz2/configurations/dtlz2_ax_joblib_kb.yml   # warm start from the first run
+agenticwf kb list                                                     # the KB, as u:<username>:aid2e-dtlz2
 ```
+
+The first run creates the records KB named by `upload_kb_id` when it does not exist, and later runs reuse it. `aid2e-dtlz2` is a bare slug, one of your own KBs. A `g:<group>:<slug>` ref creates a group KB instead, which needs a group admin. Set `create_upload_kb: false` to require an existing KB.
 
 Warm-started trials carry `ax_model_key: kb_warm_start` and their source (`kb_source`) in `optimization_results.json`. The KB needs the `hpo` records plugin (`[records] plugins = hpo` in kb.cfg).
 

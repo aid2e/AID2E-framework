@@ -71,7 +71,13 @@ class KBWarmStartConfig(BaseModel):
             ``{"field": "metadata.detector", "op": "eq", "value": "bic"}``.
         options: Extra ``suggest`` options (``min_similarity``, ``seed``, ...).
         upload_kb_id: Records KB to store this run in as ``hpo_job`` record(s)
-            when results are saved. ``None`` disables upload.
+            when results are saved: ``u:<user>:<slug>``, ``g:<group>:<slug>``,
+            a KB id, or a bare slug for one of your own KBs. ``None`` disables
+            upload.
+        create_upload_kb: Create ``upload_kb_id`` as a records KB when it does
+            not exist (a ``g:`` ref creates a group KB, which needs a group
+            admin; anything else creates one of your own KBs). An existing KB
+            is used as it is.
         job_id: Record id of this run. Defaults to a timestamped id.
         metadata: Metadata stored with the uploaded record(s), usable in
             ``filter`` by later runs.
@@ -89,6 +95,7 @@ class KBWarmStartConfig(BaseModel):
     filter: Optional[Dict[str, Any]] = None
     options: Dict[str, Any] = Field(default_factory=dict)
     upload_kb_id: Optional[str] = None
+    create_upload_kb: bool = True
     job_id: Optional[str] = None
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
@@ -112,6 +119,107 @@ def make_client(config: KBWarmStartConfig):
     # sign-in (agenticwf login, AGENTICWF_TOKEN, or a machine client), refreshed
     # as it expires; the URL is AGENTICWF_KB_URL, else AGENTICWF_API_URL + /kb.
     return KBClient.from_env(url=config.url, token=config.token)
+
+
+_UUID = re.compile(r"^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$", re.IGNORECASE)
+_GROUP_OWNER = "org:"  # owner_subject prefix of group-owned KBs
+
+
+def _status(error: Exception) -> Optional[int]:
+    """HTTP status of a ``KBClientError``, else ``None``."""
+    return getattr(error, "status", None)
+
+
+def _get_kb(client, ref: str) -> Optional[Dict[str, Any]]:
+    """The KB ``ref`` (id or ``<owner>:<slug>``), or ``None`` if the caller cannot see one."""
+    try:
+        return client.request("GET", f"/knowledge-bases/{ref}")
+    except Exception as error:
+        if _status(error) == 404:
+            return None
+        raise
+
+
+def _own_kb(client, slug: str, group: Optional[str]) -> Optional[Dict[str, Any]]:
+    """The caller's (or, with ``group``, a group's) records KB ``slug``."""
+    kbs = client.request("GET", "/knowledge-bases?type=records&page_size=100")
+    found = [
+        kb for kb in kbs
+        if kb.get("slug") == slug
+        and str(kb.get("owner_subject", "")).startswith(_GROUP_OWNER) == bool(group)
+        and (not group or snake(group) == snake(kb.get("owner_name") or ""))
+    ]
+    # Private KBs of this slug are the caller's own; shared ones may be someone else's.
+    found.sort(key=lambda kb: kb.get("visibility") != "private")
+    return found[0] if found else None
+
+
+def _records_kb(kb: Dict[str, Any], ref: str) -> Dict[str, Any]:
+    if kb.get("type", "records") != "records":
+        raise ValueError(
+            f"KB '{ref}' is a {kb.get('type')} knowledge base; KB warm start needs a records KB."
+        )
+    return kb
+
+
+def ensure_kb(client, ref: str, description: str = "") -> Dict[str, Any]:
+    """The records KB ``ref``, created first when it does not exist.
+
+    ``ref`` is a KB id, ``u:<user>:<slug>``, ``g:<group>:<slug>``, or a bare
+    slug naming one of the caller's own KBs. A missing ``g:`` KB is created
+    for that group (the caller must administer it); any other missing KB is
+    created as the caller's own, with ``slug`` as its slug and name.
+
+    Returns:
+        The KB as the API returns it (``id``, ``ref``, ``slug``, ``type``, ...).
+    """
+    owner, sep, slug = ref.rpartition(":")
+    if not sep and _UUID.match(ref):
+        kb = _get_kb(client, ref)
+        if kb is None:
+            raise ValueError(f"No knowledge base with id '{ref}'.")
+        return _records_kb(kb, ref)
+    if sep:
+        kb = _get_kb(client, ref)
+        if kb is not None:
+            return _records_kb(kb, ref)
+        if not slug:
+            raise ValueError(f"KB ref '{ref}' has no slug.")
+
+    group = owner[2:] if owner.startswith("g:") else None
+    try:
+        kb = client.create_knowledge_base(
+            slug,
+            group=group,
+            slug=slug,
+            type="records",
+            description=description or "AID2E optimization runs (hpo_job records)",
+        )
+    except Exception as error:
+        if _status(error) != 409:
+            raise
+        # The slug is taken: the KB exists under a ref spelled differently.
+        kb = _own_kb(client, slug, group)
+        if kb is None:
+            raise
+        if sep:
+            logger.info("KB '%s' is '%s'.", ref, kb.get("ref"))
+        return _records_kb(kb, ref)
+
+    logger.info("Created records KB '%s' (id %s).", kb.get("ref"), kb.get("id"))
+    if sep and kb.get("ref") != ref:
+        logger.warning(
+            "Created KB '%s' for '%s'; use '%s' in the config to name it exactly.",
+            kb.get("ref"), ref, kb.get("ref"))
+    return kb
+
+
+def upload_kb_id(client, config: KBWarmStartConfig) -> str:
+    """The KB id to upload to: ``config.upload_kb_id``, created when missing
+    (unless ``create_upload_kb`` is off, which uses the ref as given)."""
+    if not config.create_upload_kb:
+        return config.upload_kb_id
+    return ensure_kb(client, config.upload_kb_id)["id"]
 
 
 def direction_of(objective_directions: Dict[str, Any], name: str) -> str:
@@ -183,8 +291,12 @@ def suggest(
     parameters: Dict[str, Any],
     objective_names: List[str],
     objective_directions: Dict[str, Any],
+    knowledge_base_ids: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     """Ask the KB for warm-start points.
+
+    ``knowledge_base_ids`` overrides ``config.knowledge_base_ids`` (e.g. with
+    refs resolved to ids).
 
     Returns:
         ``{"points": [...], "history": [...], "source_jobs": [...]}`` where each
@@ -217,8 +329,9 @@ def suggest(
         "n_total": config.n,
         "options": {**config.options, "include_history": include_history},
     }
-    if config.knowledge_base_ids:
-        body["knowledge_base_ids"] = config.knowledge_base_ids
+    kb_ids = config.knowledge_base_ids if knowledge_base_ids is None else knowledge_base_ids
+    if kb_ids:
+        body["knowledge_base_ids"] = kb_ids
     if config.filter:
         body["filter"] = config.filter
     data = client.suggest(**body)
@@ -316,6 +429,6 @@ def job_records(
     return records
 
 
-def upload(client, config: KBWarmStartConfig, records: List[Dict[str, Any]]) -> Dict[str, Any]:
-    """Upsert ``records`` into ``config.upload_kb_id`` (by ``job_id``)."""
-    return client.upsert_records(config.upload_kb_id, records, record_type=RECORD_TYPE)
+def upload(client, kb_id: str, records: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Upsert ``records`` into KB ``kb_id`` (by ``job_id``)."""
+    return client.upsert_records(kb_id, records, record_type=RECORD_TYPE)

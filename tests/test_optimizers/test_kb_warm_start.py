@@ -16,14 +16,57 @@ pytestmark = pytest.mark.skipif(
 )
 
 
-class FakeKB:
-    """Stands in for agenticwf.kb.client.KBClient; KB names are canonical."""
+class FakeKBError(Exception):
+    """Stands in for agenticwf.kb.client.KBClientError."""
 
-    def __init__(self, response=None, error=None):
+    def __init__(self, status):
+        super().__init__(f"HTTP {status}")
+        self.status = status
+
+
+def _records_kb(ref, kb_id=None, owner_subject="user-1", visibility="private", type="records"):
+    owner, _, slug = ref.rpartition(":")
+    return {"id": kb_id or f"id-{slug}", "ref": ref, "slug": slug, "type": type,
+            "owner_subject": owner_subject, "owner_name": owner.partition(":")[2],
+            "visibility": visibility}
+
+
+class FakeKB:
+    """Stands in for agenticwf.kb.client.KBClient; KB names are canonical.
+
+    ``kbs`` maps refs to the KBs the caller can see; ``me`` is the caller's
+    username, which refs of created personal KBs use.
+    """
+
+    def __init__(self, response=None, error=None, kbs=None, me="alice"):
         self.response = response or {"points": [], "source_jobs": [], "history": None}
         self.error = error
+        self.kbs = dict(kbs) if kbs is not None else {"aid2e:aid2e": _records_kb("aid2e:aid2e")}
+        self.me = me
         self.suggest_calls = []
         self.uploads = []
+        self.created = []
+
+    def request(self, method, path):
+        assert method == "GET"
+        if path.startswith("/knowledge-bases?"):
+            return list(self.kbs.values())
+        ref = path.removeprefix("/knowledge-bases/")
+        for kb in self.kbs.values():
+            if ref in (kb["ref"], kb["id"]):
+                return kb
+        raise FakeKBError(404)
+
+    def create_knowledge_base(self, name, group=None, **body):
+        owner = f"g:{group}" if group else f"u:{self.me}"
+        ref = f"{owner}:{body.get('slug') or name}"
+        if ref in self.kbs:
+            raise FakeKBError(409)
+        self.created.append({"name": name, "group": group, **body})
+        kb = _records_kb(ref, kb_id=f"new-{len(self.created)}", type=body.get("type", "document"),
+                         owner_subject="org:1" if group else "user-1")
+        self.kbs[ref] = kb
+        return kb
 
     def __enter__(self):
         return self
@@ -160,7 +203,8 @@ def test_upload_records_this_run(fake_kb, tmp_path):
     optimizer.save_optimization_results(tmp_path)
 
     kb_id, records, record_type = fake_kb.uploads[0]
-    assert (kb_id, record_type) == ("aid2e:aid2e", "hpo_job")
+    assert (kb_id, record_type) == ("id-aid2e", "hpo_job")
+    assert fake_kb.created == []
     assert [r["job_id"] for r in records] == ["bic-run-7:f1", "bic-run-7:f2"]
     f2 = records[1]
     assert f2["objective"] == {"name": "f2", "direction": "minimize"}
@@ -173,3 +217,65 @@ def test_serialized_state_hides_token(fake_kb):
     state = optimizer.serialize_state()
     assert "token" not in state["config"]["kb_warm_start"]
     assert state["kb_job_id"] == "run-1"
+
+
+def test_ensure_kb_uses_an_existing_kb():
+    kb_id = "0123abcd-0000-0000-0000-00000000beef"
+    kb = FakeKB(kbs={"g:aid2e:dtlz2": _records_kb("g:aid2e:dtlz2", kb_id, owner_subject="org:1")})
+    assert kb_warm_start.ensure_kb(kb, "g:aid2e:dtlz2")["id"] == kb_id
+    assert kb_warm_start.ensure_kb(kb, kb_id)["ref"] == "g:aid2e:dtlz2"
+    assert kb.created == []
+
+
+def test_ensure_kb_creates_a_missing_kb():
+    kb = FakeKB(kbs={})
+    created = kb_warm_start.ensure_kb(kb, "u:alice:dtlz2")
+    assert created["ref"] == "u:alice:dtlz2" and created["type"] == "records"
+    assert kb.created == [{"name": "dtlz2", "group": None, "slug": "dtlz2", "type": "records",
+                           "description": "AID2E optimization runs (hpo_job records)"}]
+    # The second call finds it.
+    assert kb_warm_start.ensure_kb(kb, "u:alice:dtlz2")["id"] == created["id"]
+    assert len(kb.created) == 1
+
+
+def test_ensure_kb_creates_group_kbs_and_bare_slugs():
+    kb = FakeKB(kbs={})
+    assert kb_warm_start.ensure_kb(kb, "g:aid2e:dtlz2")["ref"] == "g:aid2e:dtlz2"
+    assert kb.created[-1]["group"] == "aid2e"
+    first = kb_warm_start.ensure_kb(kb, "dtlz2")
+    assert first["ref"] == "u:alice:dtlz2"
+    # A bare slug that exists: the create conflicts and the caller's own KB is used.
+    assert kb_warm_start.ensure_kb(kb, "dtlz2")["id"] == first["id"]
+    assert len(kb.created) == 2
+
+
+def test_ensure_kb_rejects_other_kb_types_and_unknown_ids():
+    kb = FakeKB(kbs={"u:alice:docs": _records_kb("u:alice:docs", type="document")})
+    with pytest.raises(ValueError, match="records KB"):
+        kb_warm_start.ensure_kb(kb, "u:alice:docs")
+    with pytest.raises(ValueError, match="No knowledge base"):
+        kb_warm_start.ensure_kb(kb, "0123abcd-0000-0000-0000-000000000000")
+
+
+def test_missing_upload_kb_is_created_and_read(monkeypatch, tmp_path):
+    kb = FakeKB(kbs={})
+    monkeypatch.setattr(kb_warm_start, "make_client", lambda config: kb)
+    optimizer = _optimizer(knowledge_base_ids=["dtlz2"], upload_kb_id="dtlz2", job_id="run-1")
+    assert [c["slug"] for c in kb.created] == ["dtlz2"]
+    assert kb.suggest_calls[0]["knowledge_base_ids"] == ["new-1"]
+
+    optimizer.config.save_snapshot = False
+    optimizer.save_optimization_results(tmp_path)
+    optimizer.save_optimization_results(tmp_path)
+    assert [kb_id for kb_id, _, _ in kb.uploads] == ["new-1", "new-1"]
+    assert len(kb.created) == 1
+
+
+def test_create_upload_kb_off_uses_the_ref_as_given(monkeypatch, tmp_path):
+    kb = FakeKB(kbs={})
+    monkeypatch.setattr(kb_warm_start, "make_client", lambda config: kb)
+    optimizer = _optimizer(knowledge_base_ids=None, upload_kb_id="u:alice:dtlz2",
+                           create_upload_kb=False)
+    optimizer.config.save_snapshot = False
+    optimizer.save_optimization_results(tmp_path)
+    assert kb.created == [] and kb.uploads[0][0] == "u:alice:dtlz2"

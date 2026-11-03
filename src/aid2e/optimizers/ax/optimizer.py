@@ -197,6 +197,7 @@ class AxOptimizer(BaseOptimizer):
         # generation strategy (they count toward n_initial_samples).
         self._kb_points: List[Dict[str, Any]] = []
         self._kb_job_id: Optional[str] = None
+        self._kb_upload_id: Optional[str] = None  # upload_kb_id resolved (and created) once
         if config.kb_warm_start is not None:
             self._kb_job_id = config.kb_warm_start.job_id or kb_warm_start.default_job_id(
                 self.search_space.name)
@@ -277,7 +278,9 @@ class AxOptimizer(BaseOptimizer):
         )
         try:
             with kb_warm_start.make_client(kb_config) as client:
-                report = kb_warm_start.upload(client, kb_config, records)
+                if self._kb_upload_id is None:
+                    self._kb_upload_id = kb_warm_start.upload_kb_id(client, kb_config)
+                report = kb_warm_start.upload(client, self._kb_upload_id, records)
         except Exception as error:
             logger.warning("KB upload to %s failed: %s", kb_config.upload_kb_id, error)
             return
@@ -287,12 +290,21 @@ class AxOptimizer(BaseOptimizer):
         """Queue KB-suggested points and, with include_history, import past trials."""
         try:
             with kb_warm_start.make_client(kb_config) as client:
+                kb_ids = kb_config.knowledge_base_ids
+                if kb_config.upload_kb_id:
+                    # Create the upload KB up front, so a first run that also
+                    # reads from it starts cold instead of failing on a missing KB.
+                    self._kb_upload_id = kb_warm_start.upload_kb_id(client, kb_config)
+                    if kb_ids:
+                        kb_ids = [self._kb_upload_id if ref == kb_config.upload_kb_id else ref
+                                  for ref in kb_ids]
                 result = kb_warm_start.suggest(
                     client,
                     kb_config,
                     self.search_space.parameters,
                     self.objective_names,
                     self.objective_directions,
+                    knowledge_base_ids=kb_ids,
                 )
         except (ValueError, ImportError):
             raise

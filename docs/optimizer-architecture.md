@@ -210,12 +210,13 @@ optimizer:
   parameters:
     n_initial_samples: 12
     kb_warm_start:
-      knowledge_base_ids: ["aid2e:aid2e-history"]  # omit: every records KB you can read
+      knowledge_base_ids: ["g:aid2e:aid2e-history"]  # omit: every records KB you can read
       description: "BIC calorimeter layer thickness scan"
       objective: "f1"           # multi-objective: the objective past runs are ranked on
       n: 4                      # KB points; the other 8 initial samples come from Sobol
       filter: {field: "metadata.detector", op: "eq", value: "bic"}
-      upload_kb_id: "aid2e:aid2e-history"           # store this run for later ones
+      upload_kb_id: "g:aid2e:aid2e-history"         # store this run for later ones
+      create_upload_kb: true    # default: create upload_kb_id if it does not exist
       metadata: {detector: "bic"}
 ```
 
@@ -233,6 +234,11 @@ else the `agenticwf login` sign-in.
 - With `include_history: true` (single objective only), trials of past runs with
   the identical search space and objective are imported as completed trials, as
   the snapshot warm start does.
+- KB refs are a KB id, `u:<user>:<slug>`, `g:<group>:<slug>`, or a bare slug
+  for one of your own KBs. With `create_upload_kb` (the default), the optimizer
+  looks up `upload_kb_id` before the warm start and creates it as a records KB
+  only if it does not exist: a `g:` ref as a group KB (which needs a group admin),
+  anything else as your own. A KB of another type is an error.
 - With `upload_kb_id`, `save_optimization_results()` upserts the run as `hpo_job`
   records keyed by `job_id`: one record per objective, `<job_id>:<objective>`
   when there are several. Imported trials (`warm_started`) are not uploaded.

@@ -5,7 +5,9 @@
 # and a records KB with the hpo plugin. Set the KB connection and sign in:
 #   export AGENTICWF_KB_URL=https://aipanda107.cern.ch/app/kb
 #   agenticwf login            # or AGENTICWF_TOKEN=pat_... (see the README)
-# and replace "aid2e:aid2e-dtlz2" with your records KB's "ref" (<owner>:<slug>) or "id".
+# The records KB "aid2e-dtlz2" (a bare slug: one of your own KBs) is created on
+# the first run if it does not exist. Use "g:<group>:aid2e-dtlz2" for a group's
+# KB (creating it needs a group admin), or "u:<user>:<slug>" / a KB id.
 
 problem:
   name: "DTLZ2 Ax with JobLib and KB warm start"
@@ -35,11 +37,11 @@ optimizer:
     batch_size: 4
     seed: 42
     kb_warm_start:
-      knowledge_base_ids: ["aid2e:aid2e-dtlz2"]
+      knowledge_base_ids: ["aid2e-dtlz2"]
       description: "DTLZ2, ten variables, two objectives, Ax BoTorch"
       objective: "f1"       # past runs are ranked on f1
       n: 4                  # 4 KB points, then 4 Sobol points
-      upload_kb_id: "aid2e:aid2e-dtlz2"
+      upload_kb_id: "aid2e-dtlz2"  # created if missing
       metadata:
         problem: "DTLZ2"
 

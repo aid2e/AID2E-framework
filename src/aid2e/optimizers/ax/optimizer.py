@@ -282,9 +282,14 @@ class AxOptimizer(BaseOptimizer):
                     self._kb_upload_id = kb_warm_start.upload_kb_id(client, kb_config)
                 report = kb_warm_start.upload(client, self._kb_upload_id, records)
         except Exception as error:
-            logger.warning("KB upload to %s failed: %s", kb_config.upload_kb_id, error)
+            logger.warning("KB upload of run %s to %s FAILED: %s",
+                           self._kb_job_id, kb_config.upload_kb_id, error)
             return
-        logger.info("Uploaded run %s to KB %s: %s", self._kb_job_id, kb_config.upload_kb_id, report)
+        counts = ", ".join(f"{report.get(key, 0)} {key}"
+                           for key in ("created", "updated", "unchanged", "invalid"))
+        logger.info("KB upload of run %s to %s succeeded: %d record(s), %d trial(s) (%s).",
+                    self._kb_job_id, kb_config.upload_kb_id, len(records),
+                    len(records[0]["trials"]) if records else 0, counts)
 
     def _warm_start_from_kb(self, kb_config: Any) -> None:
         """Queue KB-suggested points and, with include_history, import past trials."""

@@ -82,7 +82,16 @@ class FakeKB:
 
     def upsert_records(self, kb_id, records, record_type=None):
         self.uploads.append((kb_id, records, record_type))
-        return {"inserted": len(records)}
+        outcomes = []
+        for index, record in enumerate(records):
+            nested = [k for k, v in record.get("metadata", {}).items()
+                      if not isinstance(v, (str, int, float, bool))]
+            outcomes.append({"index": index, "outcome": "invalid",
+                             "errors": [f"metadata.{k}: not a scalar" for k in nested]}
+                            if nested else {"index": index, "outcome": "created", "id": str(index)})
+        return {"outcomes": outcomes,
+                "created": sum(o["outcome"] == "created" for o in outcomes),
+                "invalid": sum(o["outcome"] == "invalid" for o in outcomes)}
 
 
 @pytest.fixture
@@ -188,7 +197,7 @@ def test_include_history_imports_completed_trials(fake_kb):
     assert optimizer.experiment.trials[trial.index].status.is_completed
 
 
-def test_upload_records_this_run(fake_kb, tmp_path):
+def test_upload_records_this_run(fake_kb, tmp_path, caplog):
     fake_kb.response["history"] = [{"params": {"group1_x": 0.2, "group1_y": 0.3}, "value": 1.5}]
     optimizer = _optimizer(objectives=("f1", "f2"), upload_kb_id="aid2e:aid2e",
                            job_id="bic-run-7", metadata={"detector": "bic"})
@@ -200,7 +209,10 @@ def test_upload_records_this_run(fake_kb, tmp_path):
             optimizer.mark_trial_failed(trial_index, reason="crash")
 
     optimizer.config.save_snapshot = False
-    optimizer.save_optimization_results(tmp_path)
+    with caplog.at_level("INFO", logger="aid2e.optimizers.ax.optimizer"):
+        optimizer.save_optimization_results(tmp_path)
+    assert "KB upload of run bic-run-7 to aid2e:aid2e succeeded: 2 record(s), 2 trial(s) " \
+        "(2 created, 0 updated, 0 unchanged, 0 invalid)." in caplog.text
 
     kb_id, records, record_type = fake_kb.uploads[0]
     assert (kb_id, record_type) == ("id-aid2e", "hpo_job")
@@ -209,6 +221,7 @@ def test_upload_records_this_run(fake_kb, tmp_path):
     f2 = records[1]
     assert f2["objective"] == {"name": "f2", "direction": "minimize"}
     assert f2["metadata"]["detector"] == "bic"
+    assert f2["metadata"]["objectives"] == "f1,f2"
     assert [(t["status"], t["value"]) for t in f2["trials"]] == [("complete", 2.0), ("fail", None)]
 
 
@@ -279,3 +292,25 @@ def test_create_upload_kb_off_uses_the_ref_as_given(monkeypatch, tmp_path):
     optimizer.config.save_snapshot = False
     optimizer.save_optimization_results(tmp_path)
     assert kb.created == [] and kb.uploads[0][0] == "u:alice:dtlz2"
+
+
+def test_rejected_records_fail_the_upload():
+    kb = FakeKB()
+    records = [{"job_id": "run-1", "metadata": {"objectives": ["f1", "f2"]}}]
+    with pytest.raises(ValueError, match="rejected 1 of 1 record.*run-1.*metadata.objectives"):
+        kb_warm_start.upload(kb, "id-1", records)
+
+
+def test_nested_metadata_is_refused_in_the_config():
+    with pytest.raises(ValueError, match="strings, numbers or booleans"):
+        kb_warm_start.KBWarmStartConfig(metadata={"tags": ["a", "b"]})
+
+
+def test_rejected_upload_is_logged_as_a_failure(fake_kb, tmp_path, caplog):
+    optimizer = _optimizer(upload_kb_id="aid2e:aid2e", job_id="run-9")
+    optimizer.config.save_snapshot = False
+    fake_kb.upsert_records = lambda kb_id, records, record_type=None: {
+        "outcomes": [{"index": 0, "outcome": "invalid", "errors": ["metadata.x: bad"]}], "invalid": 1}
+    optimizer.save_optimization_results(tmp_path)
+    assert "KB upload of run run-9 to aid2e:aid2e FAILED: KB rejected 1 of 1 record(s): " \
+        "run-9: metadata.x: bad" in caplog.text

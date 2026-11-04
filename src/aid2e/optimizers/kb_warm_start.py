@@ -28,7 +28,7 @@ import math
 import re
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from aid2e.utilities.configurations.base_models import ChoiceParameter, RangeParameter
 
@@ -80,7 +80,8 @@ class KBWarmStartConfig(BaseModel):
             is used as it is.
         job_id: Record id of this run. Defaults to a timestamped id.
         metadata: Metadata stored with the uploaded record(s), usable in
-            ``filter`` by later runs.
+            ``filter`` by later runs. Values must be strings, numbers or
+            booleans (``hpo_job`` rejects nested values).
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -98,6 +99,16 @@ class KBWarmStartConfig(BaseModel):
     create_upload_kb: bool = True
     job_id: Optional[str] = None
     metadata: Dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("metadata")
+    @classmethod
+    def _scalar_metadata(cls, metadata: Dict[str, Any]) -> Dict[str, Any]:
+        nested = [key for key, value in metadata.items()
+                  if not isinstance(value, (str, int, float, bool))]
+        if nested:
+            raise ValueError(
+                f"KB metadata values must be strings, numbers or booleans: {nested}")
+        return metadata
 
 
 def snake(name: str) -> str:
@@ -421,7 +432,8 @@ def job_records(
                 "trials": record_trials,
                 "metadata": {
                     "framework": framework,
-                    "objectives": list(objective_names),
+                    # hpo_job metadata values must be scalars.
+                    "objectives": ",".join(objective_names),
                     **config.metadata,
                 },
             }
@@ -430,5 +442,20 @@ def job_records(
 
 
 def upload(client, kb_id: str, records: List[Dict[str, Any]]) -> Dict[str, Any]:
-    """Upsert ``records`` into KB ``kb_id`` (by ``job_id``)."""
-    return client.upsert_records(kb_id, records, record_type=RECORD_TYPE)
+    """Upsert ``records`` into KB ``kb_id`` (by ``job_id``).
+
+    Raises:
+        ValueError: The KB rejected records. It answers a batch with
+            per-record outcomes rather than an HTTP error, so a rejection
+            would otherwise pass silently.
+    """
+    report = client.upsert_records(kb_id, records, record_type=RECORD_TYPE)
+    invalid = [o for o in report.get("outcomes", []) if o.get("outcome") == "invalid"]
+    if invalid:
+        details = "; ".join(
+            f"{records[o['index']]['job_id']}: {', '.join(map(str, o.get('errors', [])))}"
+            if isinstance(o.get("index"), int) and o["index"] < len(records)
+            else ", ".join(map(str, o.get("errors", [])))
+            for o in invalid)
+        raise ValueError(f"KB rejected {len(invalid)} of {len(records)} record(s): {details}")
+    return report

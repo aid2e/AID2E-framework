@@ -166,6 +166,36 @@ def test_kb_points_are_served_first(fake_kb):
     assert len(optimizer.experiment.trials) == 3
 
 
+def _seeded_optimizer(fake_kb, points=(), seed=42):
+    fake_kb.response["points"] = list(points)
+    return AxOptimizer(
+        search_space=_search_space(),
+        config=AxOptimizerConfig(
+            n_initial_samples=8, seed=seed,
+            kb_warm_start=KBWarmStartConfig(knowledge_base_ids=["aid2e:aid2e"], n=2)),
+        objective_names=["f1"],
+    )
+
+
+def test_seeded_sobol_skips_kb_points_after_rounding(fake_kb):
+    cold = _seeded_optimizer(fake_kb).suggest_candidates(4)
+    # The KB hands back this seed's first two Sobol points, with lost precision.
+    points = [_point(round(c["group1.x"], 9), round(c["group1.y"], 9)) for c in cold[:2]]
+    warm = _seeded_optimizer(fake_kb, points).suggest_candidates(4)
+
+    assert warm[:2] == [{"group1.x": round(c["group1.x"], 9), "group1.y": round(c["group1.y"], 9)}
+                        for c in cold[:2]]
+    # Sobol moves on instead of repeating the KB points.
+    assert warm[2:] == cold[2:]
+
+
+def test_sobol_seed_is_fixed_only_when_given(fake_kb):
+    first = _seeded_optimizer(fake_kb, seed=7).suggest_candidates(3)
+    assert _seeded_optimizer(fake_kb, seed=7).suggest_candidates(3) == first
+    assert _seeded_optimizer(fake_kb, seed=None).suggest_candidates(3) != \
+        _seeded_optimizer(fake_kb, seed=None).suggest_candidates(3)
+
+
 def test_kb_failure_starts_cold(monkeypatch):
     kb = FakeKB(error=RuntimeError("connection refused"))
     monkeypatch.setattr(kb_warm_start, "make_client", lambda config: kb)

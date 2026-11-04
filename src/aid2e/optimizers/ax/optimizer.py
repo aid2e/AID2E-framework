@@ -198,6 +198,9 @@ class AxOptimizer(BaseOptimizer):
         self._kb_points: List[Dict[str, Any]] = []
         self._kb_job_id: Optional[str] = None
         self._kb_upload_id: Optional[str] = None  # upload_kb_id resolved (and created) once
+        # Parameters of KB points and imported KB trials; initializer
+        # (Sobol/random) candidates matching one of them are redrawn.
+        self._warm_start_params: List[Dict[str, Any]] = []
         if config.kb_warm_start is not None:
             self._kb_job_id = config.kb_warm_start.job_id or kb_warm_start.default_job_id(
                 self.search_space.name)
@@ -321,10 +324,12 @@ class AxOptimizer(BaseOptimizer):
         for point in result["points"]:
             if self._accepts_kb_params(point["params"]):
                 self._kb_points.append(point)
+                self._warm_start_params.append(dict(point["params"]))
 
         for past in result["history"]:
             if not self._accepts_kb_params(past["params"]):
                 continue
+            self._warm_start_params.append(dict(past["params"]))
             ax_trial = self._new_manual_trial(past["params"])
             ax_trial.mark_running(no_runner_required=True)
             self.update_with_results(
@@ -347,6 +352,40 @@ class AxOptimizer(BaseOptimizer):
         logger.warning("KB point %s is outside the search space (%s); skipped.",
                        params, ", ".join(failed) or "bounds")
         return False
+
+    # Relative tolerance (fraction of a range parameter's width) under which an
+    # initializer candidate counts as a repeat of a warm-start point; covers
+    # precision lost when the KB stores and returns parameter values.
+    WARM_START_DEDUP_RTOL = 1e-6
+    # Extra initializer draws per batch before repeats are accepted.
+    WARM_START_DEDUP_MAX_REDRAWS = 10
+
+    def _matches_warm_start_point(self, params: Dict[str, Any]) -> bool:
+        """Whether ``params`` repeats a KB point or an imported KB trial."""
+        for reference in self._warm_start_params:
+            if set(reference) != set(params):
+                continue
+            for name, value in params.items():
+                other = reference[name]
+                parameter = self.ax_search_space.parameters.get(name)
+                lower = getattr(parameter, "lower", None)
+                upper = getattr(parameter, "upper", None)
+                if (isinstance(value, (int, float)) and isinstance(other, (int, float))
+                        and not isinstance(value, bool) and lower is not None
+                        and upper is not None):
+                    tolerance = self.WARM_START_DEDUP_RTOL * max(upper - lower, 1e-12)
+                    if abs(float(value) - float(other)) > tolerance:
+                        break
+                elif value != other:
+                    break
+            else:
+                return True
+        return False
+
+    def _is_initializer_run(self, generator_run: Any) -> bool:
+        """Whether a generator run comes from an initialization node (Sobol, ...)."""
+        node_name = getattr(generator_run, "_generation_node_name", None)
+        return node_name is not None and node_name != self._get_model_node_name()
 
     def _new_manual_trial(self, params: Dict[str, Any]) -> Any:
         """Add a single-arm Ax trial with given parameters."""
@@ -1029,6 +1068,7 @@ class AxOptimizer(BaseOptimizer):
                     "Ax returned fewer generator runs than requested: "
                     f"requested={n_generated}, got={len(generator_runs)}"
                 )
+            generator_runs = self._redraw_warm_start_repeats(generator_runs[:n_generated])
         strategy_metadata = self._get_generation_strategy_metadata()
 
         for generator_run in generator_runs[:n_generated]:
@@ -1067,6 +1107,39 @@ class AxOptimizer(BaseOptimizer):
         )
         return candidates
     
+    def _redraw_warm_start_repeats(self, generator_runs: List[Any]) -> List[Any]:
+        """Replace initializer candidates that repeat a warm-start point.
+
+        Ax skips exact repeats of arms already in the experiment, but KB points
+        can differ from the original values by rounding. Discarded runs never
+        become trials; the initializer's sequence still advances, so a redraw
+        yields new points.
+        """
+        if not self._warm_start_params:
+            return generator_runs
+        kept = []
+        for redraw in range(self.WARM_START_DEDUP_MAX_REDRAWS + 1):
+            repeats = []
+            for generator_run in generator_runs:
+                params = dict(generator_run.arms[0].parameters)
+                if self._is_initializer_run(generator_run) and self._matches_warm_start_point(params):
+                    repeats.append(params)
+                else:
+                    kept.append(generator_run)
+            if not repeats:
+                return kept
+            if redraw == self.WARM_START_DEDUP_MAX_REDRAWS:
+                logger.warning(
+                    "Initializer kept repeating warm-start points after %d redraws; "
+                    "using %d repeat(s).", redraw, len(repeats))
+                kept_ids = {id(run) for run in kept}
+                return kept + [run for run in generator_runs if id(run) not in kept_ids]
+            logger.debug("Redrawing %d initializer candidate(s) that repeat warm-start "
+                         "points: %s", len(repeats), repeats)
+            generator_runs = self._normalize_generator_runs(
+                self.generation_strategy.gen(experiment=self.experiment, n=len(repeats)))
+        return kept
+
     def update_with_results(
         self,
         trial_index: int,

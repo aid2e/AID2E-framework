@@ -33,7 +33,7 @@ See [configurations](configurations/) for optimization settings, [python_api](py
 
 ## KB warm start
 
-[dtlz2_ax_joblib_kb.yml](configurations/dtlz2_ax_joblib_kb.yml) takes its first four initial samples from the best trials of similar past runs stored in an AgenticWF knowledge base, and uploads every run back to it. The first run starts cold (the KB has no history yet), and later runs start from the points it stored.
+[dtlz2_ax_joblib_kb.yml](configurations/dtlz2_ax_joblib_kb.yml) takes the first 10 of its 20 initial samples from the best trials of similar past runs stored in an AgenticWF knowledge base, and uploads every run back to it. The first run starts cold (the KB has no history yet), and later runs start from the points it stored.
 
 ```bash
 python3 -m venv .venv

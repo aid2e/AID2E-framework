@@ -1,8 +1,13 @@
-# Ax with JobLib, warm-started from an AgenticWF knowledge base.
+# Ax Bayesian optimization: ten variables, two objectives, 100 evaluations,
+# warm-started from an AgenticWF knowledge base.
 #
-# Each run uploads its trials to the KB; the next run starts from the best
-# points of similar past runs. Needs agenticwf-kb-client (pip install 'aid2e[kb]')
-# and a records KB with the hpo plugin. Set the KB connection and sign in:
+# Identical to dtlz2_ax_joblib.yml except for kb_warm_start (and the output
+# locations), so the two can run side by side for a with/without-KB comparison.
+# The first 10 of the 20 initial samples come from the best trials of similar
+# past runs; each saved batch uploads this run to the KB.
+#
+# Needs agenticwf-kb-client (pip install 'aid2e[kb]') and a records KB with the
+# hpo plugin. Set the KB connection and sign in:
 #   export AGENTICWF_KB_URL=https://aipanda107.cern.ch/app/kb
 #   agenticwf login            # or AGENTICWF_TOKEN=pat_... (see the README)
 # The records KB "aid2e-dtlz2" (a bare slug: one of your own KBs) is created on
@@ -29,18 +34,30 @@ optimizer:
   parameters:
     initialization_strategy: "sobol"
     generator: "BOTORCH_MODULAR"
+    generator_kwargs:
+      surrogate_spec:
+        model_configs:
+          - botorch_model_class: "SingleTaskGP"
+      botorch_acqf_class: "qLogNoisyExpectedHypervolumeImprovement"
+      acquisition_options:
+        prune_baseline: true
+    generator_gen_kwargs:
+      model_gen_options:
+        optimizer_kwargs:
+          sequential: false
+          num_restarts: 10
     objective_thresholds:
       f1: 1.0
       f2: 1.0
-    n_initial_samples: 8
-    n_iterations: 24
+    n_initial_samples: 20
+    n_iterations: 100
     batch_size: 4
-    seed: null
+    seed: 42
     kb_warm_start:
       knowledge_base_ids: ["aid2e-dtlz2"]
       description: "DTLZ2, ten variables, two objectives, Ax BoTorch"
       objective: "f1"       # past runs are ranked on f1
-      n: 4                  # 4 KB points, then 4 Sobol points
+      n: 10                 # 10 KB points, then 10 Sobol points
       upload_kb_id: "aid2e-dtlz2"  # created if missing
       metadata:
         problem: "DTLZ2"

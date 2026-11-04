@@ -35,7 +35,7 @@ optimizer:
     n_initial_samples: 8
     n_iterations: 24
     batch_size: 4
-    seed: 42
+    seed: null
     kb_warm_start:
       knowledge_base_ids: ["aid2e-dtlz2"]
       description: "DTLZ2, ten variables, two objectives, Ax BoTorch"

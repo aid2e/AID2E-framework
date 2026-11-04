@@ -166,6 +166,14 @@ class AxOptimizerConfig(BaseModel):
             )
         return raw_value
 
+    @field_validator("seed", mode="before")
+    @classmethod
+    def _seed_none_string(cls, value: Any) -> Any:
+        """Accept ``none``/``null`` written as YAML strings for an unset seed."""
+        if isinstance(value, str) and value.strip().lower() in ("none", "null", ""):
+            return None
+        return value
+
     @field_validator("generator")
     @classmethod
     def normalize_generator(cls, value: str) -> str:

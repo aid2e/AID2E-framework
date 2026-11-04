@@ -29,6 +29,7 @@ See [configurations](configurations/) for optimization settings, [python_api](py
 | [dtlz2_scheduler_cascade.yml](configurations/dtlz2_scheduler_cascade.yml) | Global, workflow, branch, and stage scheduler precedence. |
 | [dtlz2_sobol_joblib.yml](configurations/dtlz2_sobol_joblib.yml) | Sobol sampling without Bayesian generation. |
 | [dtlz2_ax_joblib_kb.yml](configurations/dtlz2_ax_joblib_kb.yml) | Warm start from, and upload to, an AgenticWF knowledge base. |
+| [dtlz2_ax_panda_kb.yml](configurations/dtlz2_ax_panda_kb.yml) | PanDA/iDDS submission with KB warm start and upload. |
 
 ## KB warm start
 
@@ -50,6 +51,12 @@ agenticwf kb list                                                     # the KB, 
 ```
 
 The first run creates the records KB named by `upload_kb_id` when it does not exist, and later runs reuse it. `aid2e-dtlz2` is a bare slug, one of your own KBs. A `g:<group>:<slug>` ref creates a group KB instead, which needs a group admin. Set `create_upload_kb: false` to require an existing KB.
+
+[dtlz2_ax_panda_kb.yml](configurations/dtlz2_ax_panda_kb.yml) does the same with PanDA/iDDS submission (site setup as for [dtlz2_ax_panda.yml](configurations/dtlz2_ax_panda.yml)). It uses the same `aid2e-dtlz2` KB, so JobLib and PanDA runs warm-start each other; its uploads carry `metadata.scheduler: panda`, which a `filter` can select on. It leaves `seed` unset, so a warm run's Sobol points differ from earlier runs instead of repeating them.
+
+```bash
+aid2e optimize examples/dtlz2/configurations/dtlz2_ax_panda_kb.yml
+```
 
 Warm-started trials carry `ax_model_key: kb_warm_start` and their source (`kb_source`) in `optimization_results.json`. The KB needs the `hpo` records plugin (`[records] plugins = hpo` in kb.cfg).
 

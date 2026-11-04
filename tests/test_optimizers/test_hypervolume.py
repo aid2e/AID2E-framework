@@ -127,3 +127,32 @@ def test_pareto_front_json_single_objective_has_null_hypervolume(tmp_path):
     payload = json.loads((tmp_path / "pareto_front.json").read_text())
     assert payload["hypervolume"] is None
     assert len(payload["trials"]) == 1
+
+
+def test_optimization_loop_logs_trial_and_front_hypervolume(caplog):
+    from aid2e.utilities.runtime_builders import _log_trial_hypervolumes
+
+    optimizer = _StubOptimizer(["f1", "f2"], thresholds={"f1": 1.0, "f2": 1.0})
+    batch = {
+        0: ({"x": 0.1}, {"f1": 0.5, "f2": 0.5}, {}),
+        1: ({"x": 0.2}, {"f1": 0.25, "f2": 0.75}, {"penalized": True}),
+    }
+    for index, (params, metrics, _) in batch.items():
+        optimizer.update_with_results(index, params, metrics)
+
+    with caplog.at_level("INFO", logger="aid2e.utilities.runtime_builders"):
+        _log_trial_hypervolumes(optimizer, batch)
+    assert "Trial 0: f1=0.5, f2=0.5 | trial hypervolume 0.25 | front hypervolume 0.3125 " \
+        "(2 completed trial(s))" in caplog.text
+    assert "Trial 1: f1=0.25, f2=0.75 | trial hypervolume 0.1875 | front hypervolume " \
+        "0.3125 (2 completed trial(s)) [penalized]" in caplog.text
+
+
+def test_single_objective_loop_logs_objectives_only(caplog):
+    from aid2e.utilities.runtime_builders import _log_trial_hypervolumes
+
+    optimizer = _StubOptimizer(["f1"])
+    optimizer.update_with_results(0, {"x": 0.1}, {"f1": 1.0})
+    with caplog.at_level("INFO", logger="aid2e.utilities.runtime_builders"):
+        _log_trial_hypervolumes(optimizer, {0: ({"x": 0.1}, {"f1": 1.0}, {})})
+    assert "Trial 0: f1=1\n" in caplog.text

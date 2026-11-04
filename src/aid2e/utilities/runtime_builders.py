@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib
+import logging
 import shlex
 from datetime import datetime
 from pathlib import Path
@@ -17,6 +18,8 @@ from aid2e.utilities.configurations.workflow_config import (
     WorkflowDefinition,
     WorkflowsConfiguration,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def infer_optimizer_backend(optimizer_cfg: OptimizerConfiguration) -> str:
@@ -415,6 +418,7 @@ def run_optimization(
                         "completed",
                         metadata=metadata,
                     )
+            _log_trial_hypervolumes(optimizer, batch_results)
             outputs.update(optimizer.save_optimization_results(
                     run_dir,
                     errors_by_trial=errors_by_trial))
@@ -422,6 +426,37 @@ def run_optimization(
         scheduler.shutdown()
 
     return outputs
+
+
+def _log_trial_hypervolumes(optimizer, batch_results) -> None:
+    """Log each finished trial's objectives with its and the front's hypervolume."""
+    from aid2e.optimizers.base import point_hypervolume
+
+    hypervolume = optimizer.get_hypervolume()
+    for trial_index in sorted(batch_results):
+        design_point, raw_metrics, metadata = batch_results[trial_index]
+        values = ", ".join(
+            f"{name}={float(raw_metrics[name]):.6g}" for name in optimizer.objective_names
+        )
+        if hypervolume is None:
+            logger.info("Trial %d: %s", trial_index, values)
+            continue
+        own = point_hypervolume(
+            raw_metrics,
+            optimizer.objective_names,
+            optimizer.objective_directions,
+            hypervolume["reference_point"],
+        )
+        logger.info(
+            "Trial %d: %s | trial hypervolume %s | front hypervolume %.6g "
+            "(%d completed trial(s))%s",
+            trial_index,
+            values,
+            "n/a" if own is None else f"{own:.6g}",
+            hypervolume["value"],
+            hypervolume["n_completed_trials"],
+            " [penalized]" if (metadata or {}).get("penalized") else "",
+        )
 
 
 def _run_trial_batch(

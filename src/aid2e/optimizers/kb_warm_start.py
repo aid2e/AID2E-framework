@@ -13,7 +13,7 @@ Notes:
     ``hpo_job`` records are single-objective. Uploads write one record per
     objective and, for multi-objective problems, one hypervolume record whose
     trial values are each trial's single-point hypervolume (the volume between
-    the trial and the run's reference point; larger is better). Suggestions are
+    the trial and the run's observed nadir; larger is better). Suggestions are
     ranked on one or more objectives, or on that hypervolume
     (``KBWarmStartConfig.rank_by``).
 
@@ -34,6 +34,7 @@ from typing import Any, Dict, List, Literal, Optional, Union
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from aid2e.optimizers.base import nadir_reference_point, point_hypervolume
 from aid2e.utilities.configurations.base_models import ChoiceParameter, RangeParameter
 
 logger = logging.getLogger(__name__)
@@ -269,32 +270,6 @@ def hypervolume_objective_name(objective_names: List[str]) -> str:
     return snake("hypervolume_" + "_".join(objective_names))
 
 
-def point_hypervolume(
-    metrics: Dict[str, Any],
-    objective_names: List[str],
-    objective_directions: Dict[str, Any],
-    reference_point: Dict[str, float],
-) -> Optional[float]:
-    """Hypervolume of the box between one trial and the reference point.
-
-    Returns ``0.0`` when the trial does not improve on the reference point in
-    every objective, and ``None`` when an objective value is missing or not
-    finite.
-    """
-    volume = 1.0
-    for name in objective_names:
-        value = (metrics or {}).get(name)
-        if value is None or not math.isfinite(value):
-            return None
-        gain = float(reference_point[name]) - float(value)
-        if direction_of(objective_directions, name) == "maximize":
-            gain = -gain
-        if gain <= 0:
-            return 0.0
-        volume *= gain
-    return volume
-
-
 def kb_search_space(parameters: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
     """An ``hpo_job`` search space from AID2E design parameters."""
     space: Dict[str, Dict[str, Any]] = {}
@@ -514,8 +489,11 @@ def job_records(
     The hypervolume record is added when ``hypervolume`` (as returned by
     ``BaseOptimizer.get_hypervolume()``) is given, the run has two or more
     objectives, and ``config.upload_hypervolume`` is on. Its trial values are
-    each trial's single-point hypervolume against ``hypervolume``'s reference
-    point; the run's front hypervolume is stored in its metadata.
+    each trial's single-point hypervolume against this run's observed nadir
+    (worst value per objective plus a 10% margin, recomputed at each upload),
+    so every completed trial scores above 0 and the KB can rank them. The
+    run's front hypervolume, against ``hypervolume``'s reference point, is
+    stored in its metadata.
 
     Trials imported by a warm start (``warm_started`` metadata) are left out:
     they belong to the runs they came from.
@@ -568,25 +546,38 @@ def job_records(
         for objective in objective_names
     ]
 
-    if hypervolume and len(objective_names) > 1 and config.upload_hypervolume:
-        reference = hypervolume["reference_point"]
+    # Trial scores use this run's observed nadir, not the front's reference
+    # point: a tight configured point (e.g. Ax objective_thresholds) can leave
+    # every trial at 0, and then the KB cannot rank them.
+    score_reference = (
+        nadir_reference_point(own, objective_names, objective_directions)
+        if hypervolume and len(objective_names) > 1 and config.upload_hypervolume
+        else None
+    )
+    if score_reference is not None:
+        front_reference = hypervolume["reference_point"]
         records.append(
             record(
                 f"{job_id}:hypervolume",
                 hypervolume_objective_name(objective_names),
                 "maximize",
                 lambda trial: point_hypervolume(
-                    trial.metrics, objective_names, objective_directions, reference),
+                    trial.metrics, objective_names, objective_directions, score_reference),
                 {
                     "hypervolume": float(hypervolume["value"]),
-                    "hypervolume_reference_point": ",".join(
-                        f"{name}={reference[name]:.6g}" for name in objective_names),
+                    "hypervolume_reference_point": _point_text(front_reference, objective_names),
                     "hypervolume_reference_point_source":
                         hypervolume.get("reference_point_source", ""),
+                    "trial_score_reference_point": _point_text(score_reference, objective_names),
                 },
             )
         )
     return records
+
+
+def _point_text(point: Dict[str, float], objective_names: List[str]) -> str:
+    """``"f1=1.1,f2=0.8"``: a point as a scalar metadata value."""
+    return ",".join(f"{name}={point[name]:.6g}" for name in objective_names)
 
 
 def upload(client, kb_id: str, records: List[Dict[str, Any]]) -> Dict[str, Any]:

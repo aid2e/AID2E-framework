@@ -270,11 +270,14 @@ else the `agenticwf login` sign-in.
   `upload_hypervolume: false`. Its objective is `hypervolume_<objectives>`
   (for example `hypervolume_f1_f2`, maximized), so it only matches runs with
   the same objectives. Each trial's value is its single-point hypervolume: the
-  volume of the box between the trial and the run's hypervolume reference
-  point (see `get_hypervolume()`), `0` if the trial does not improve on it in
-  every objective. Values only rank trials within a run. The metadata holds the
-  run's front `hypervolume`, `hypervolume_reference_point` and
-  `hypervolume_reference_point_source`. Runs uploaded before this record
+  volume of the box between the trial and the run's observed nadir (worst
+  value per objective plus a 10% margin, recomputed at each upload), so every
+  completed trial scores above 0. The configured reference point is not used
+  for these scores: a tight one such as `objective_thresholds: {f1: 1, f2: 1}`
+  on DTLZ2 would leave almost every trial at 0, and the KB could not rank
+  them. Values only rank trials within a run. The metadata holds the run's
+  front `hypervolume` with its `hypervolume_reference_point` and
+  `hypervolume_reference_point_source`, plus `trial_score_reference_point`. Runs uploaded before this record
   existed have no hypervolume record, so `rank_by: hypervolume` cannot draw
   from them.
 - A KB that cannot be reached only logs a warning: the run starts cold, or skips

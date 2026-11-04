@@ -411,3 +411,26 @@ def test_rejected_upload_is_logged_as_a_failure(fake_kb, tmp_path, caplog):
     optimizer.save_optimization_results(tmp_path)
     assert "KB upload of run run-9 to aid2e:aid2e FAILED: KB rejected 1 of 1 record(s): " \
         "run-9: metadata.x: bad" in caplog.text
+
+
+def test_hypervolume_scores_rank_trials_outside_a_tight_reference_point():
+    """With objective_thresholds (1, 1), random DTLZ2 trials all lie outside the box."""
+    from aid2e.optimizers.base import Trial
+
+    trials = [
+        Trial(index=0, parameters={"x": 0.1}, metrics={"f1": 1.6, "f2": 0.01}, status="completed"),
+        Trial(index=1, parameters={"x": 0.2}, metrics={"f1": 1.2, "f2": 1.2}, status="completed"),
+        Trial(index=2, parameters={"x": 0.3}, metrics={"f1": 1.8, "f2": 1.8}, status="completed"),
+    ]
+    front = {"value": 0.0, "reference_point": {"f1": 1.0, "f2": 1.0},
+             "reference_point_source": "configured", "n_completed_trials": 3}
+    records = kb_warm_start.job_records(
+        trials, KBWarmStartConfig(), "run-3", _search_space().parameters,
+        ["f1", "f2"], {}, framework="aid2e-ax", hypervolume=front)
+    hv = records[-1]
+    assert hv["metadata"]["hypervolume_reference_point"] == "f1=1,f2=1"
+    assert hv["metadata"]["trial_score_reference_point"] == "f1=1.86,f2=1.979"
+    scores = [t["value"] for t in hv["trials"]]
+    assert all(score > 0 for score in scores)
+    # The dominated trial scores lowest; the two front trials rank above it.
+    assert scores[2] < min(scores[0], scores[1])

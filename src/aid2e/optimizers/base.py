@@ -22,6 +22,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple, Union
 import json
 import logging
+import math
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -429,6 +430,31 @@ def compute_hypervolume(
     if F.size == 0:
         return 0.0
     return float(HV(ref_point=ref)(F))
+
+
+def point_hypervolume(
+    metrics: Dict[str, Any],
+    objective_names: List[str],
+    objective_directions: Optional[Dict[str, Any]],
+    reference_point: Dict[str, float],
+) -> Optional[float]:
+    """Hypervolume of the box between one trial and the reference point.
+
+    Returns ``0.0`` when the trial does not improve on the reference point in
+    every objective, and ``None`` when an objective value is missing or not
+    finite.
+    """
+    volume = 1.0
+    for name in objective_names:
+        value = (metrics or {}).get(name)
+        if value is None or not math.isfinite(value):
+            return None
+        gain = (float(reference_point[name]) - float(value)) * _objective_sign(
+            objective_directions, name)
+        if gain <= 0:
+            return 0.0
+        volume *= gain
+    return volume
 
 
 def nadir_reference_point(

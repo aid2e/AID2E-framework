@@ -1256,3 +1256,47 @@ def test_dtlz2_dataset_ana_reads_and_prints_simreco_messages(tmp_path, capsys):
     assert result == {"xyz": 4.0, "n_inputs": 2}
     assert f"ana read from {first}: first simreco message" in captured.out
     assert f"ana read from {second}: second simreco message" in captured.out
+
+
+def test_paths_under_source_dir_are_sent_relative(monkeypatch, tmp_path):
+    """Only source_dir is uploaded to PanDA, so local absolute paths must be relative."""
+    state = install_fake_idds(monkeypatch, result={"f1": 1.0, "f2": 2.0})
+    source = tmp_path / "repo"
+    config_dir = source / "examples" / "dtlz2" / "configurations"
+    config_dir.mkdir(parents=True)
+    scheduler = PanDAiDDSScheduler(
+        PanDAiDDSRunnerConfig(name="user.test.panda", source_dir=str(source))
+    )
+    outside = str(tmp_path / "scratch" / "run")
+
+    result = scheduler.run_stage(
+        "optimizer_batch_1_trials",
+        [
+            {
+                "job_id": "0",
+                "name": "trial_0",
+                "function": panda_test_evaluator,
+                "params": {
+                    "config_path": str(config_dir / "dtlz2_ax_panda_kb.yml"),
+                    "run_dir": str(config_dir / "output" / "run"),
+                    "run_work_dir": outside,
+                    "paths": [str(source)],
+                    "trial_index": 0,
+                    "label": "/not/under/source",
+                },
+            }
+        ],
+        parallelism_policy={"poll_interval": 0},
+        working_dir=str(config_dir / "work" / "run"),
+    )
+
+    assert result.success is True
+    op_kwargs = state["work_params"]["op_kwargs"]
+    assert op_kwargs["config_path"] == "examples/dtlz2/configurations/dtlz2_ax_panda_kb.yml"
+    assert op_kwargs["run_dir"] == "examples/dtlz2/configurations/output/run"
+    assert op_kwargs["run_work_dir"] == outside  # not uploaded: left as is
+    assert op_kwargs["paths"] == ["."]
+    assert op_kwargs["trial_index"] == 0
+    assert op_kwargs["label"] == "/not/under/source"
+    context_payload = state["work_params"]["context_payload"]
+    assert context_payload["execution_dir"] == "examples/dtlz2/configurations/work/run"

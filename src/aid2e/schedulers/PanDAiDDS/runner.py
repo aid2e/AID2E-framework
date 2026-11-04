@@ -677,6 +677,41 @@ class PanDAiDDSScheduler(BaseScheduler):
             "output_dir": getattr(context, "output_dir", None),
         }
 
+    def _source_root(self) -> Optional[Path]:
+        """The local directory iDDS uploads, resolved as at submission."""
+        source_dir = getattr(self.config, "source_dir", None)
+        return Path(source_dir).resolve() if source_dir else None
+
+    def _relative_to_source(self, value: Any) -> Any:
+        """Rewrite local absolute paths under the uploaded source dir as relative paths.
+
+        iDDS uploads only ``source_dir`` and extracts it in the PanDA worker's
+        working directory, so an absolute local path (e.g. ``/afs/...``) does
+        not exist there, while the same path relative to ``source_dir`` does.
+        Applied recursively to dicts, lists and tuples; other values and paths
+        outside ``source_dir`` are returned unchanged.
+        """
+        root = self._source_root()
+        if root is None:
+            return value
+
+        def convert(item: Any) -> Any:
+            if isinstance(item, dict):
+                return {key: convert(val) for key, val in item.items()}
+            if isinstance(item, (list, tuple)):
+                return type(item)(convert(val) for val in item)
+            if isinstance(item, Path):
+                return convert(str(item))
+            if isinstance(item, str) and os.path.isabs(item):
+                try:
+                    relative = Path(item).resolve().relative_to(root)
+                except (ValueError, OSError):
+                    return item
+                return relative.as_posix() or "."
+            return item
+
+        return convert(value)
+
     def _idds_work_dataset_kwargs(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         """Extract iDDS dataset/dependency kwargs from a scheduler payload."""
         aliases = {
@@ -744,10 +779,11 @@ class PanDAiDDSScheduler(BaseScheduler):
             params,
             working_dir,
         )
+        # Only source_dir is uploaded; send paths relative to it.
         work_params = {
             "callable_ref": callable_ref,
-            "context_payload": context_payload,
-            "op_kwargs": params,
+            "context_payload": self._relative_to_source(context_payload),
+            "op_kwargs": self._relative_to_source(params),
             "with_context": with_context,
         }
         work_kwargs = {

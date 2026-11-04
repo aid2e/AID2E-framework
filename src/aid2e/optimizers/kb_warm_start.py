@@ -10,9 +10,12 @@ Install the client with ``pip install agenticwf-kb-client`` (or from a
 checkout: ``pip install ../agenticwf-kb/client``).
 
 Notes:
-    ``hpo_job`` records are single-objective. For multi-objective problems the
-    suggestion is ranked on one objective (``KBWarmStartConfig.objective``), and
-    uploads write one record per objective.
+    ``hpo_job`` records are single-objective. Uploads write one record per
+    objective and, for multi-objective problems, one hypervolume record whose
+    trial values are each trial's single-point hypervolume (the volume between
+    the trial and the run's reference point; larger is better). Suggestions are
+    ranked on one or more objectives, or on that hypervolume
+    (``KBWarmStartConfig.rank_by``).
 
     The KB canonicalises parameter names to lowercase ``snake_case``
     (``DTLZ2.x1`` -> ``dtlz2_x1``). Names are mapped back with the same rule, so
@@ -26,7 +29,8 @@ import datetime
 import logging
 import math
 import re
-from typing import Any, Dict, List, Optional
+from itertools import zip_longest
+from typing import Any, Dict, List, Literal, Optional, Union
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -58,8 +62,13 @@ class KBWarmStartConfig(BaseModel):
             agenticwf-auth-client).
         knowledge_base_ids: Records KBs to draw past runs from. ``None``
             searches every records KB the caller can read.
-        objective: Objective the suggestion is ranked on. Defaults to the first
-            objective.
+        rank_by: How past trials are ranked. ``"objectives"`` ranks on
+            ``objective``; ``"hypervolume"`` ranks on past runs' hypervolume
+            records (multi-objective problems only), favouring trials that are
+            good in every objective at once.
+        objective: With ``rank_by="objectives"``, the objective, or list of
+            objectives, the suggestion is ranked on. A list splits the ``n``
+            points between the objectives. Defaults to the first objective.
         description: Free text describing this run; the KB matches it against
             past runs' descriptions.
         n: Number of warm-start points. Initialization samples beyond ``n``
@@ -82,6 +91,8 @@ class KBWarmStartConfig(BaseModel):
         metadata: Metadata stored with the uploaded record(s), usable in
             ``filter`` by later runs. Values must be strings, numbers or
             booleans (``hpo_job`` rejects nested values).
+        upload_hypervolume: For multi-objective runs, also upload the
+            hypervolume record that ``rank_by="hypervolume"`` reads.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -89,7 +100,8 @@ class KBWarmStartConfig(BaseModel):
     url: Optional[str] = None
     token: Optional[str] = None
     knowledge_base_ids: Optional[List[str]] = None
-    objective: Optional[str] = None
+    rank_by: Literal["objectives", "hypervolume"] = "objectives"
+    objective: Optional[Union[str, List[str]]] = None
     description: str = ""
     n: int = Field(default=5, ge=0)
     include_history: bool = False
@@ -99,6 +111,14 @@ class KBWarmStartConfig(BaseModel):
     create_upload_kb: bool = True
     job_id: Optional[str] = None
     metadata: Dict[str, Any] = Field(default_factory=dict)
+    upload_hypervolume: bool = True
+
+    @field_validator("objective")
+    @classmethod
+    def _non_empty_objective(cls, objective):
+        if isinstance(objective, list) and not objective:
+            raise ValueError("objective list must not be empty")
+        return objective
 
     @field_validator("metadata")
     @classmethod
@@ -240,6 +260,41 @@ def direction_of(objective_directions: Dict[str, Any], name: str) -> str:
     return "maximize" if str(direction).lower() == "maximize" else "minimize"
 
 
+def hypervolume_objective_name(objective_names: List[str]) -> str:
+    """Objective name of the hypervolume record for this set of objectives.
+
+    Including the objective names keeps hypervolume records of unrelated
+    problems apart in the KB.
+    """
+    return snake("hypervolume_" + "_".join(objective_names))
+
+
+def point_hypervolume(
+    metrics: Dict[str, Any],
+    objective_names: List[str],
+    objective_directions: Dict[str, Any],
+    reference_point: Dict[str, float],
+) -> Optional[float]:
+    """Hypervolume of the box between one trial and the reference point.
+
+    Returns ``0.0`` when the trial does not improve on the reference point in
+    every objective, and ``None`` when an objective value is missing or not
+    finite.
+    """
+    volume = 1.0
+    for name in objective_names:
+        value = (metrics or {}).get(name)
+        if value is None or not math.isfinite(value):
+            return None
+        gain = float(reference_point[name]) - float(value)
+        if direction_of(objective_directions, name) == "maximize":
+            gain = -gain
+        if gain <= 0:
+            return 0.0
+        volume *= gain
+    return volume
+
+
 def kb_search_space(parameters: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
     """An ``hpo_job`` search space from AID2E design parameters."""
     space: Dict[str, Dict[str, Any]] = {}
@@ -313,15 +368,14 @@ def suggest(
         ``{"points": [...], "history": [...], "source_jobs": [...]}`` where each
         point and history entry has ``params`` in AID2E names. ``history`` is
         empty unless ``include_history`` applies. Each point keeps the KB's
-        ``source`` and ``score``.
+        ``source`` and ``score`` and gains ``ranked_on``, the KB objective it
+        was ranked on.
+
+    Raises:
+        ValueError: ``objective`` names an unknown objective, or
+            ``rank_by="hypervolume"`` is used with a single objective.
     """
-    objective = config.objective or objective_names[0]
-    if objective not in objective_names:
-        raise ValueError(
-            f"KB warm-start objective '{objective}' is not one of {objective_names}."
-        )
-    if config.objective is None and len(objective_names) > 1:
-        logger.info("KB warm start ranks past runs on objective '%s'.", objective)
+    rankings = _rankings(config, objective_names, objective_directions)
 
     include_history = config.include_history
     if include_history and len(objective_names) > 1:
@@ -329,51 +383,114 @@ def suggest(
         include_history = False
 
     mapping = name_map(parameters)
-    body: Dict[str, Any] = {
-        "objective": {
-            "name": objective,
-            "direction": direction_of(objective_directions, objective),
-        },
-        "search_space": kb_search_space(parameters),
-        "description": config.description,
-        "n": config.n,
-        "n_total": config.n,
-        "options": {**config.options, "include_history": include_history},
-    }
     kb_ids = config.knowledge_base_ids if knowledge_base_ids is None else knowledge_base_ids
-    if kb_ids:
-        body["knowledge_base_ids"] = kb_ids
-    if config.filter:
-        body["filter"] = config.filter
-    data = client.suggest(**body)
+    space = kb_search_space(parameters)
 
-    points = []
-    for point in data.get("points", []):
-        # The KB pads missing warm points with Halton points; the optimizer's
-        # own initializer covers the space instead.
-        if "job_id" not in point.get("source", {}):
-            continue
-        params = to_aid2e_params(point["params"], mapping, parameters)
-        if params is not None:
-            points.append({**point, "params": params})
+    per_ranking: List[List[Dict[str, Any]]] = []
+    history: List[Dict[str, Any]] = []
+    source_jobs: List[Dict[str, Any]] = []
+    # Each ranking asks for all n points, so a ranking that finds fewer leaves
+    # room for the others.
+    for ranking in rankings:
+        body: Dict[str, Any] = {
+            "objective": ranking,
+            "search_space": space,
+            "description": config.description,
+            "n": config.n,
+            "n_total": config.n,
+            "options": {**config.options, "include_history": include_history},
+        }
+        if kb_ids:
+            body["knowledge_base_ids"] = kb_ids
+        if config.filter:
+            body["filter"] = config.filter
+        data = client.suggest(**body)
 
-    history = []
-    for past in (data.get("history") or []) if include_history else []:
-        value = past.get("value")
-        if value is None or not math.isfinite(value):
-            continue
-        params = to_aid2e_params(past["params"], mapping, parameters)
-        if params is not None:
-            history.append({**past, "params": params, "objective": objective})
+        points = []
+        for point in data.get("points", []):
+            # The KB pads missing warm points with Halton points; the optimizer's
+            # own initializer covers the space instead.
+            if "job_id" not in point.get("source", {}):
+                continue
+            params = to_aid2e_params(point["params"], mapping, parameters)
+            if params is not None:
+                points.append({**point, "params": params, "ranked_on": ranking["name"]})
+        per_ranking.append(points)
 
-    for job in data.get("source_jobs", []):
-        logger.info(
-            "KB source run %s: similarity %.2f %s",
-            job.get("job_id"),
-            job.get("similarity", 0.0),
-            job.get("breakdown", {}),
+        for past in (data.get("history") or []) if include_history else []:
+            value = past.get("value")
+            if value is None or not math.isfinite(value):
+                continue
+            params = to_aid2e_params(past["params"], mapping, parameters)
+            if params is not None:
+                history.append({**past, "params": params, "objective": ranking["name"]})
+
+        for job in data.get("source_jobs", []):
+            logger.info(
+                "KB source run %s (ranked on %s): similarity %.2f %s",
+                job.get("job_id"),
+                ranking["name"],
+                job.get("similarity", 0.0),
+                job.get("breakdown", {}),
+            )
+        source_jobs.extend(data.get("source_jobs", []))
+
+    return {
+        "points": _interleave(per_ranking, config.n),
+        "history": history,
+        "source_jobs": source_jobs,
+    }
+
+
+def _rankings(
+    config: KBWarmStartConfig,
+    objective_names: List[str],
+    objective_directions: Dict[str, Any],
+) -> List[Dict[str, str]]:
+    """The KB objectives (``{"name", "direction"}``) to rank past trials on."""
+    if config.rank_by == "hypervolume":
+        if len(objective_names) < 2:
+            raise ValueError(
+                "KB warm start rank_by='hypervolume' needs two or more objectives.")
+        if config.objective is not None:
+            logger.warning("KB warm start ranks on hypervolume; 'objective' is ignored.")
+        name = hypervolume_objective_name(objective_names)
+        logger.info("KB warm start ranks past runs on hypervolume ('%s').", name)
+        return [{"name": name, "direction": "maximize"}]
+
+    if config.objective is None:
+        objectives = [objective_names[0]]
+        if len(objective_names) > 1:
+            logger.info("KB warm start ranks past runs on objective '%s'.", objectives[0])
+    elif isinstance(config.objective, str):
+        objectives = [config.objective]
+    else:
+        objectives = list(dict.fromkeys(config.objective))
+    unknown = [name for name in objectives if name not in objective_names]
+    if unknown:
+        raise ValueError(
+            f"KB warm-start objective '{unknown[0]}' is not one of {objective_names}."
         )
-    return {"points": points, "history": history, "source_jobs": data.get("source_jobs", [])}
+    return [{"name": name, "direction": direction_of(objective_directions, name)}
+            for name in objectives]
+
+
+def _interleave(per_ranking: List[List[Dict[str, Any]]], n: int) -> List[Dict[str, Any]]:
+    """Up to ``n`` points taken from each ranking in turn, without repeats."""
+    points: List[Dict[str, Any]] = []
+    seen = set()
+    for round_points in zip_longest(*per_ranking):
+        for point in round_points:
+            if point is None:
+                continue
+            key = tuple(sorted((k, repr(v)) for k, v in point["params"].items()))
+            if key in seen:
+                continue
+            seen.add(key)
+            points.append(point)
+            if len(points) >= n:
+                return points
+    return points
 
 
 def default_job_id(name: Optional[str] = None) -> str:
@@ -390,8 +507,15 @@ def job_records(
     objective_names: List[str],
     objective_directions: Dict[str, Any],
     framework: str,
+    hypervolume: Optional[Dict[str, Any]] = None,
 ) -> List[Dict[str, Any]]:
-    """``hpo_job`` records for this run, one per objective.
+    """``hpo_job`` records for this run, one per objective, plus a hypervolume record.
+
+    The hypervolume record is added when ``hypervolume`` (as returned by
+    ``BaseOptimizer.get_hypervolume()``) is given, the run has two or more
+    objectives, and ``config.upload_hypervolume`` is on. Its trial values are
+    each trial's single-point hypervolume against ``hypervolume``'s reference
+    point; the run's front hypervolume is stored in its metadata.
 
     Trials imported by a warm start (``warm_started`` metadata) are left out:
     they belong to the runs they came from.
@@ -399,12 +523,17 @@ def job_records(
     space = kb_search_space(parameters)
     own = [t for t in trials if t is not None and not (t.metadata or {}).get("warm_started")]
     finished_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
-    records = []
-    for objective in objective_names:
-        record_id = job_id if len(objective_names) == 1 else f"{job_id}:{objective}"
+    metadata = {
+        "framework": framework,
+        # hpo_job metadata values must be scalars.
+        "objectives": ",".join(objective_names),
+        **config.metadata,
+    }
+
+    def record(record_id, objective, direction, value_of, extra_metadata=None):
         record_trials = []
         for trial in own:
-            value = (trial.metrics or {}).get(objective)
+            value = value_of(trial)
             if value is not None and not math.isfinite(value):
                 value = None
             status = _TRIAL_STATUS.get(trial.status, "running")
@@ -418,25 +547,44 @@ def job_records(
                     "status": status,
                 }
             )
+        return {
+            "job_id": record_id,
+            "record_name": record_id,
+            "description": config.description,
+            "finished_at": finished_at,
+            "objective": {"name": objective, "direction": direction},
+            "search_space": space,
+            "trials": record_trials,
+            "metadata": {**metadata, **(extra_metadata or {})},
+        }
+
+    records = [
+        record(
+            job_id if len(objective_names) == 1 else f"{job_id}:{objective}",
+            objective,
+            direction_of(objective_directions, objective),
+            lambda trial, objective=objective: (trial.metrics or {}).get(objective),
+        )
+        for objective in objective_names
+    ]
+
+    if hypervolume and len(objective_names) > 1 and config.upload_hypervolume:
+        reference = hypervolume["reference_point"]
         records.append(
-            {
-                "job_id": record_id,
-                "record_name": record_id,
-                "description": config.description,
-                "finished_at": finished_at,
-                "objective": {
-                    "name": objective,
-                    "direction": direction_of(objective_directions, objective),
+            record(
+                f"{job_id}:hypervolume",
+                hypervolume_objective_name(objective_names),
+                "maximize",
+                lambda trial: point_hypervolume(
+                    trial.metrics, objective_names, objective_directions, reference),
+                {
+                    "hypervolume": float(hypervolume["value"]),
+                    "hypervolume_reference_point": ",".join(
+                        f"{name}={reference[name]:.6g}" for name in objective_names),
+                    "hypervolume_reference_point_source":
+                        hypervolume.get("reference_point_source", ""),
                 },
-                "search_space": space,
-                "trials": record_trials,
-                "metadata": {
-                    "framework": framework,
-                    # hpo_job metadata values must be scalars.
-                    "objectives": ",".join(objective_names),
-                    **config.metadata,
-                },
-            }
+            )
         )
     return records
 

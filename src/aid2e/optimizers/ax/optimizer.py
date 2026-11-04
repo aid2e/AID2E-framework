@@ -278,6 +278,7 @@ class AxOptimizer(BaseOptimizer):
             self.objective_names,
             self.objective_directions,
             framework="aid2e-ax",
+            hypervolume=self.get_hypervolume(),
         )
         try:
             with kb_warm_start.make_client(kb_config) as client:

@@ -137,6 +137,8 @@ aid2e version
 
 After each completed batch, `aid2e optimize` saves `optimization_results.json` (trial results) and `pareto_front.json` (Pareto solutions) under `<output>/<run-id>/`. Records include design parameters, objectives, objective errors, and trial metadata. Trial results also include status. Trial workflow outputs are kept under `trials/trial_<index>/`. Use `--log FILE` and verbosity settings to save trial progress.
 
+`pareto_front.json` is an object with `objective_names`, `objective_directions`, `hypervolume`, and `trials` (the Pareto solutions). For two or more objectives, `hypervolume` holds the current `value`, the `reference_point` used, its `reference_point_source`, `n_completed_trials`, and a `history` with one entry per saved batch. The reference point comes from Ax `objective_thresholds` when every objective has one (`configured`). Otherwise it is set from the worst observed values plus a 10% margin the first time it is needed, then reused for the rest of the run (`observed_nadir`), so values stay comparable between batches. This fixed reference point is not stored in the optimizer state, so a resumed run may pick a different one. For single-objective problems `hypervolume` is `null`.
+
 Objective fields named `<objective>_err` are saved as `objective_errors`; they are not yet passed to Ax as standard errors. Penalized trials retain the penalty flag and failure reason in metadata, and count toward `max_failed_trials`.
 
 `--validate-only` checks configuration loading; it does not execute jobs or verify the external software environment. Saved results do not provide automatic CLI resume.

@@ -3,7 +3,7 @@
 #
 # Identical to dtlz2_ax_joblib.yml except for kb_warm_start (and the output
 # locations), so the two can run side by side for a with/without-KB comparison.
-# The first 10 of the 20 initial samples come from the best trials of similar
+# The first 10 of the 20 initial samples come from the highest-hypervolume trials of similar
 # past runs; each saved batch uploads this run to the KB.
 #
 # Needs agenticwf-kb-client (pip install 'aid2e[kb]') and a records KB with the
@@ -56,11 +56,13 @@ optimizer:
     kb_warm_start:
       knowledge_base_ids: ["aid2e-dtlz2"]
       description: "DTLZ2, ten variables, two objectives, Ax BoTorch"
-      objective: "f1"       # past runs are ranked on f1
+      rank_by: "hypervolume" # rank past trials on their hypervolume record (f1 and f2 together)
       n: 10                 # 10 KB points, then 10 Sobol points
       upload_kb_id: "aid2e-dtlz2"  # created if missing
       metadata:
         problem: "DTLZ2"
+      # rank_by: "objectives"      # default
+      # objective: ["f1", "f2"]    # one name, or a list
 
 scheduler:
   runner_type: "JobLibRunner"

@@ -75,6 +75,14 @@ using minimization semantics for every objective. It only considers trials whose
 status is `completed` and that have metrics. The function is used by the base
 implementation and is not Ax- or PyMOO-specific.
 
+### `compute_hypervolume`
+
+`compute_hypervolume(trials, objective_names, reference_point, objective_directions)`
+returns the hypervolume dominated by completed trials up to `reference_point`
+(given in original units, respecting each objective's direction), using
+`pymoo.indicators.hv.HV`. `nadir_reference_point()` derives a reference point
+from the worst observed values plus a 10% margin.
+
 ### `BaseOptimizer`
 
 `BaseOptimizer` owns the shared trial ledger and the default result utilities. It
@@ -106,6 +114,13 @@ backends that need warm-start behavior must add their own override.
 `get_pareto_front()` delegates to `compute_pareto_front()`. `get_best_trial()`
 uses the first Pareto member for multi-objective cases and the lowest-valued
 trial for single-objective cases.
+
+`get_hypervolume()` returns the Pareto-front hypervolume for problems with two
+or more objectives. Its reference point comes from
+`get_hypervolume_reference_point()`, which by default reads the config's
+`objective_thresholds`; otherwise it falls back to a nadir-based point that is
+set once and then reused. `save_optimization_results()` writes it, along with
+its per-batch history, into `pareto_front.json`.
 
 `get_optimization_results()` and `save_optimization_results()` provide a stable
 JSON-friendly result export, including raw status and display status labels.
@@ -212,7 +227,8 @@ optimizer:
     kb_warm_start:
       knowledge_base_ids: ["g:aid2e:aid2e-history"]  # omit: every records KB you can read
       description: "BIC calorimeter layer thickness scan"
-      objective: "f1"           # multi-objective: the objective past runs are ranked on
+      rank_by: "objectives"     # or "hypervolume" (multi-objective only)
+      objective: "f1"           # rank_by objectives: one objective, or a list such as ["f1", "f2"]
       n: 4                      # KB points; the other 8 initial samples come from Sobol
       filter: {field: "metadata.detector", op: "eq", value: "bic"}
       upload_kb_id: "g:aid2e:aid2e-history"         # store this run for later ones
@@ -231,6 +247,14 @@ else the `agenticwf login` sign-in.
   strategy. They become ordinary Ax trials (metadata `ax_model_key:
   kb_warm_start`, `kb_source`, `kb_score`) and count toward
   `n_initial_samples`.
+- `rank_by` chooses how past trials are ranked:
+  - `objectives` (default) ranks on `objective`, the first objective by
+    default. A list makes one KB query per objective and takes points from each
+    in turn, without repeats, up to `n`. Use it to seed with good points for
+    each objective.
+  - `hypervolume` ranks on past runs' hypervolume records (see below),
+    favouring points that are good in every objective at once. It needs two or
+    more objectives; `objective` is ignored.
 - With `include_history: true` (single objective only), trials of past runs with
   the identical search space and objective are imported as completed trials, as
   the snapshot warm start does.
@@ -242,6 +266,17 @@ else the `agenticwf login` sign-in.
 - With `upload_kb_id`, `save_optimization_results()` upserts the run as `hpo_job`
   records keyed by `job_id`: one record per objective, `<job_id>:<objective>`
   when there are several. Imported trials (`warm_started`) are not uploaded.
+- Multi-objective runs also upload `<job_id>:hypervolume` unless
+  `upload_hypervolume: false`. Its objective is `hypervolume_<objectives>`
+  (for example `hypervolume_f1_f2`, maximized), so it only matches runs with
+  the same objectives. Each trial's value is its single-point hypervolume: the
+  volume of the box between the trial and the run's hypervolume reference
+  point (see `get_hypervolume()`), `0` if the trial does not improve on it in
+  every objective. Values only rank trials within a run. The metadata holds the
+  run's front `hypervolume`, `hypervolume_reference_point` and
+  `hypervolume_reference_point_source`. Runs uploaded before this record
+  existed have no hypervolume record, so `rank_by: hypervolume` cannot draw
+  from them.
 - A KB that cannot be reached only logs a warning: the run starts cold, or skips
   the upload.
 

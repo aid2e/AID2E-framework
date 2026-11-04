@@ -241,18 +241,85 @@ def test_upload_records_this_run(fake_kb, tmp_path, caplog):
     optimizer.config.save_snapshot = False
     with caplog.at_level("INFO", logger="aid2e.optimizers.ax.optimizer"):
         optimizer.save_optimization_results(tmp_path)
-    assert "KB upload of run bic-run-7 to aid2e:aid2e succeeded: 2 record(s), 2 trial(s) " \
-        "(2 created, 0 updated, 0 unchanged, 0 invalid)." in caplog.text
+    assert "KB upload of run bic-run-7 to aid2e:aid2e succeeded: 3 record(s), 2 trial(s) " \
+        "(3 created, 0 updated, 0 unchanged, 0 invalid)." in caplog.text
 
     kb_id, records, record_type = fake_kb.uploads[0]
     assert (kb_id, record_type) == ("id-aid2e", "hpo_job")
     assert fake_kb.created == []
-    assert [r["job_id"] for r in records] == ["bic-run-7:f1", "bic-run-7:f2"]
+    assert [r["job_id"] for r in records] == [
+        "bic-run-7:f1", "bic-run-7:f2", "bic-run-7:hypervolume"]
     f2 = records[1]
     assert f2["objective"] == {"name": "f2", "direction": "minimize"}
     assert f2["metadata"]["detector"] == "bic"
     assert f2["metadata"]["objectives"] == "f1,f2"
     assert [(t["status"], t["value"]) for t in f2["trials"]] == [("complete", 2.0), ("fail", None)]
+
+    # One completed trial: the observed-nadir reference point pads each value by 10%.
+    hv = records[2]
+    assert hv["objective"] == {"name": "hypervolume_f1_f2", "direction": "maximize"}
+    assert hv["metadata"]["hypervolume"] == pytest.approx(0.02)
+    assert hv["metadata"]["hypervolume_reference_point"] == "f1=1.1,f2=2.2"
+    assert hv["metadata"]["hypervolume_reference_point_source"] == "observed_nadir"
+    assert [t["status"] for t in hv["trials"]] == ["complete", "fail"]
+    assert hv["trials"][0]["value"] == pytest.approx(0.02)
+
+
+def test_upload_hypervolume_can_be_turned_off(fake_kb, tmp_path):
+    optimizer = _optimizer(objectives=("f1", "f2"), upload_kb_id="aid2e:aid2e",
+                           job_id="run-2", upload_hypervolume=False)
+    (params,) = optimizer.suggest_candidates(1)
+    optimizer.update_with_results(0, params, {"f1": 1.0, "f2": 2.0})
+    optimizer.config.save_snapshot = False
+    optimizer.save_optimization_results(tmp_path)
+    assert [r["job_id"] for r in fake_kb.uploads[0][1]] == ["run-2:f1", "run-2:f2"]
+
+
+def test_point_hypervolume_respects_directions_and_reference():
+    ref = {"f1": 1.0, "f2": 0.0}
+    directions = {"f2": "maximize"}
+    assert kb_warm_start.point_hypervolume(
+        {"f1": 0.5, "f2": 0.5}, ["f1", "f2"], directions, ref) == pytest.approx(0.25)
+    assert kb_warm_start.point_hypervolume(
+        {"f1": 1.5, "f2": 0.5}, ["f1", "f2"], directions, ref) == 0.0
+    assert kb_warm_start.point_hypervolume(
+        {"f1": 0.5}, ["f1", "f2"], directions, ref) is None
+
+
+def test_rank_by_hypervolume_queries_the_hypervolume_record(fake_kb):
+    fake_kb.response["points"] = [
+        {"params": {"group1_x": 0.2, "group1_y": 0.3}, "source": {"job_id": "old:hypervolume"}},
+    ]
+    optimizer = _optimizer(objectives=("f1", "f2"), rank_by="hypervolume")
+    (body,) = fake_kb.suggest_calls
+    assert body["objective"] == {"name": "hypervolume_f1_f2", "direction": "maximize"}
+    assert [p["ranked_on"] for p in optimizer._kb_points] == ["hypervolume_f1_f2"]
+
+
+def test_rank_by_hypervolume_needs_several_objectives(fake_kb):
+    with pytest.raises(ValueError, match="two or more objectives"):
+        _optimizer(rank_by="hypervolume")
+
+
+def test_rank_on_several_objectives_interleaves_points(fake_kb):
+    responses = {
+        "f1": [{"group1_x": 0.1, "group1_y": 0.1}, {"group1_x": 0.2, "group1_y": 0.2}],
+        "f2": [{"group1_x": 0.1, "group1_y": 0.1}, {"group1_x": 0.9, "group1_y": 0.1}],
+    }
+
+    def suggest(**body):
+        fake_kb.suggest_calls.append(body)
+        name = body["objective"]["name"]
+        return {"points": [{"params": p, "source": {"job_id": f"old:{name}"}}
+                           for p in responses[name]],
+                "source_jobs": [], "history": None}
+
+    fake_kb.suggest = suggest
+    optimizer = _optimizer(objectives=("f1", "f2"), objective=["f1", "f2"], n=3)
+    assert [b["objective"]["name"] for b in fake_kb.suggest_calls] == ["f1", "f2"]
+    # Round robin f1, f2, f1, ...; the repeated point from f2 is dropped.
+    assert [(p["ranked_on"], p["params"]["group1.x"]) for p in optimizer._kb_points] == [
+        ("f1", 0.1), ("f1", 0.2), ("f2", 0.9)]
 
 
 def test_serialized_state_hides_token(fake_kb):

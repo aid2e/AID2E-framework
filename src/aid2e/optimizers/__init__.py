@@ -33,8 +33,7 @@ __all__ = [
     "AID2EProblem",
 ]
 
-# BEGIN modification Baptiste
-# Lazy import: do not use all Ax if only for Trail
+# Lazy import: do not use Ax if only executing workflow for Trial
 def __getattr__(name):
     if name in ("AxOptimizer", "AxOptimizerConfig"):
         from .ax import AxOptimizer, AxOptimizerConfig

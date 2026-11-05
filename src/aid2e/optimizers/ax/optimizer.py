@@ -2,7 +2,7 @@
 
 from copy import deepcopy
 import pickle
-from joblib.externals import cloudpickle
+import cloudpickle
 from typing import List, Dict, Any, Optional, TYPE_CHECKING, Union
 import logging, sys
 import numpy as np

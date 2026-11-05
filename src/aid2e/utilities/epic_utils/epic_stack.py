@@ -285,7 +285,6 @@ class EpicStack(ExperimentStack):
                 f"export DETECTOR_CONFIG=\"{epic_config}\"\n"
                 f"test -f \"$DETECTOR_PATH/epic.xml\""
             )
-            # END modification Baptiste
         else:
             detector_setup = (
                 f"source \"{trial_geo_dir}/install/bin/thisepic.sh\"\n"

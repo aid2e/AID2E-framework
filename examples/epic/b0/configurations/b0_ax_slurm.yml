@@ -104,13 +104,6 @@ scheduler:
     job_name_prefix: "aid2e_b0"
     runtime_working_dir: "."
 
-    # Ad hoc commands for iFarm. To be removed.
-    #setup_commands:
-      # SSL certificate issues when ePIC FileLoader downloads external calibration files on some Slurm worker nodes.
-      #- 'export CURL_HOME="${SLURM_TMPDIR:-/tmp}/aid2e_${SLURM_JOB_ID}"; mkdir -p "$CURL_HOME"; echo "insecure" > "$CURL_HOME/.curlrc"'
-      # Make ePIC shared library (libepic.so) visible in eic-shell.
-      #- 'export LD_LIBRARY_PATH="/opt/software/linux-x86_64_v2/epic-git.f9617538a4c1ca2a90d896f33e25092bd185ff2b_main-ypdki2ksx7szrqqknkrymlzrssxqn6jk/lib:${LD_LIBRARY_PATH:-}"'
-
     poll_interval: 5
 
   max_retries: 3

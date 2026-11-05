@@ -188,8 +188,6 @@ class PanDAiDDSScheduler(BaseScheduler):
         self.submission_id = datetime.datetime.utcnow().strftime("%Y%m%d%H%M%S%f") + uuid.uuid4().hex[:8]
         self.work_counter: int = 0
 
-    # BEGIN modification Baptiste
-    # Add _execute_job
     def _execute_job(
         self,
         job_def: Dict[str, Any],

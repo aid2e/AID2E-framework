@@ -10,6 +10,7 @@ Key concepts:
     - ``Trial``: One evaluated point in the search space, with metrics attached.
     - ``BaseOptimizer``: Abstract base that all optimizer backends must implement.
     - ``compute_pareto_front``: Backend-agnostic utility for Pareto front extraction.
+    - ``compute_hypervolume``: Backend-agnostic hypervolume of a set of trials.
 
 Entrypoints:
     Most users interact with a concrete backend (e.g. ``AxOptimizer``,
@@ -21,6 +22,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple, Union
 import json
 import logging
+import math
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -360,6 +362,138 @@ def compute_pareto_front(
         return [t for t, dom in zip(completed, is_dominated) if not dom]
 
 
+def _objective_sign(objective_directions: Optional[Dict[str, Any]], name: str) -> float:
+    """Return -1 for maximized objectives and +1 for minimized ones."""
+    directions = objective_directions or {}
+    direction = getattr(directions.get(name), "value", directions.get(name, "minimize"))
+    return -1.0 if str(direction).lower() == "maximize" else 1.0
+
+
+def compute_hypervolume(
+    trials: List["Trial"],
+    objective_names: List[str],
+    reference_point: Dict[str, float],
+    objective_directions: Optional[Dict[str, Any]] = None,
+) -> float:
+    """Compute the hypervolume dominated by completed trials up to a reference point.
+
+    Values are compared in each objective's own direction: for a minimized
+    objective the reference value is an upper bound, for a maximized one a
+    lower bound. Trials that do not strictly improve on the reference point in
+    every objective contribute nothing.
+
+    Args:
+        trials: Trials to evaluate. Only completed trials with a value for
+            every objective are used; dominated trials do not change the result.
+        objective_names: Ordered objective metric keys.
+        reference_point: Reference value for every objective, in the
+            objective's original units.
+        objective_directions: Optional mapping from objective name to
+            ``"minimize"`` or ``"maximize"``. Missing objectives default to
+            minimization.
+
+    Returns:
+        The hypervolume, or ``0.0`` when no trial improves on the reference point.
+
+    Raises:
+        ValueError: If ``reference_point`` is missing an objective.
+
+    Examples:
+        >>> from aid2e.optimizers.base import Trial, compute_hypervolume
+        >>> t1 = Trial(index=0, parameters={}, metrics={"f1": 0.5, "f2": 0.5}, status="completed")
+        >>> compute_hypervolume([t1], ["f1", "f2"], {"f1": 1.0, "f2": 1.0})
+        0.25
+    """
+    import numpy as np
+    from pymoo.indicators.hv import HV
+
+    missing = [name for name in objective_names if name not in reference_point]
+    if missing:
+        raise ValueError(f"reference_point missing objective(s): {', '.join(missing)}")
+
+    signs = np.array([_objective_sign(objective_directions, n) for n in objective_names])
+    rows = [
+        [float(t.metrics[name]) for name in objective_names]
+        for t in trials
+        if t is not None
+        and t.status == TRIAL_STATUS_COMPLETED
+        and t.metrics
+        and all(t.metrics.get(name) is not None for name in objective_names)
+    ]
+    if not rows:
+        return 0.0
+
+    F = np.array(rows, dtype=float) * signs
+    ref = np.array([float(reference_point[n]) for n in objective_names]) * signs
+    # pymoo counts only points that strictly dominate the reference point.
+    F = F[np.all(F < ref, axis=1)]
+    if F.size == 0:
+        return 0.0
+    return float(HV(ref_point=ref)(F))
+
+
+def point_hypervolume(
+    metrics: Dict[str, Any],
+    objective_names: List[str],
+    objective_directions: Optional[Dict[str, Any]],
+    reference_point: Dict[str, float],
+) -> Optional[float]:
+    """Hypervolume of the box between one trial and the reference point.
+
+    Returns ``0.0`` when the trial does not improve on the reference point in
+    every objective, and ``None`` when an objective value is missing or not
+    finite.
+    """
+    volume = 1.0
+    for name in objective_names:
+        value = (metrics or {}).get(name)
+        if value is None or not math.isfinite(value):
+            return None
+        gain = (float(reference_point[name]) - float(value)) * _objective_sign(
+            objective_directions, name)
+        if gain <= 0:
+            return 0.0
+        volume *= gain
+    return volume
+
+
+def nadir_reference_point(
+    trials: List["Trial"],
+    objective_names: List[str],
+    objective_directions: Optional[Dict[str, Any]] = None,
+    margin: float = 0.1,
+) -> Optional[Dict[str, float]]:
+    """Derive a hypervolume reference point from the worst observed values.
+
+    For each objective, takes the worst completed value and moves it further
+    out by ``margin`` times the observed range (or ``margin`` times its
+    magnitude, at least ``margin``, when every value is equal).
+
+    Returns:
+        Reference value per objective, or ``None`` when no completed trial has
+        a value for every objective.
+    """
+    completed = [
+        t for t in trials
+        if t is not None
+        and t.status == TRIAL_STATUS_COMPLETED
+        and t.metrics
+        and all(t.metrics.get(name) is not None for name in objective_names)
+    ]
+    if not completed:
+        return None
+
+    reference: Dict[str, float] = {}
+    for name in objective_names:
+        sign = _objective_sign(objective_directions, name)
+        values = [float(t.metrics[name]) * sign for t in completed]
+        worst, best = max(values), min(values)
+        span = worst - best
+        pad = margin * span if span > 0 else max(margin * abs(worst), margin)
+        reference[name] = (worst + pad) * sign
+    return reference
+
+
 class BaseOptimizer(ABC):
     """Abstract base class for all AID2E optimizers.
 
@@ -420,6 +554,11 @@ class BaseOptimizer(ABC):
         # uniformly regardless of the backend.
         self._trials: List[Optional[Trial]] = []
         self._trial_counter: int = 0
+
+        # Hypervolume reference point derived from observed data. It is fixed
+        # the first time it is needed so values stay comparable across batches.
+        self._hv_auto_reference: Optional[Dict[str, float]] = None
+        self._hv_history: List[Dict[str, Any]] = []
 
     @property
     def n_objectives(self) -> int:
@@ -628,16 +767,49 @@ class BaseOptimizer(ABC):
             json.dump(payload, handle, indent=2, sort_keys=True)
 
         errors_by_trial = errors_by_trial or {}
-        pareto_payload = [
-            {
-                "trial_index": trial.index,
-                "design_parameters": dict(trial.parameters or {}),
-                "objectives": dict(trial.metrics or {}),
-                "objective_errors": dict(errors_by_trial.get(trial.index, {})),
-                "metadata": dict(trial.metadata or {}),
+        hypervolume = self.get_hypervolume()
+        if hypervolume is not None:
+            entry = {
+                "n_completed_trials": hypervolume["n_completed_trials"],
+                "hypervolume": hypervolume["value"],
             }
-            for trial in self.get_pareto_front()
-        ]
+            # Saving twice without new results replaces the last entry.
+            if (
+                self._hv_history
+                and self._hv_history[-1]["n_completed_trials"] == entry["n_completed_trials"]
+            ):
+                self._hv_history[-1] = entry
+            else:
+                self._hv_history.append(entry)
+            hypervolume["history"] = [dict(item) for item in self._hv_history]
+            logger.info(
+                "Hypervolume: %.6g (%d completed trial(s), reference point %s from %s).",
+                hypervolume["value"],
+                hypervolume["n_completed_trials"],
+                hypervolume["reference_point"],
+                hypervolume["reference_point_source"],
+            )
+
+        pareto_payload = {
+            "objective_names": list(self.objective_names),
+            "objective_directions": {
+                name: "maximize"
+                if _objective_sign(self.objective_directions, name) < 0
+                else "minimize"
+                for name in self.objective_names
+            },
+            "hypervolume": hypervolume,
+            "trials": [
+                {
+                    "trial_index": trial.index,
+                    "design_parameters": dict(trial.parameters or {}),
+                    "objectives": dict(trial.metrics or {}),
+                    "objective_errors": dict(errors_by_trial.get(trial.index, {})),
+                    "metadata": dict(trial.metadata or {}),
+                }
+                for trial in self.get_pareto_front()
+            ],
+        }
         with pareto_path.open("w", encoding="utf-8") as handle:
             json.dump(pareto_payload, handle, indent=2)
         return {
@@ -747,6 +919,71 @@ class BaseOptimizer(ABC):
             self.objective_names,
             self.objective_directions,
         )
+
+    def get_hypervolume_reference_point(self) -> Optional[Dict[str, float]]:
+        """Return a configured hypervolume reference point, if any.
+
+        The default reads ``objective_thresholds`` from the optimizer config
+        (as used by Ax) when it covers every objective. Backends may override
+        this to supply their own reference point.
+
+        Returns:
+            Reference value per objective in original units, or ``None``.
+        """
+        config = getattr(self, "config", None)
+        thresholds = getattr(config, "objective_thresholds", None) or {}
+        if all(name in thresholds for name in self.objective_names):
+            return {name: float(thresholds[name]) for name in self.objective_names}
+        return None
+
+    def get_hypervolume(self) -> Optional[Dict[str, Any]]:
+        """Compute the hypervolume of the current Pareto front.
+
+        Uses :meth:`get_hypervolume_reference_point` when it returns a point.
+        Otherwise a reference point is derived once from the worst observed
+        values (see :func:`nadir_reference_point`) and kept for the rest of
+        the run, so later values are comparable with earlier ones.
+
+        Returns:
+            ``None`` for single-objective problems or before any trial has
+            completed. Otherwise a dictionary with ``value``,
+            ``reference_point``, ``reference_point_source`` (``"configured"``
+            or ``"observed_nadir"``) and ``n_completed_trials``.
+        """
+        if self.n_objectives < 2:
+            return None
+        trials = self.get_trials()
+        n_completed = sum(
+            1 for t in trials
+            if t.status == TRIAL_STATUS_COMPLETED
+            and t.metrics
+            and all(t.metrics.get(name) is not None for name in self.objective_names)
+        )
+        if n_completed == 0:
+            return None
+
+        reference = self.get_hypervolume_reference_point()
+        source = "configured"
+        if reference is None:
+            if self._hv_auto_reference is None:
+                self._hv_auto_reference = nadir_reference_point(
+                    trials, self.objective_names, self.objective_directions
+                )
+            reference = self._hv_auto_reference
+            source = "observed_nadir"
+
+        value = compute_hypervolume(
+            self.get_pareto_front(),
+            self.objective_names,
+            reference,
+            self.objective_directions,
+        )
+        return {
+            "value": value,
+            "reference_point": dict(reference),
+            "reference_point_source": source,
+            "n_completed_trials": n_completed,
+        }
 
     def get_best_trial(self) -> Optional[Trial]:
         """Get the best trial found so far.

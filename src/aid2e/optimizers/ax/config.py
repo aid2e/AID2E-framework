@@ -6,6 +6,7 @@ from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from aid2e.optimizers.kb_warm_start import KBWarmStartConfig
 from aid2e.utilities.configurations.optimization_registry import register
 
 from ._resolver import validate_generator_name
@@ -26,6 +27,10 @@ class AxOptimizerConfig(BaseModel):
             candidate generation. The default is ``"BOTORCH_MODULAR"``.
         warm_start_path: Import prior trials from an Ax snapshot. Disable
             by setting to `null` (default).
+        kb_warm_start: Seed the initialization phase with points suggested
+            by an AgenticWF knowledge base from similar past runs, and
+            optionally upload this run to it (``KBWarmStartConfig``).
+            Disable by setting to `null` (default).
         generator_kwargs: Provide keyword arguments for Ax ``GeneratorSpec``
             setup (for example, model configuration details).
         generator_gen_kwargs: Provide generation-time keyword arguments passed
@@ -82,6 +87,13 @@ class AxOptimizerConfig(BaseModel):
         description=(
             "Optional path to an Ax Client JSON snapshot used to seed this "
             "optimization with compatible previous trials and results."
+        ),
+    )
+    kb_warm_start: Optional[KBWarmStartConfig] = Field(
+        default=None,
+        description=(
+            "Optional AgenticWF knowledge-base warm start: initial points from "
+            "similar past runs, and upload of this run for later ones."
         ),
     )
     generator_kwargs: dict[str, Any] = Field(
@@ -153,6 +165,14 @@ class AxOptimizerConfig(BaseModel):
                 "instead."
             )
         return raw_value
+
+    @field_validator("seed", mode="before")
+    @classmethod
+    def _seed_none_string(cls, value: Any) -> Any:
+        """Accept ``none``/``null`` written as YAML strings for an unset seed."""
+        if isinstance(value, str) and value.strip().lower() in ("none", "null", ""):
+            return None
+        return value
 
     @field_validator("generator")
     @classmethod

@@ -62,6 +62,8 @@ All optimizer backends use the same search-space representation, trial lifecycle
 
 Trials record parameters, objective values, status, and metadata. Results include all recorded trials. The Pareto front includes only completed trials with metrics and respects each objective's `minimize` or `maximize` direction. Failed trials have no objective values; penalized trials have user-configured values that influence optimization.
 
+For multi-objective problems, `get_hypervolume()` reports the hypervolume of the Pareto front, and it is saved in `pareto_front.json` after each batch. Set Ax `objective_thresholds` to choose the reference point; otherwise one is derived from the observed data. See [run records](cli.md#run-records).
+
 Objective `<name>_err` values are saved with results, but the current Ax backend attaches observations with zero standard error. PyMOO selects candidates using objective means only.
 
 ### Failed and Penalized Trials

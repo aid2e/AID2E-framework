@@ -54,6 +54,13 @@ optimizer:
   type: "bayesian"
   parameters:
     warm_start_path: null
+    # Optionally, seed the initial samples from similar past runs in an
+    # AgenticWF knowledge base (pip install 'aid2e[kb]'):
+    # kb_warm_start:
+    #   knowledge_base_ids: ["aid2e:aid2e-history"]
+    #   description: "DTLZ2 basic example"
+    #   n: 6
+    #   upload_kb_id: "aid2e:aid2e-history"
     initialization_strategy: "sobol"
     generator: "BOTORCH_MODULAR"
     n_initial_samples: 24

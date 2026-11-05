@@ -75,6 +75,14 @@ using minimization semantics for every objective. It only considers trials whose
 status is `completed` and that have metrics. The function is used by the base
 implementation and is not Ax- or PyMOO-specific.
 
+### `compute_hypervolume`
+
+`compute_hypervolume(trials, objective_names, reference_point, objective_directions)`
+returns the hypervolume dominated by completed trials up to `reference_point`
+(given in original units, respecting each objective's direction), using
+`pymoo.indicators.hv.HV`. `nadir_reference_point()` derives a reference point
+from the worst observed values plus a 10% margin.
+
 ### `BaseOptimizer`
 
 `BaseOptimizer` owns the shared trial ledger and the default result utilities. It
@@ -107,6 +115,13 @@ backends that need warm-start behavior must add their own override.
 uses the first Pareto member for multi-objective cases and the lowest-valued
 trial for single-objective cases.
 
+`get_hypervolume()` returns the Pareto-front hypervolume for problems with two
+or more objectives. Its reference point comes from
+`get_hypervolume_reference_point()`, which by default reads the config's
+`objective_thresholds`; otherwise it falls back to a nadir-based point that is
+set once and then reused. `save_optimization_results()` writes it, along with
+its per-batch history, into `pareto_front.json`.
+
 `get_optimization_results()` and `save_optimization_results()` provide a stable
 JSON-friendly result export, including raw status and display status labels.
 
@@ -122,6 +137,7 @@ Supported fields are:
 - `initialization_strategy`: `sobol`, `uniform`, or `center`
 - `generator`: currently validated to `BOTORCH_MODULAR`
 - `warm_start_path`: optional path to Ax JSON snapshot for initializing optimization from a previous run
+- `kb_warm_start`: optional warm start from an AgenticWF knowledge base (see [KB warm start](#kb-warm-start))
 - `generator_kwargs`: runtime kwargs passed to the Ax generator spec
 - `generator_gen_kwargs`: generation-time kwargs passed through to Ax
 - `objective_thresholds`: optional multi-objective thresholds by metric name
@@ -195,6 +211,81 @@ when available.
 `update_with_results()` validates that every configured objective is present in
 the metrics payload, attaches the results to the Ax experiment as deterministic
 data, marks the Ax trial completed, and updates the shared `Trial` history.
+
+### KB warm start
+
+`kb_warm_start` connects the Ax backend to an AgenticWF knowledge base
+(agenticwf-kb, `hpo` records plugin) through `agenticwf-kb-client`
+(`pip install 'aid2e[kb]'`). The shared code is
+`src/aid2e/optimizers/kb_warm_start.py`.
+
+```yaml
+optimizer:
+  name: "ax"
+  parameters:
+    n_initial_samples: 12
+    kb_warm_start:
+      knowledge_base_ids: ["g:aid2e:aid2e-history"]  # omit: every records KB you can read
+      description: "BIC calorimeter layer thickness scan"
+      rank_by: "objectives"     # or "hypervolume" (multi-objective only)
+      objective: "f1"           # rank_by objectives: one objective, or a list such as ["f1", "f2"]
+      n: 4                      # KB points; the other 8 initial samples come from Sobol
+      filter: {field: "metadata.detector", op: "eq", value: "bic"}
+      upload_kb_id: "g:aid2e:aid2e-history"         # store this run for later ones
+      create_upload_kb: true    # default: create upload_kb_id if it does not exist
+      metadata: {detector: "bic"}
+```
+
+The KB is found from `url`/`token`, else `AGENTICWF_KB_URL`/`AGENTICWF_KB_TOKEN`,
+else the `agenticwf login` sign-in.
+
+- At construction the optimizer calls the KB's `suggest` operation with the AID2E
+  search space (range parameters as `float`, choice parameters as
+  `categorical`). Returned points outside the bounds or violating the parameter
+  constraints are dropped; the rest are queued.
+- `suggest_candidates()` serves queued points before calling the generation
+  strategy. They become ordinary Ax trials (metadata `ax_model_key:
+  kb_warm_start`, `kb_source`, `kb_score`) and count toward
+  `n_initial_samples`.
+- `rank_by` chooses how past trials are ranked:
+  - `objectives` (default) ranks on `objective`, the first objective by
+    default. A list makes one KB query per objective and takes points from each
+    in turn, without repeats, up to `n`. Use it to seed with good points for
+    each objective.
+  - `hypervolume` ranks on past runs' hypervolume records (see below),
+    favouring points that are good in every objective at once. It needs two or
+    more objectives; `objective` is ignored.
+- With `include_history: true` (single objective only), trials of past runs with
+  the identical search space and objective are imported as completed trials, as
+  the snapshot warm start does.
+- KB refs are a KB id, `u:<user>:<slug>`, `g:<group>:<slug>`, or a bare slug
+  for one of your own KBs. With `create_upload_kb` (the default), the optimizer
+  looks up `upload_kb_id` before the warm start and creates it as a records KB
+  only if it does not exist: a `g:` ref as a group KB (which needs a group admin),
+  anything else as your own. A KB of another type is an error.
+- With `upload_kb_id`, `save_optimization_results()` upserts the run as `hpo_job`
+  records keyed by `job_id`: one record per objective, `<job_id>:<objective>`
+  when there are several. Imported trials (`warm_started`) are not uploaded.
+- Multi-objective runs also upload `<job_id>:hypervolume` unless
+  `upload_hypervolume: false`. Its objective is `hypervolume_<objectives>`
+  (for example `hypervolume_f1_f2`, maximized), so it only matches runs with
+  the same objectives. Each trial's value is its single-point hypervolume: the
+  volume of the box between the trial and the run's observed nadir (worst
+  value per objective plus a 10% margin, recomputed at each upload), so every
+  completed trial scores above 0. The configured reference point is not used
+  for these scores: a tight one such as `objective_thresholds: {f1: 1, f2: 1}`
+  on DTLZ2 would leave almost every trial at 0, and the KB could not rank
+  them. Values only rank trials within a run. The metadata holds the run's
+  front `hypervolume` with its `hypervolume_reference_point` and
+  `hypervolume_reference_point_source`, plus `trial_score_reference_point`. Runs uploaded before this record
+  existed have no hypervolume record, so `rank_by: hypervolume` cannot draw
+  from them.
+- A KB that cannot be reached only logs a warning: the run starts cold, or skips
+  the upload.
+
+The KB stores names in lowercase `snake_case` (`DTLZ2.x1` → `dtlz2_x1`) and the
+backend maps them back, so two parameters must not share that form, and the KB
+must not alias AID2E parameters to other names.
 
 ### State model
 

@@ -81,6 +81,8 @@ def optimize(
                 format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
                 force=True,
             )
+        else:
+            _log_to_console(log_level)
         results = run_optimization(
             config,
             config_file,
@@ -99,6 +101,19 @@ def optimize(
             import traceback
             traceback.print_exc()
         sys.exit(1)
+
+
+def _log_to_console(log_level: str) -> None:
+    """Send module log messages (optimizer, KB upload, ...) to stderr at ``log_level``.
+
+    Loggers with their own handlers (the per-trial execution loggers, which
+    already print to stdout) are skipped so their lines do not appear twice.
+    """
+    handler = logging.StreamHandler(sys.stderr)
+    handler.setFormatter(logging.Formatter(
+        "%(asctime)s [%(name)s] %(levelname)s: %(message)s", datefmt="%Y-%m-%d %H:%M:%S"))
+    handler.addFilter(lambda record: not logging.getLogger(record.name).handlers)
+    logging.basicConfig(level=getattr(logging, log_level), handlers=[handler], force=True)
 
 
 # Future commands (planned, not registered yet)

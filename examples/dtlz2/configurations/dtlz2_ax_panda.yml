@@ -18,6 +18,11 @@ optimizer:
   parameters:
     initialization_strategy: "sobol"
     generator: "BOTORCH_MODULAR"
+    # Fixed hypervolume reference point, shared by all DTLZ2 runs so their
+    # hypervolumes can be compared (best possible: 4 - pi/4 = 3.2146).
+    objective_thresholds:
+      f1: 2.0
+      f2: 2.0
     n_initial_samples: 20
     n_iterations: 100
     batch_size: 4

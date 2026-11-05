@@ -11,13 +11,20 @@ optimization problems, including:
 - PyMOOOptimizer: Evolutionary optimization (GA, NSGA-II, NSGA-III, MOEA/D)
   via PyMOO's ask/tell interface for external evaluation.
 - compute_pareto_front: Backend-agnostic Pareto front utility.
+- compute_hypervolume: Backend-agnostic hypervolume indicator.
 
 Attributes:
     __version__: Version string inherited from the main aid2e package.
 """
 
 from aid2e import __MAIN_VERSION__
-from .base import BaseOptimizer, SearchSpace, Trial, compute_pareto_front
+from .base import (
+    BaseOptimizer,
+    SearchSpace,
+    Trial,
+    compute_hypervolume,
+    compute_pareto_front,
+)
 from .ax import AxOptimizer, AxOptimizerConfig
 from .pymoo import AID2EProblem, PyMOOOptimizer, PyMOOOptimizerConfig, PyMOOProblem
 
@@ -27,6 +34,7 @@ __all__ = [
     "SearchSpace",
     "Trial",
     "compute_pareto_front",
+    "compute_hypervolume",
     "AxOptimizer",
     "AxOptimizerConfig",
     "PyMOOProblem",

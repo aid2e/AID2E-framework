@@ -1,0 +1,89 @@
+# Ax Bayesian optimization: ten variables, two objectives, 100 evaluations,
+# warm-started from an AgenticWF knowledge base.
+#
+# Identical to dtlz2_ax_joblib.yml except for kb_warm_start (and the output
+# locations), so the two can run side by side for a with/without-KB comparison.
+# The first 10 of the 20 initial samples come from the highest-hypervolume trials of similar
+# past runs; each saved batch uploads this run to the KB.
+#
+# Needs agenticwf-kb-client (pip install 'aid2e[kb]') and a records KB with the
+# hpo plugin. Set the KB connection and sign in:
+#   export AGENTICWF_KB_URL=https://aipanda107.cern.ch/app/kb
+#   agenticwf login            # or AGENTICWF_TOKEN=pat_... (see the README)
+# The records KB "aid2e-dtlz2" (a bare slug: one of your own KBs) is created on
+# the first run if it does not exist. Use "g:<group>:aid2e-dtlz2" for a group's
+# KB (creating it needs a group admin), or "u:<user>:<slug>" / a KB id.
+
+problem:
+  name: "DTLZ2 Ax with JobLib and KB warm start"
+  problem_type: "DTLZ2"
+  output_location: "./output/ax_joblib_kb"
+  work_location: "./work/ax_joblib_kb"
+
+  design_parameters_file: "../dtlz2_design.params"
+
+  objectives:
+    - name: "f1"
+      direction: "minimize"
+    - name: "f2"
+      direction: "minimize"
+
+optimizer:
+  name: "ax"
+  type: "bayesian"
+  parameters:
+    initialization_strategy: "sobol"
+    generator: "BOTORCH_MODULAR"
+    generator_kwargs:
+      surrogate_spec:
+        model_configs:
+          - botorch_model_class: "SingleTaskGP"
+      botorch_acqf_class: "qLogNoisyExpectedHypervolumeImprovement"
+      acquisition_options:
+        prune_baseline: true
+    generator_gen_kwargs:
+      model_gen_options:
+        optimizer_kwargs:
+          sequential: false
+          num_restarts: 10
+    # Fixed hypervolume reference point, shared by all DTLZ2 runs so their
+    # hypervolumes can be compared (best possible: 4 - pi/4 = 3.2146).
+    objective_thresholds:
+      f1: 2.0
+      f2: 2.0
+    n_initial_samples: 20
+    n_iterations: 100
+    batch_size: 4
+    seed: 42
+    kb_warm_start:
+      knowledge_base_ids: ["aid2e-dtlz2"]
+      description: "DTLZ2, ten variables, two objectives, Ax BoTorch"
+      rank_by: "hypervolume" # rank past trials on their hypervolume record (f1 and f2 together)
+      n: 10                 # 10 KB points, then 10 Sobol points
+      upload_kb_id: "aid2e-dtlz2"  # created if missing
+      metadata:
+        problem: "DTLZ2"
+      # rank_by: "objectives"      # default
+      # objective: ["f1", "f2"]    # one name, or a list
+
+scheduler:
+  runner_type: "JobLibRunner"
+  parameters:
+    n_jobs: 4
+    backend: "threading"
+
+workflows:
+  workflows:
+    - name: "dtlz2_eval"
+      description: "DTLZ2 objective evaluation"
+      branches:
+        - name: "main"
+          stages:
+            - name: "evaluate"
+              objective_plan:
+                steps:
+                  stages:
+                    - name: "evaluate"
+                      inline:
+                        entrypoint: "examples.dtlz2.dtlz2_evaluator:objective_payload"
+                      produces_objective: true

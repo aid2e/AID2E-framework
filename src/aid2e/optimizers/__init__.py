@@ -18,11 +18,6 @@ Attributes:
 
 from aid2e import __MAIN_VERSION__
 from .base import BaseOptimizer, SearchSpace, Trial, compute_pareto_front
-# BEGIN modification Baptiste
-# Lazy import: do not use all Ax if only for Trail
-#from .ax import AxOptimizer, AxOptimizerConfig
-#from .pymoo import AID2EProblem, PyMOOOptimizer, PyMOOOptimizerConfig, PyMOOProblem
-# END modification Baptiste
 
 __version__ = __MAIN_VERSION__
 __all__ = [

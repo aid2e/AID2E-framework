@@ -6,7 +6,8 @@ problem:
   work_location: "./work/ax_joblib"
   epic_environment:
     eic_shell: "/home/cua/eic/eic-shell"
-    epic_install: "/home/cua/eic/epic"
+    eic_shell: "/path/to/my/eic-shell"
+    epic_install: "./epic"
     epic_config: "epic"
     geometry_mode: "build"
 

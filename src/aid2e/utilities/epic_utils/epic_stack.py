@@ -274,8 +274,6 @@ class EpicStack(ExperimentStack):
         if geometry_mode == "no_build":
             if not epic_install:
                 raise EnvironmentError("Variable 'epic_install' not set. Must define epic_install.")
-            # BEGIN modification Baptiste
-            # Support complete ePIC installation or geometry-only copy 
             detector_setup = (
                 f"if [ -f \"{epic_install}/bin/thisepic.sh\" ]; then\n"
                 f"    source \"{epic_install}/bin/thisepic.sh\" {epic_config}\n"

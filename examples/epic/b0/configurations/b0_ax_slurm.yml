@@ -19,8 +19,8 @@ problem:
 
   # eic-shell and ePIC paths to be adapted to environment
   epic_environment:
-    eic_shell: "/work/eic3/users/fraisse/eic/eic-shell"
-    epic_install: "/work/eic3/users/fraisse/epic"
+    eic_shell: "/path/to/my/eic-shell"
+    epic_install: "./epic"
     epic_config: "epic"
     geometry_mode: "build"
 

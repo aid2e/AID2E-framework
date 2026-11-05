@@ -2,6 +2,7 @@
 
 from copy import deepcopy
 import pickle
+from joblib.externals import cloudpickle
 from typing import List, Dict, Any, Optional, TYPE_CHECKING, Union
 import logging, sys
 import numpy as np
@@ -252,7 +253,7 @@ class AxOptimizer(BaseOptimizer):
             model_path = Path(output_path) / "ax_model.pkl"
             temporary = model_path.with_suffix(".pkl.tmp")
             with temporary.open("wb") as handle:
-                pickle.dump(adapter, handle, protocol=pickle.HIGHEST_PROTOCOL)
+                cloudpickle.dump(adapter, handle, protocol=pickle.HIGHEST_PROTOCOL)
             temporary.replace(model_path)
             outputs["ax_model"] = model_path
         if self._model_history is not None:
@@ -283,6 +284,7 @@ class AxOptimizer(BaseOptimizer):
         # remains active, so the current generator/acquisition settings are used.
         copied_trials = self.experiment.warm_start_from_old_experiment(
             old_experiment=old_experiment,
+            trial_statuses_to_copy=[TrialStatus.COMPLETED],
             search_space_check_membership_raise_error=True)
         
         self._restore_aid2e_trials_from_ax(copied_trials)
@@ -342,12 +344,17 @@ class AxOptimizer(BaseOptimizer):
 
         old_directions = {}
         for objective in old_objectives:
-            if hasattr(objective, "metric_names"):
-                metric_names = objective.metric_names
-                if len(metric_names) != 1:
-                    raise ValueError("Warm-start requires each Ax objective to contain exactly one metric. "
-                        f"Saved objective {objective!r} contains: {metric_names}.")
-                old_directions[metric_names[0]] = bool(objective.minimize)
+            if hasattr(objective, "expression"):
+                from ax.utils.common.sympy import parse_objective_expression, extract_metric_weights_from_objective_expr
+
+                expressions = parse_objective_expression(objective.expression)
+                for expression in expressions if isinstance(expressions, tuple) else (expressions,):
+                    weights = extract_metric_weights_from_objective_expr(expression)
+                    if len(weights) != 1:
+                        raise ValueError("Warm-start requires each Ax objective to contain exactly one metric. "
+                            f"Saved objective {objective!r} contains: {weights}.")
+                    name, weight = weights[0]
+                    old_directions[name] = weight < 0
 
             elif hasattr(objective, "metric"):
                 # Compatibility with older Ax objective objects.
@@ -963,7 +970,7 @@ class AxOptimizer(BaseOptimizer):
         adapter = self.generation_strategy.adapter
         if self.config.save_model_history and trial_indices and isinstance(adapter, TorchAdapter):
             # Capture the model used to propose this batch before attaching its results.
-            self._model_history = (trial_indices[0], pickle.dumps(
+            self._model_history = (trial_indices[0], cloudpickle.dumps(
                 {"adapter": adapter, "trial_indices": trial_indices}, protocol=pickle.HIGHEST_PROTOCOL,
             ))
 

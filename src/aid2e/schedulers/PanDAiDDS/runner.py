@@ -803,7 +803,6 @@ class PanDAiDDSScheduler(BaseScheduler):
                 if key in params:
                     local_path = Path(params[key]).resolve()
                     params[key] = str(local_path.relative_to(source_root))
-        # END modification Baptiste
 
         with_context = (
             "context" in params

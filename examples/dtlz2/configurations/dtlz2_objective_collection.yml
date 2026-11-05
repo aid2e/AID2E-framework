@@ -1,0 +1,54 @@
+# One script evaluation returns both metrics through a combined objective plan.
+
+problem:
+  name: "DTLZ2 Objective Collection"
+  problem_type: "DTLZ2"
+  output_location: "./output/objective_collection"
+  work_location: "./work/objective_collection"
+
+  design_parameters_file: "../dtlz2_design.params"
+
+  objectives:
+    - name: "f1"
+      direction: "minimize"
+    - name: "f2"
+      direction: "minimize"
+
+optimizer:
+  name: "ax"
+  type: "bayesian"
+  parameters:
+    initialization_strategy: "sobol"
+    generator: "BOTORCH_MODULAR"
+    n_initial_samples: 20
+    n_iterations: 100
+    batch_size: 4
+    seed: 42
+
+scheduler:
+  runner_type: "JobLibRunner"
+  parameters:
+    n_jobs: 4
+    backend: "threading"
+
+workflows:
+  workflows:
+    - name: "dtlz2_collection"
+      combined_objectives:
+        - name: "dtlz2_metrics"
+          objective_plan:
+            steps:
+              stages:
+                - name: "evaluate"
+                  script:
+                    path: "../dtlz2_evaluator.py"
+                    output_file: "objectives.json"
+                    timeout_sec: 300
+                  produces_objective: true
+          metrics:
+            - name: "f1"
+              direction: "minimize"
+              metric_key: "f1"
+            - name: "f2"
+              direction: "minimize"
+              metric_key: "f2"

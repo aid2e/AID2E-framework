@@ -415,10 +415,9 @@ def run_optimization(
                         "completed",
                         metadata=metadata,
                     )
-            optimizer.save_optimization_results(
-                run_dir,
-                errors_by_trial=errors_by_trial,
-            )
+            outputs.update(optimizer.save_optimization_results(
+                    run_dir,
+                    errors_by_trial=errors_by_trial))
     finally:
         scheduler.shutdown()
 

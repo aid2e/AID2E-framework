@@ -3,133 +3,93 @@
 [![Tests](https://github.com/aid2e/AID2E-framework/actions/workflows/tests.yml/badge.svg?branch=main)](https://github.com/aid2e/AID2E-framework/actions/workflows/tests.yml)
 [![Documentation](https://github.com/aid2e/AID2E-framework/actions/workflows/docs-deploy.yml/badge.svg?branch=main)](https://aid2e.github.io/AID2E-framework)
 
-AI assisted Detector Design for EIC (AID2E) is a Python toolkit for authoring and validating detector design optimization workflows. It provides typed configuration models, a Click-based CLI, scheduler/optimizer hooks, and ePIC-specific utilities. Docs: https://aid2e.github.io/AID2E-framework
+AI assisted Detector Design for EIC (AID2E) is a Python framework for configuring and running detector design optimization workflows. It provides typed configuration models, optimizer and scheduler integrations, workflow execution, a command-line interface, and ePIC-specific utilities.
 
-------------------------------------------------------------------------
+See the [documentation](https://aid2e.github.io/AID2E-framework) for installation, configuration, and usage.
 
-## Requirements
+## Current Features
 
--   Python **3.11+**
--   pip
+**Configuration and objectives**
 
-------------------------------------------------------------------------
+  - YAML and dict configuration with Pydantic validation
+  - Problem, design, optimizer, scheduler, objective, and workflow specifications
+  - `ObjectiveDefinition` (name, direction, and optional objective plan)
+  - Direct objective collection from workflow job results
+  - Inline, script-based, and multi-step objective plans
 
-## Installation
+**Workflow execution**
 
-### Clone the repo
+  - DAG construction with edge inference, DFS-based cycle detection, validation, and O(V+E) topological sorting using Kahn’s algorithm.
+  - Execution layers for sequential stages and parallel jobs
+  - Range and payload job factories
+  - Generic and stack execution engines
+  - Stack-specific configuration and execution are resolved through `StackRegistry`
+  - ePIC-specific utilities remain under `utilities/epic_utils/`
 
-``` bash
-git clone https://github.com/aid2e/AID2E-framework.git
-cd AID2E-framework
+**Schedulers**
+
+  - Common stage execution interface through `BaseScheduler`
+  - `JobLibScheduler` for local parallel execution
+  - `SlurmScheduler` for scheduled command and callable jobs
+  - `PanDAiDDSScheduler` implementation
+  - Scheduler selection at global, workflow, branch, and stage scope
+  - Artifact collection from configured job outputs
+
+**Optimizers**
+
+  - Shared trial tracking through `BaseOptimizer`
+  - `AxOptimizer` for Bayesian optimization
+  - `PyMOOOptimizer` for evolutionary optimization
+  - Minimize and maximize objective directions
+  - Failed-trial status and configured penalty objectives
+  - Configurable maximum failed-trial limit
+  - Optimization-result and Pareto-front export
+
+**CLI optimization**
+
+  - `aid2e optimize` loads and validates `FullConfig`
+  - Optimizer candidates are submitted as scheduler-backed trial batches
+  - Each trial executes one complete configured workflow
+  - Objective results update the optimizer before the next batch
+
+## Known Limitations
+
+  - Scheduler runners do not automatically resubmit failed jobs from retry settings.
+  - PyMOO does not currently enforce design constraints
+  - Multiple jobs returning the same direct objective require an explicit aggregation plan to avoid ambiguous results
+
+## Future Enhancements
+
+  - Planned CLI workflow and utility commands (`run`, `resume`, `status`, `stop`, `clean`, `init`, and `graph`)
+  - Expanded plugin support for custom optimizers
+  - Native PyMOO design-constraint enforcement and expanded constraint support, constraint simplification
+  - Mixed stack types within a workflow collection
+  - Explicit workflow-stage dependencies, asynchronous workflow and optimization execution, and resource monitoring
+  - Consistent scheduler retry and timeout execution, advanced retry policies
+  - Optimizer uncertainty ingestion and reproducible CLI checkpoint/resume behavior
+  - Additional detector and optimization examples
+
+## Building Documentation
+
+From the repository root, with Python 3.11 or later:
+
+```bash
+python -m pip install -e ".[docs]"
+./scripts/docs-serve.sh           # Preview with live reload
+./scripts/docs-build.sh           # Build into site/ (strict validation)
 ```
 
-### Create environment (recommended)
+Documentation sources are under `docs/`. Add Markdown pages there and list them
+in `mkdocs.yml`. The site uses Material for MkDocs and supports admonitions.
+API pages are generated from Python docstrings with mkdocstrings; if imports
+fail, check `plugins.mkdocstrings.handlers.python.paths` in `mkdocs.yml`
+(currently `src`) and the editable installation.
 
-``` bash
-python -m venv .venv
-source .venv/bin/activate
+To deploy, enable GitHub Pages in the repository settings and run:
+
+```bash
+./scripts/docs-deploy-ghpages.sh
 ```
-
-### Install
-
-**Core install:**
-
-``` bash
-pip install -e .
-```
-
-**Full install (recommended):**
-
-``` bash
-pip install -e ".[all]"
-```
-
-------------------------------------------------------------------------
-
-## Quick Checks
-
-### Import check
-
-``` bash
-python -c "import aid2e; print('OK')"
-```
-
-### CLI check
-
-``` bash
-aid2e --help
-```
-
-------------------------------------------------------------------------
-
-## Optional Features Check
-
-``` bash
-python - <<'PY'
-modules = ["ax", "pymoo", "joblib", "pandaclient", "idds.common"]
-for m in modules:
-    try:
-        __import__(m)
-        print(f"{m}: OK")
-    except:
-        print(f"{m}: MISSING")
-PY
-```
-
-------------------------------------------------------------------------
-
-## Run Tests
-
-``` bash
-pytest
-```
-
-------------------------------------------------------------------------
-
-## Dev Setup
-
-``` bash
-pip install -e ".[dev]"
-```
-
-Formatting / linting:
-
-``` bash
-black src tests
-isort src tests
-flake8 src tests
-mypy src
-```
-
-------------------------------------------------------------------------
-
-## Docs
-
-``` bash
-pip install -e ".[docs]"
-mkdocs serve
-```
-
-------------------------------------------------------------------------
-
-## Project Structure
-
-    src/aid2e/
-      cli/
-      optimizers/
-        ax/
-        pymoo/
-      schedulers/
-      utilities/
-
-------------------------------------------------------------------------
-
-## Links
-
--   Repo: https://github.com/aid2e/AID2E-framework
--   Docs: https://aid2e.github.io/AID2E-framework
-
-------------------------------------------------------------------------
 
 ## License
 

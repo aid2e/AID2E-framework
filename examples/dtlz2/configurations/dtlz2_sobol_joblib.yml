@@ -1,0 +1,47 @@
+# Sobol-only baseline: the same problem and evaluation budget as Ax/PyMOO.
+
+problem:
+  name: "DTLZ2 Sobol with JobLib"
+  problem_type: "DTLZ2"
+  output_location: "./output/sobol_joblib"
+  work_location: "./work/sobol_joblib"
+
+  design_parameters_file: "../dtlz2_design.params"
+
+  objectives:
+    - name: "f1"
+      direction: "minimize"
+    - name: "f2"
+      direction: "minimize"
+
+optimizer:
+  name: "ax"
+  type: "quasi-random"
+  parameters:
+    initialization_strategy: "sobol"
+    n_initial_samples: 100  # All evaluations use Sobol; no Bayesian generation.
+    n_iterations: 100
+    batch_size: 4
+    seed: 42
+
+scheduler:
+  runner_type: "JobLibRunner"
+  parameters:
+    n_jobs: 4
+    backend: "threading"
+
+workflows:
+  workflows:
+    - name: "dtlz2_eval"
+      description: "DTLZ2 objective evaluation"
+      branches:
+        - name: "main"
+          stages:
+            - name: "evaluate"
+              objective_plan:
+                steps:
+                  stages:
+                    - name: "evaluate"
+                      inline:
+                        entrypoint: "examples.dtlz2.dtlz2_evaluator:objective_payload"
+                      produces_objective: true

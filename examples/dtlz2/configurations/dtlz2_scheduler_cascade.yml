@@ -1,0 +1,66 @@
+# Scheduler precedence: stage > branch > workflow > global.
+# The stage override below runs the command; the global scheduler runs trial batches.
+
+problem:
+  name: "DTLZ2 Scheduler Cascade"
+  problem_type: "DTLZ2"
+  output_location: "./output/scheduler_cascade"
+  work_location: "./work/scheduler_cascade"
+
+  design_parameters_file: "../dtlz2_design.params"
+
+  objectives:
+    - name: "f1"
+      direction: "minimize"
+    - name: "f2"
+      direction: "minimize"
+
+optimizer:
+  name: "ax"
+  type: "bayesian"
+  parameters:
+    initialization_strategy: "sobol"
+    generator: "BOTORCH_MODULAR"
+    n_initial_samples: 20
+    n_iterations: 100
+    batch_size: 4
+    seed: 42
+
+scheduler:
+  runner_type: "JobLibRunner"
+  parameters:
+    n_jobs: 4
+    backend: "threading"
+
+workflows:
+  workflows:
+    - name: "dtlz2_cascade"
+      scheduler:
+        runner_type: "JobLibRunner"
+        parameters:
+          n_jobs: 3
+          backend: "threading"
+      branches:
+        - name: "main"
+          scheduler:
+            runner_type: "JobLibRunner"
+            parameters:
+              n_jobs: 2
+              backend: "threading"
+          stages:
+            - name: "evaluate"
+              scheduler:
+                runner_type: "JobLibRunner"
+                parameters:
+                  n_jobs: 1
+                  backend: "threading"
+              jobs:
+                - name: "dtlz2"
+                  command: >-
+                    {{python_executable}} {{repo_root}}/examples/dtlz2/dtlz2_evaluator.py
+                    --design {{design_file}}
+                    --output {{output_dir}}/objectives.json
+                    --repeat 0
+                  outputs:
+                    - path: "{{output_dir}}/objectives.json"
+                      format: "json"

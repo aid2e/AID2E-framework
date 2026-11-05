@@ -64,34 +64,28 @@ def test_canonical_full_config_loads(tmp_path):
     ]
 
 
-def test_optimizer_only_example_configs_load() -> None:
-    """New optimizer-only example YAMLs should load as canonical full configs."""
-    example_paths = [
-        Path("examples/optimizers/dtlz2_ax_optimizer_only.yml"),
-        Path("examples/optimizers/dtlz2_pymoo_optimizer_only.yml"),
-    ]
-
-    for cfg_path in example_paths:
-        config = load_config(str(cfg_path))
-        assert config.problem.problem_type == "toy"
-        assert config.problem.design_config.get_parameter_names()
-        assert config.optimizer.parameters
-
-
 def test_cli_smoke_example_configs_load() -> None:
-    """Relocated JobLib and PanDA CLI examples should remain self-contained."""
+    """Runnable DTLZ2 examples should load with ten design variables."""
     example_paths = [
-        Path("examples/basic/input-joblib.yml"),
-        Path("examples/schedulers/panda-idds/input-panda.yml"),
+        Path("examples/dtlz2/configurations/dtlz2_ax_joblib.yml"),
+        Path("examples/dtlz2/configurations/dtlz2_ax_joblib.json"),
+        Path("examples/dtlz2/configurations/dtlz2_ax_slurm.yml"),
+        Path("examples/dtlz2/configurations/dtlz2_ax_constraints.yml"),
+        Path("examples/dtlz2/configurations/dtlz2_objective_collection.yml"),
+        Path("examples/dtlz2/configurations/dtlz2_objective_plans.yml"),
+        Path("examples/dtlz2/configurations/dtlz2_pymoo_joblib.yml"),
+        Path("examples/dtlz2/configurations/dtlz2_scheduler_cascade.yml"),
+        Path("examples/dtlz2/configurations/dtlz2_sobol_joblib.yml"),
+        Path("examples/dtlz2/configurations/dtlz2_ax_panda.yml"),
         Path(
-            "examples/schedulers/panda-idds/"
-            "input-panda-multistage-file-datasets.yml"
+            "examples/dtlz2/schedulers/panda-idds/"
+            "dtlz2_ax_panda_multistage_file_datasets.yml"
         ),
     ]
 
     for cfg_path in example_paths:
         config = load_config(str(cfg_path))
-        assert config.problem.design_config.get_parameter_names()
+        assert len(config.problem.design_config.get_parameter_names()) == 10
         assert config.scheduler is not None
         assert config.workflows is not None
 
@@ -99,8 +93,8 @@ def test_cli_smoke_example_configs_load() -> None:
 def test_optimizer_only_example_scripts_compile() -> None:
     """New optimizer-only example scripts should compile cleanly."""
     script_paths = [
-        Path("examples/optimizers/run_ax_optimizer_only_example.py"),
-        Path("examples/optimizers/run_pymoo_optimizer_only_example.py"),
+        Path("examples/dtlz2/python_api/dtlz2_ax_optimizer.py"),
+        Path("examples/dtlz2/python_api/dtlz2_pymoo_optimizer.py"),
     ]
 
     for script_path in script_paths:

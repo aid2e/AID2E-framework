@@ -159,11 +159,6 @@ scheduler:
 
       "$APPTAINER" exec --bind "$PWD:$PWD" "$SIF" sh -c 'cp -a "$DETECTOR_PATH" "$1/"' sh "$EPIC_SHARE_LOCAL/share/" || exit 1;
 
-    # export EPIC_SHARE_LOCAL="$PWD/epic_share_no_colon";
-    # mkdir -p "$EPIC_SHARE_LOCAL/share";
-    # "$APPTAINER" exec "$SIF" cp -a /opt/local/share/epic "$EPIC_SHARE_LOCAL/share/";
-    # test -d "$EPIC_SHARE_LOCAL/share/epic/compact" || exit 1;
-
     exclude_source_files:
       - "(^|/)\\.[^/]+"
       - "doc*"

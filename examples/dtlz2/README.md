@@ -37,7 +37,7 @@ See [configurations](configurations/) for optimization settings, [python_api](py
 
 ```bash
 python3 -m venv .venv
-.venv/bin/pip install -e . -e ../agenticwf-kb/client -e ../AgenticWF-auth/cli   # or: pip install -e '.[kb]'
+.venv/bin/pip install -e '.[kb]'
 source setup_aid2e.sh            # activates .venv, puts the repository root on PYTHONPATH
 
 # The KB behind the AgenticWF server; the clients discover the sign-in settings from it

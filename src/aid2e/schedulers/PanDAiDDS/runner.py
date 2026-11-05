@@ -248,7 +248,6 @@ class PanDAiDDSScheduler(BaseScheduler):
                 "stderr": str(exc),
                 "outputs": {},
             }
-    # END modification Baptiste
 
     # --- Run stage (synchronous convenience wrapper) -----------------------
     def run_stage(

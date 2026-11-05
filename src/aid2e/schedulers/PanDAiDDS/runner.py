@@ -794,8 +794,7 @@ class PanDAiDDSScheduler(BaseScheduler):
 
         params = dict(job.get("params", {}))
 
-        # BEGIN modification Baptiste 
-        # Goal: remap local optimizer paths for execution on PanDA workers (/srv/...)
+        # remap local optimizer paths for execution on PanDA workers (/srv/...)
         if self._is_trial_workflow_wrapper(job):
             source_root = Path(self.config.source_dir).resolve()
 

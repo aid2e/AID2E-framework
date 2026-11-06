@@ -407,6 +407,39 @@ class TestAxOptimizer(AbstractOptimizerTestSuite):
     
     config_class = None
     
+    def test_fitted_model_export_preserves_predictions(self, tmp_path):
+        import pickle
+        import torch
+        from ax.core.observation import ObservationFeatures
+
+        optimizer = self.create_optimizer(self.get_search_space(), self.get_config_class()(n_initial_samples=2), ['loss'])
+        for index in range(2):
+            point = optimizer.suggest_candidates(1)[0]
+            optimizer.update_with_results(index, point, {'loss': point['x'] ** 2 + point['y']}, uncertainties={'loss': 0.1})
+        assert 'ax_model' not in optimizer.save_optimization_results(tmp_path)
+        assert not (tmp_path / 'ax_models').exists()
+        optimizer.config.save_model_history = True
+        candidates = optimizer.suggest_candidates(2)
+        adapter = optimizer.generation_strategy.adapter
+        features = [ObservationFeatures(parameters={'x': 0.3, 'y': 0.6})]
+        expected = adapter.predict(features)
+        query = torch.tensor([[[0.3, 0.6], [0.4, 0.5]]], dtype=torch.double)
+        expected_acquisition = adapter.generator._acquisition.evaluate(query).detach()
+        for index, point in enumerate(candidates, start=2):
+            optimizer.update_with_results(index, point, {'loss': point['x'] ** 2 + point['y']}, uncertainties={'loss': 0.1})
+        paths = optimizer.save_optimization_results(tmp_path)
+        with paths['ax_model'].open('rb') as handle:
+            actual = pickle.load(handle).predict(features)
+        np.testing.assert_allclose(actual[0]['loss'], expected[0]['loss'])
+        np.testing.assert_allclose(actual[1]['loss']['loss'], expected[1]['loss']['loss'])
+
+        with paths['ax_model_history'].open('rb') as handle:
+            history = pickle.load(handle)
+        assert history['trial_indices'] == [2, 3]
+        assert history['adapter']._experiment.trials[2].status.name == 'RUNNING'
+        np.testing.assert_allclose(history['adapter'].predict(features)[0]['loss'], expected[0]['loss'])
+        torch.testing.assert_close(history['adapter'].generator._acquisition.evaluate(query).detach(), expected_acquisition)
+
     @classmethod
     def setup_class(cls):
         """Setup test class by importing AxOptimizer."""

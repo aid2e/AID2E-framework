@@ -220,7 +220,7 @@ def test_ax_optimizer_suggest_and_update():
     """Test basic suggest and update workflow."""
     config = AxOptimizerConfig(
         initialization_strategy="sobol",
-        n_initial_samples=5,
+        n_initial_samples=3,
         seed=42,
     )
 
@@ -234,11 +234,15 @@ def test_ax_optimizer_suggest_and_update():
     assert len(candidates) == 3
     assert all("x" in c and "y" in c for c in candidates)
 
+    for metrics, errors in [({"loss": float("nan")}, {}), ({"loss": 0.0}, {"loss": -0.2})]:
+        with pytest.raises(ValueError):
+            optimizer.update_with_results(0, candidates[0], metrics, uncertainties=errors)
     for i, candidate in enumerate(candidates[:2]):
         optimizer.update_with_results(
             trial_index=i,
             parameters=candidate,
             metrics={"loss": 0.5 * i},
+            uncertainties={"loss": 0.2},
         )
     optimizer.mark_trial_failed(2, parameters=candidates[2], reason="evaluation failed")
 
@@ -246,19 +250,28 @@ def test_ax_optimizer_suggest_and_update():
     assert len(trials) == 3
     assert [trial.status for trial in trials] == ["completed", "completed", "failed"]
     assert optimizer.experiment.trials[2].status.name == "FAILED"
+    assert optimizer.experiment.lookup_data().df["sem"].tolist() == [0.2, 0.2]
 
     best = optimizer.get_best_trial()
     assert best is not None
     assert best.metrics["loss"] == 0.0
+    replacement = optimizer.suggest_candidates(n_candidates=1)[0]
+    assert optimizer.get_trials()[-1].metadata["ax_node_name"] == "Sobol"
+    optimizer.update_with_results(3, replacement, {"loss": 1.0}, uncertainties={"loss": 0.2})
+    node = optimizer.generation_strategy.nodes_by_name["Sobol"]
+    assert node.transition_criteria[0].is_met(optimizer.experiment, node)
 
 
 @pytest.mark.skipif(
     not AX_NODE_RUNTIME_AVAILABLE,
     reason="Installed Ax runtime lacks required node-based generation APIs.",
 )
-def test_ax_optimizer_pareto_front_single_objective():
+@pytest.mark.parametrize("error", [None, 0.0, 0.2])
+def test_ax_optimizer_pareto_front_single_objective(error):
     """Test Pareto front for single objective returns best trial."""
-    config = AxOptimizerConfig(seed=42)
+    from unittest.mock import patch
+
+    config = AxOptimizerConfig(seed=42, n_initial_samples=10)
     search_space = SearchSpace(
         parameters={"x": {"type": "range", "value": 0.5, "bounds": [0.0, 1.0]}}
     )
@@ -275,11 +288,23 @@ def test_ax_optimizer_pareto_front_single_objective():
             trial_index=i,
             parameters=candidate,
             metrics={"loss": float(i)},
+            uncertainties={"loss": error} if i and error is not None else None,
         )
 
     pareto_front = optimizer.get_pareto_front()
     assert len(pareto_front) == 1
     assert pareto_front[0].metrics["loss"] == 0.0
+    optimizer.set_trial_status(0, "completed", metadata={"penalized": True})
+    assert optimizer.get_pareto_front()[0].index == 1
+
+    with patch.object(optimizer.generation_strategy, "gen", wraps=optimizer.generation_strategy.gen) as generate:
+        optimizer.suggest_candidates()
+    sem = generate.call_args.kwargs["data"].df["sem"]
+    assert sem.isna().all() if error is None else sem.tolist() == [0.0] + [error] * 4
+    assert optimizer.experiment.lookup_data().df["sem"].iloc[:1].isna().all()
+    optimizer.update_with_results(1, candidates[1], {"loss": 1.0}, uncertainties={"loss": 0.2} if error is None else None)
+    with pytest.raises(ValueError, match="requires standard errors for all real evaluations or none"):
+        optimizer.suggest_candidates()
 
 
 @pytest.mark.skipif(
@@ -308,6 +333,7 @@ def test_ax_optimizer_serialize_deserialize():
             trial_index=i,
             parameters=candidate,
             metrics={"loss": 0.1 * i},
+            uncertainties={"loss": 0.2},
         )
 
     state = optimizer.serialize_state()
@@ -330,6 +356,8 @@ def test_ax_optimizer_serialize_deserialize():
 
     trials = optimizer2.get_trials()
     assert len(trials) == 3
+    assert all(t.metadata["uncertainties"] == {"loss": 0.2} for t in trials)
+    assert optimizer2.experiment.lookup_data().df["sem"].tolist() == [0.2] * 3
     best = optimizer2.get_best_trial()
     assert best.metrics["loss"] == 0.0
 

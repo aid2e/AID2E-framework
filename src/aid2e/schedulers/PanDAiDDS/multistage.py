@@ -572,6 +572,7 @@ class PanDAMultiStageJob:
                 "execution": stage_work.execution,
             }
             if stage_work.details is not None:
+                metric.update(self.scheduler._execution_timing(stage_work.details))
                 metric["details"] = stage_work.details
             stage_metrics.append(metric)
         return {"panda_multistage_stages": stage_metrics}

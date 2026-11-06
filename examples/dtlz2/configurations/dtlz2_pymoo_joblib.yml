@@ -3,8 +3,8 @@
 problem:
   name: "DTLZ2 PyMOO with JobLib"
   problem_type: "DTLZ2"
-  output_location: "./output/pymoo_joblib"
-  work_location: "./work/pymoo_joblib"
+  output_location: "./output"
+  work_location: "./work"
 
   design_parameters_file: "../dtlz2_design.params"
 
@@ -41,7 +41,7 @@ workflows:
               objective_plan:
                 steps:
                   stages:
-                    - name: "evaluate"
+                    - name: "compute_objectives"
                       inline:
                         entrypoint: "examples.dtlz2.dtlz2_evaluator:objective_payload"
                       produces_objective: true

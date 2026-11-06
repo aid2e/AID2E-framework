@@ -54,6 +54,8 @@ Ax initialization strategies are:
 - `uniform`: Independent pseudorandom sampling over each parameter range.
 - `center`: One search-space center point followed by Sobol initialization when additional initial samples are requested.
 
+`n_initial_samples` is the number of completed Sobol or uniform initialization trials, including penalized trials. Failed trials without results count toward `n_iterations`, but not `n_initial_samples`.
+
 If the installed Ax version has no uniform generator, `uniform` falls back to Sobol.
 
 ## Shared Behavior
@@ -62,16 +64,18 @@ All optimizer backends use the same search-space representation, trial lifecycle
 
 Trials record parameters, objective values, status, and metadata. Results include all recorded trials. The Pareto front includes only completed trials with metrics and respects each objective's `minimize` or `maximize` direction. Failed trials have no objective values; penalized trials have user-configured values that influence optimization.
 
-Objective `<name>_err` values are saved with results, but the current Ax backend attaches observations with zero standard error. PyMOO selects candidates using objective means only.
+Objective `<name>_err` values are saved with results and trial metadata and passed to Ax as standard errors. When omitted, Ax estimates noise. For each objective, supply errors for all real evaluations or none. PyMOO selects candidates using objective means only.
 
 ### Failed and Penalized Trials
 
 `problem.evaluation_config.trial_failure_policy` controls workflow evaluation failures and defaults to `fail`:
 
 - `fail` calls the backend's `mark_trial_failed()` without objective values. Failed trials remain in optimizer history, are excluded from Pareto calculations, and are included in subsequently saved results.
-- `penalty` requires a `penalty_objectives` value for every declared objective. The optimizer receives those values through `update_with_results()`, and the completed trial retains `penalized: true` and the failure `reason` in metadata. Choose poor values for each objective's direction; the framework does not derive them automatically.
+- `penalty` requires a `penalty_objectives` value for every declared objective. The optimizer receives those values through `update_with_results()`, and the completed trial retains `penalized: true` and the failure `reason` in metadata. Choose poor values for each objective's direction; the framework does not derive them automatically. Penalties apply only to confirmed invalid designs and are excluded from the reported Pareto front.
 
-Both outcomes count toward `max_failed_trials`, which defaults to `0`. The optimization stops when the number of failed evaluations exceeds that configured limit, so the first failure stops the run unless a larger limit is configured.
+EpicStack identifies geometry overlaps as invalid designs. Other failures are marked failed without penalties.
+
+Both outcomes count toward `max_failed_trials`, which defaults to `0`. The optimization stops when the number of failed evaluations exceeds that configured limit, so the first failure stops the run unless a larger limit is configured. Results are updated and saved before stopping.
 
 ## Ax Backend
 
@@ -85,6 +89,7 @@ Supported fields are:
 
 - `initialization_strategy`: `sobol`, `uniform`, or `center`
 - `generator`: currently validated to `BOTORCH_MODULAR`
+- `warm_start_path`: optional path to Ax JSON snapshot for initializing optimization from a previous run
 - `generator_kwargs`: runtime kwargs passed to the Ax generator spec
 - `generator_gen_kwargs`: generation-time kwargs passed through to Ax
 - `objective_thresholds`: optional multi-objective thresholds by metric name
@@ -92,6 +97,8 @@ Supported fields are:
 - `n_iterations`
 - `batch_size`
 - `seed`
+- `save_snapshot`: save Ax snapshots after each completed batch
+- `save_model_history`: save model history for each Bayesian batch (default: `false`)
 
 `generator_kwargs` accepts supported class names as strings, including model and acquisition choices. `BOTORCH_MODULAR` uses Ax defaults unless those choices are supplied explicitly; defaults can depend on the problem and Ax version. The retired `surrogate_model` and `acquisition_function` fields are rejected; use `generator_kwargs` instead.
 
@@ -105,7 +112,7 @@ Each objective follows its direction from `problem.objectives`. For multi-object
 
 ## PyMOO Backend
 
-PyMOO provides evolutionary single- and multi-objective optimization through an external-evaluation ask/tell loop. AID2E schedules each generated population and returns the completed objective values to PyMOO as one generation.
+PyMOO provides evolutionary single- and multi-objective optimization through an external-evaluation ask/tell loop. AID2E schedules each generated population and returns the completed objective values to PyMOO as one generation. Trial metadata in `optimization_results.json` records `population_generations`: population membership after selection, including failed trials. 
 
 ### Configuration
 

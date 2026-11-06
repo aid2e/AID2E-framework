@@ -275,11 +275,13 @@ class EpicStack(ExperimentStack):
             if not epic_install:
                 raise EnvironmentError("Variable 'epic_install' not set. Must define epic_install.")
             detector_setup = (
-                f"source \"{epic_install}/bin/thisepic.sh\" {epic_config}\n"
-                f"export EPIC_INSTALL=\"{epic_install}\"\n"
+                f"if [ -f \"{epic_install}/bin/thisepic.sh\" ]; then\n"
+                f"    source \"{epic_install}/bin/thisepic.sh\" {epic_config}\n"
+                f"fi\n"
                 f"export EPIC_CONFIG=\"{epic_config}\"\n"
                 f"export DETECTOR_PATH=\"{trial_geo_dir}\"\n"
-                f"export DETECTOR_CONFIG=\"{epic_config}\""
+                f"export DETECTOR_CONFIG=\"{epic_config}\"\n"
+                f"test -f \"$DETECTOR_PATH/epic.xml\""
             )
         else:
             detector_setup = (

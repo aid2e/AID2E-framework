@@ -3,8 +3,8 @@
 problem:
   name: "DTLZ2 Sobol with JobLib"
   problem_type: "DTLZ2"
-  output_location: "./output/sobol_joblib"
-  work_location: "./work/sobol_joblib"
+  output_location: "../../../output"
+  work_location: "../../../work"
 
   design_parameters_file: "../dtlz2_design.params"
 

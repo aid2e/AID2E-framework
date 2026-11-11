@@ -4,8 +4,8 @@
 problem:
   name: "ePIC Vertex Barrel Optimization"
   problem_type: "EPIC_TRACKING"
-  output_location: "./output/epic_tracking"
-  work_location: "./work/epic_tracking"
+  output_location: "./output"
+  work_location: "./work"
   
   epic_configuration:
     singularity_image: "/path/to/epic/singularity/image.sif"

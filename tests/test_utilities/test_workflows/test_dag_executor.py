@@ -12,6 +12,7 @@ Tests the DAGExecutor orchestration engine including:
 Project: AID2E v0.0.0 - AI assisted Detector Design for EIC
 """
 
+import json
 from pathlib import Path
 from typing import Dict, Any
 import pytest
@@ -33,6 +34,7 @@ from aid2e.utilities.workflows import (
 )
 from aid2e.utilities.configurations import SchedulerConfiguration
 from aid2e.utilities.runtime_builders import build_workflow_executor_from_config
+from aid2e.utilities.workflows.execution_utils import InvalidDesignError
 from tests.test_schedulers.test_pandaidds_runner import install_fake_idds
 
 
@@ -132,7 +134,9 @@ class TestBranchExecution:
             objectives=[],
         )
         
-        executor = DAGExecutor(workflow, base_output_dir=str(tmp_path))
+        executor = DAGExecutor(
+            workflow, base_output_dir=str(tmp_path), scheduler_config={"runner_type": "JobLibRunner"}
+        )
         design_point = {"x1": 0.5, "x2": 0.7}
         
         objectives = executor.execute(design_point)
@@ -143,16 +147,22 @@ class TestBranchExecution:
         # Check that job was executed (XCom should have entry)
         assert len(executor.global_xcom) > 0
 
+        checkpoints = json.loads(executor.logger.checkpoint_file.read_text())["checkpoints"]
+        saved = next(cp["context"] for cp in checkpoints if cp["stage"] == "job_complete")
+        assert saved["stage_name"] == "test_stage"
+        assert saved["metrics"]["started_at"] <= saved["metrics"]["finished_at"]
+
 
 class TestStageExecution:
     """Test stage execution with job expansion."""
 
-    def test_job_execution_ends_after_expected_retries(self, tmp_path):
+    @pytest.mark.parametrize("scheduled,exit_code", [(False, 1), (False, 9), (True, 9)])
+    def test_job_execution_ends_after_expected_retries(self, tmp_path, scheduled, exit_code):
         """Test job with retries"""
         job = JobDefinition(
             name="failing_job",
-            command="exit 1",
-            payload={"evaluator_type": "bash"},
+            command=f"exit {exit_code}",
+            payload={"evaluator_type": "bash", "invalid_design_exit_codes": [9]},
         )
 
         stage = StageDefinition(
@@ -162,14 +172,12 @@ class TestStageExecution:
 
         branch = BranchDefinition(name="main", stages=[stage])
         workflow = WorkflowDefinition(name="failing_workflow", branches=[branch], objectives=[])
-        executor = DAGExecutor(workflow, base_output_dir=str(tmp_path))
+        executor = DAGExecutor(workflow, base_output_dir=str(tmp_path), scheduler_config={"runner_type": "JobLibRunner"} if scheduled else None)
 
-        # Make sure execution fails with a RuntimeError, and
-        # that we get the message it failed after 4 attempts
-        # (1 try + 3 retries)
-        with pytest.raises(RuntimeError) as run_error:
-            objectives = executor.execute({"x1": 0.5, "x2": 0.7, "x3": 0.3})
-        assert "Job failing_job failed after 4 attempts" in str(run_error.value)
+        with pytest.raises(InvalidDesignError if exit_code == 9 else RuntimeError) as run_error:
+            executor.execute({"x1": 0.5, "x2": 0.7, "x3": 0.3})
+        if not scheduled and exit_code == 1:
+            assert "Job failing_job failed after 4 attempts" in str(run_error.value)
 
     def test_job_expansion_with_range_factory(self, tmp_path):
         """Test job expansion using range factory."""

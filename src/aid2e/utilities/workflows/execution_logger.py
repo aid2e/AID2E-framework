@@ -11,7 +11,8 @@ Repository: https://github.com/aid2e/AID2E-framework.git
 import json
 import logging
 import sys
-from datetime import datetime
+import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
 from dataclasses import dataclass, asdict
@@ -98,9 +99,9 @@ class ExecutionLogger:
         console_handler = logging.StreamHandler(sys.stdout)
         console_handler.setLevel(self.log_level)
         formatter = logging.Formatter(
-            "%(asctime)s [%(name)s] %(levelname)s: %(message)s",
-            datefmt="%Y-%m-%d %H:%M:%S"
+            "%(asctime)s [%(name)s] %(levelname)s: %(message)s", datefmt="%Y-%m-%dT%H:%M:%S+00:00"
         )
+        formatter.converter = time.gmtime
         console_handler.setFormatter(formatter)
         self.logger.addHandler(console_handler)
         
@@ -150,7 +151,7 @@ class ExecutionLogger:
         checkpoint = Checkpoint(
             stage=stage,
             status=status,
-            timestamp=datetime.now().isoformat(),
+            timestamp=datetime.now(timezone.utc).isoformat(timespec="microseconds"),
             message=message,
             context=context or {},
             details=details

@@ -18,7 +18,7 @@ def test_cli_help(runner):
     assert 'AID2E' in result.output
     assert 'Usage:' in result.output
     help_text = runner.invoke(cli, ['optimize', '--help']).output
-    assert '--output' not in help_text and '--log' not in help_text
+    assert '--output' in help_text and '--log' not in help_text
 
 
 def test_cli_version(runner):
@@ -35,9 +35,11 @@ def test_cli_version_subcommand(runner):
 
 
 
-def test_optimize_delegates_to_generic_runner(runner, tmp_path, monkeypatch):
+@pytest.mark.parametrize("override", [False, True])
+def test_optimize_delegates_to_generic_runner(runner, tmp_path, monkeypatch, override):
     """Optimize should validate config and delegate execution generically."""
     output_dir = tmp_path / "output"
+    run_output = tmp_path / "override" if override else output_dir
     work_dir = tmp_path / "work"
     output_dir.mkdir()
     work_dir.mkdir()
@@ -81,8 +83,8 @@ workflows:
     def fake_run(config, config_file, **kwargs):
         calls.append((config, config_file, kwargs))
         return {
-            "run_dir": output_dir / "run-1",
-            "optimization_results": output_dir / "run-1" / "optimization_results.json",
+            "run_dir": run_output / "run-1",
+            "optimization_results": run_output / "run-1" / "optimization_results.json",
         }
 
     monkeypatch.setattr(
@@ -99,7 +101,7 @@ workflows:
             "generic_eval",
             "--run-id",
             "run-1",
-        ],
+        ] + (["--output", str(run_output)] if override else []),
     )
 
     assert result.exit_code == 0
@@ -108,8 +110,8 @@ workflows:
     assert calls[0][1] == str(config_path)
     assert calls[0][2]["workflow_name"] == "generic_eval"
     assert calls[0][2]["run_id"] == "run-1"
-    assert "output_dir" not in calls[0][2]
-    assert (output_dir / "run-1/run.log").is_file()
+    assert calls[0][2]["output_dir"] == str(run_output)
+    assert (run_output / "run-1/run.log").is_file()
     assert calls[0][0].problem.work_location == str(work_dir)
 
 

@@ -135,7 +135,7 @@ class AxOptimizerConfig(BaseModel):
 
     save_model_history: bool = Field(
         default=False,
-        description="Save the fitted model and acquisition state for each Bayesian batch.",
+        description="Save the model used to propose each Bayesian batch.",
     )
 
     @model_validator(mode="before")

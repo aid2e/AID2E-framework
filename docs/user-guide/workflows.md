@@ -33,9 +33,9 @@ The job `payload.evaluator_type` selects the execution engine. When it is omitte
 
 ### Job Factories
 
-A stage can execute its declared jobs directly or expand the first job as a template through `job_factory`. The current executor implements two factory types: `range` and `payloads`. Other names described by the model are not implemented and raise `ValueError`.
+A stage can execute its declared jobs directly or expand the first job as a template through `job_factory`. Alternatively, each job can declare its own `job_factory`; all expanded jobs run in the same stage. Use either stage-level or job-level factories, not both. The current executor implements two factory types: `range` and `payloads`. Other names described by the model are not implemented and raise `ValueError`.
 
-The `range` factory creates `n` deep copies of the first job. Each copy is named `<template_name>_<index>` and receives `job_index` in its payload:
+The `range` factory creates `n` deep copies of its template job. Each copy is named `<template_name>_<index>` and receives `job_index` in its payload:
 
 ```yaml
 job_factory:
@@ -53,7 +53,7 @@ job_factory:
     from: "workflow_utils:simulation_payloads"
 ```
 
-Because expansion deep-copies the template job, stack layer definitions are preserved for every generated job. Additional jobs declared after the first template are not expanded when a factory is present.
+Each payload can supply `job_name`; otherwise, the generated name is `<template-name>_<index>`. Because expansion deep-copies the template job, stack layer definitions are preserved for every generated job. Additional jobs declared after the first template are not expanded when a stage-level factory is present.
 
 ### Callable Entrypoints
 

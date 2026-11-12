@@ -47,6 +47,7 @@ from aid2e.utilities.configurations.workflow_config import (
     BranchDefinition,
     StageDefinition,
     JobDefinition,
+    JobFactory,
 )
 from aid2e.utilities.configurations.experimental_stack_config import StackLayerConfig
 from .dag_types import (
@@ -984,14 +985,19 @@ class DAGExecutor:
         if not stage.jobs:
             return []
         
-        if not stage.job_factory:
-            # No factory, return jobs as-is
-            return stage.jobs
-        
-        # Expand first job using factory
-        template_job = stage.jobs[0]
-        factory = stage.job_factory
-        
+        if stage.job_factory:
+            if any(job.job_factory for job in stage.jobs):
+                raise ValueError("Use either stage-level or job-level factories, not both")
+            return self._expand_job(stage.jobs[0], stage.job_factory, stage.name)
+
+        return [expanded for job in stage.jobs
+                for expanded in self._expand_job(job, job.job_factory, stage.name)]
+
+    def _expand_job(self, template_job: JobDefinition, factory: Optional[JobFactory], stage_id: str) -> List[JobDefinition]:
+        """Expand one template using the existing factory types."""
+        if factory is None:
+            return [template_job]
+
         if factory.type == "range":
             # Create N copies of the template job
             n = factory.params.get("n", 1)
@@ -1010,7 +1016,7 @@ class DAGExecutor:
             if not payloads_from:
                 raise ValueError("payloads job_factory requires params.from")
             payloads = self._resolve_callable(payloads_from)(
-                stage_id=stage.name,
+                stage_id=stage_id,
                 problem_config=self.problem_config,
                 workflow_context=dict(self.workflow_context.parameters),
             )
@@ -1025,7 +1031,7 @@ class DAGExecutor:
                     template_job.model_copy(
                         deep=True,
                         update={
-                            "name": f"{template_job.name}_{index}",
+                            "name": payload.get("job_name", f"{template_job.name}_{index}"),
                             "payload": {
                                 **template_job.payload,
                                 "job_index": index,

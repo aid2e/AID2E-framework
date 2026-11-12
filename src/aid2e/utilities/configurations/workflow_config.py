@@ -126,6 +126,7 @@ class JobDefinition(BaseModel):
     name: str = Field(..., description="Job name")
     command: str = Field(..., description="Executable command")
     payload: Dict[str, Any] = Field(default_factory=dict, description="Command arguments and metadata")
+    job_factory: Optional["JobFactory"] = Field(default=None, description="Job expansion factory")
     rule: Optional[str] = Field(
         default=None,
         description="Template rule for command construction (e.g., '{{command}} {{payload[input]}} {{payload[output]}}')"
@@ -155,6 +156,9 @@ class JobFactory(BaseModel):
     """
     type: str = Field(default="range", description="Factory type (range, enumerate, Cartesian, etc)")
     params: Dict[str, Any] = Field(default_factory=dict, description="Factory parameters")
+
+
+JobDefinition.model_rebuild()
 
 
 class StageDefinition(BaseModel):

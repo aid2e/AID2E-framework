@@ -35,6 +35,7 @@ from aid2e.utilities.workflows import (
 from aid2e.utilities.configurations import SchedulerConfiguration
 from aid2e.utilities.runtime_builders import build_workflow_executor_from_config
 from aid2e.utilities.workflows.execution_utils import InvalidDesignError
+from aid2e.utilities.workflows.execution_engine import WorkflowSharedContext
 from tests.test_schedulers.test_pandaidds_runner import install_fake_idds
 
 
@@ -179,8 +180,10 @@ class TestStageExecution:
         if not scheduled and exit_code == 1:
             assert "Job failing_job failed after 4 attempts" in str(run_error.value)
 
-    def test_job_expansion_with_range_factory(self, tmp_path):
-        """Test job expansion using range factory."""
+    @pytest.mark.parametrize("factory_type", ["range", "payloads"])
+    @pytest.mark.parametrize("factory_scope", ["stage", "job"])
+    def test_job_expansion_with_factory(self, tmp_path, monkeypatch, factory_type, factory_scope):
+        """Test stage/job factories and optional payload job names."""
         job = JobDefinition(
             name="parallel_job",
             command="echo 'Job execution'",
@@ -199,17 +202,33 @@ class TestStageExecution:
         executor = DAGExecutor(workflow, base_output_dir=str(tmp_path))
         
         # Test job expansion
+        if factory_type == "payloads":
+            stage.job_factory = JobFactory(type="payloads", params={"from": "example:payloads"})
+            executor.workflow_context = WorkflowSharedContext(workflow.name)
+            monkeypatch.setattr(executor, "_resolve_callable", lambda _: lambda **kwargs: [{"job_name": "bic_sim_0"}, {}, {"job_name": "drich_sim_0"}])
+        if factory_scope == "job":
+            stage.jobs[0].job_factory = stage.job_factory
+            stage.job_factory = None
+            stage.jobs.extend([
+                JobDefinition(name="other", command="true", job_factory=JobFactory(type="range", params={"n": 2})),
+                JobDefinition(name="single", command="true"),
+            ])
         expanded_jobs = executor._expand_jobs(stage)
         
-        assert len(expanded_jobs) == 3
-        assert expanded_jobs[0].name == "parallel_job_0"
+        assert len(expanded_jobs) == (6 if factory_scope == "job" else 3)
+        assert expanded_jobs[0].name == ("bic_sim_0" if factory_type == "payloads" else "parallel_job_0")
         assert expanded_jobs[1].name == "parallel_job_1"
-        assert expanded_jobs[2].name == "parallel_job_2"
+        assert expanded_jobs[2].name == ("drich_sim_0" if factory_type == "payloads" else "parallel_job_2")
         
         # Check job_index in payload
         assert expanded_jobs[0].payload["job_index"] == 0
         assert expanded_jobs[1].payload["job_index"] == 1
         assert expanded_jobs[2].payload["job_index"] == 2
+        if factory_scope == "job":
+            assert [job.name for job in expanded_jobs[3:]] == ["other_0", "other_1", "single"]
+            stage.job_factory = stage.jobs[0].job_factory
+            with pytest.raises(ValueError, match="either stage-level or job-level"):
+                executor._expand_jobs(stage)
     
     def test_stage_without_job_factory(self, tmp_path):
         """Test stage execution without job factory."""

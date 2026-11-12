@@ -1,0 +1,241 @@
+# Joint dRICH and BIC optimization with one geometry per trial.
+# Shared geometry and simulation, then detector reconstruction and analysis.
+
+problem:
+  name: "dRICH and BIC Optimization"
+  problem_type: "EPIC_dRICH_BIC"
+  output_location: "./output"
+  work_location: "./work"
+  design_parameters_file: "./design.params"
+
+  objectives:
+    - name: "piKsep_etalow"
+      direction: "maximize"
+    - name: "piKsep_etahigh"
+      direction: "maximize"
+    - name: "acceptance"
+      direction: "maximize"
+    - name: "phi_resolution"
+      direction: "minimize"
+
+  epic_environment:
+    epic_install: "/path/to/epic"
+    epic_config: "epic"
+    geometry_mode: "build"
+    eic_shell: "/path/to/eic-shell"
+    eic_recon_install: "/path/to/eic-software/share/epic/local"
+
+  evaluation_config:
+    drich_particles: ["pi+", "kaon+"]
+    bic_particles: ["gamma"]
+    bic_energies: [1, 2, 5] # Photon energies in GeV
+    drich_scan_points:
+      - {p: 15, eta_min: 1.5, eta_max: 2.0, radiator: 0}
+      - {p: 15, eta_min: 2.0, eta_max: 2.5, radiator: 0}
+      - {p: 45, eta_min: 2.5, eta_max: 3.0, radiator: 1}
+      - {p: 45, eta_min: 3.0, eta_max: 3.5, radiator: 1}
+    trial_failure_policy: "penalty"
+    max_failed_trials: 5
+    penalty_objectives:
+      piKsep_etalow: 0.0
+      piKsep_etahigh: 0.0
+      acceptance: 0.0
+      phi_resolution: 1.0
+
+optimizer:
+  name: "ax"
+  type: "bayesian"
+  parameters:
+    initialization_strategy: "sobol"
+    generator: "BOTORCH_MODULAR"
+    seed: 999
+    n_initial_samples: 12
+    n_iterations: 20
+    batch_size: 2
+    objective_thresholds:
+      piKsep_etalow: 3.62
+      piKsep_etahigh: 4.04
+      acceptance: 0.80
+      phi_resolution: 1.0
+
+# Run trial workflows in separate local processes; submit stage jobs to Slurm.
+scheduler:
+  runner_type: "JobLibRunner"
+  parameters:
+    n_jobs: 2
+    backend: "loky"
+
+workflows:
+  workflows:
+    - name: "drich_bic_workflow"
+      stack_type: "epic"
+      branches:
+        - name: "main"
+          scheduler:
+            runner_type: "SlurmRunner"
+            parameters:
+              job_name_prefix: "drich_bic"
+              account: "<account>"
+              partition: "<partition>"
+              nodes: 1
+              ntasks: 1
+              cpus_per_task: 1
+              mem: "4G"
+              time: "04:00:00"
+              poll_interval: 10
+              capture_stdout: true
+              capture_stderr: true
+          stages:
+            - name: "geo"
+              jobs:
+                - name: "geo_job"
+                  payload:
+                    evaluator_type: "stack"
+                  layers:
+                    - layer: "geo"
+                      inputs:
+                        - "{{geometry_dir}}/install/share/epic/${DETECTOR_CONFIG}.xml"
+                      outputs:
+                        - "{{output_dir}}/overlap_log_{{workflow[trial_index]}}.txt"
+
+            - name: "sim"
+              description: "Simulate dRICH particles and BIC photons"
+              jobs:
+
+                - name: "bic_sim"
+                  payload:
+                    evaluator_type: "stack"
+                  layers:
+                    - name: "bic_sim"
+                      layer: "sim"
+                      inputs: []
+                      outputs:
+                        - "{{payload[sim_file]}}"
+                      arguments:
+                        - "-N 1000" # Events per photon energy
+                        - "{{payload[sim_arguments]}}"
+
+                  job_factory:
+                    type: "payloads"
+                    params:
+                      from: "combined_utils:bic_sim_payloads"
+
+                - name: "drich_sim"
+                  payload:
+                    evaluator_type: "stack"
+                  layers:
+                    - name: "drich_sim"
+                      layer: "sim"
+                      inputs: []
+                      outputs:
+                        - "{{payload[sim_file]}}"
+                      arguments:
+                        - "-N 1000" # Events per scan point and particle
+                        - "{{payload[sim_arguments]}}"
+                  job_factory:
+                    type: "payloads"
+                    params:
+                      from: "combined_utils:drich_sim_payloads"
+
+              parallelism:
+                max_concurrent: 11
+                retry_max: 2
+                timeout_sec: 3600
+
+            - name: "rec"
+              parallelism:
+                max_concurrent: 9
+              jobs:
+                - name: "bic_rec"
+                  payload:
+                    evaluator_type: "stack"
+                  layers:
+                    - name: "bic_rec"
+                      layer: "rec"
+                      inputs:
+                        - "{{payload[sim_file]}}"
+                      outputs:
+                        - "{{payload[reco_file]}}"
+                      arguments:
+                        - "{{payload[rec_arguments]}}"
+                      rule: |
+                        {{payload[merge_command]}}
+                        {{command}} {{arguments}} {{outputs}} {{inputs}}
+                  job_factory:
+                    type: "payloads"
+                    params:
+                      from: "combined_utils:bic_rec_payloads"
+
+                - name: "drich_rec"
+                  payload:
+                    evaluator_type: "stack"
+                  layers:
+                    - name: "drich_rec"
+                      layer: "rec"
+                      inputs:
+                        - "{{payload[sim_file]}}"
+                      outputs:
+                        - "{{payload[reco_file]}}"
+                      arguments:
+                        - "{{payload[rec_arguments]}}"
+                  job_factory:
+                    type: "payloads"
+                    params:
+                      from: "combined_utils:drich_rec_payloads"
+
+            - name: "ana"
+              parallelism:
+                max_concurrent: 5
+              jobs:
+                - name: "bic_ana"
+                  payload:
+                    evaluator_type: "stack"
+                  layers:
+                    - name: "bic_ana"
+                      layer: "ana"
+                      inputs:
+                        - "{{outputs[rec:bic_rec_0:bic_rec](0)}}"
+                      outputs:
+                        - "{{payload[analysis_output]}}"
+                      arguments:
+                        - "{{payload[analysis_arguments]}}"
+                      command: "{{workflow[config_dir]}}/scripts/bic_angular_reso.py"
+                      rule: "python {{command}} -i {{inputs}} -o {{outputs}} {{arguments}}"
+                  job_factory:
+                    type: "payloads"
+                    params:
+                      from: "combined_utils:bic_ana_payloads"
+
+                - name: "drich_ana"
+                  payload:
+                    evaluator_type: "stack"
+                  layers:
+                    - name: "drich_ana"
+                      layer: "ana"
+                      inputs:
+                        - "{{payload[ana_inputs]}}"
+                      outputs:
+                        - "{{payload[analysis_output]}}"
+                      arguments:
+                        - "{{payload[radiator]}}"
+                        - "1000" # Bootstrap samples
+                        - "100" # Number of bootstraps
+                      command: "{{workflow[config_dir]}}/scripts/dRICHAna_bootstrap"
+                      rule: "{{command}} {{inputs}} {{outputs}} {{arguments}}"
+                  job_factory:
+                    type: "payloads"
+                    params:
+                      from: "combined_utils:drich_ana_payloads"
+
+            - name: "collect_objectives"
+              description: "Collect dRICH and BIC objectives"
+              objective_plan:
+                steps:
+                  stages:
+                    - name: "merge"
+                      inline:
+                        entrypoint: "combined_utils:collect_objectives"
+                      extra_args:
+                        key: "phi_resolution"
+                        file: "{{outputs[ana:bic_ana:bic_ana](0)}}"
+                      produces_objective: true

@@ -64,9 +64,11 @@ CLIENT_NAMES = {"claude": "Claude Code", "codex": "Codex", "opencode": "OpenCode
 PROFILES = ("full", "reference")
 
 # The AID2E LiteLLM gateway. `code-assist` is a gateway alias for whichever model
-# is deployed (Qwen, Gemma or Nemotron), so OpenCode keeps working across deployments.
+# is deployed. Its client defaults match the promoted Strata Qwen backend;
+# deployments with different limits can use --llm-context/--llm-output.
 DEFAULT_LLM_URL = "http://128.239.58.223:4000/v1"
 DEFAULT_LLM_MODEL = "code-assist"
+STRATA_LLM_MODELS = (DEFAULT_LLM_MODEL, "code-assist-qwen38-strata")
 LLM_API_KEY_ENV = "AID2E_LLM_API_KEY"
 
 _INSTRUCTION_FILES = {"claude": "CLAUDE.md", "codex": "AGENTS.md"}
@@ -339,7 +341,7 @@ def _opencode_provider(llm_url: str, llm_model: str, llm_context: int | None = N
                        llm_output: int | None = None) -> dict:
     """OpenAI-compatible provider entry for the AID2E LiteLLM gateway."""
     limits = ({"context": 131072, "output": 8192}
-              if llm_model == "code-assist-qwen38-strata"
+              if llm_model in STRATA_LLM_MODELS
               else {"context": 229376, "output": 32768})
     if llm_context is not None:
         limits["context"] = llm_context
@@ -399,14 +401,12 @@ def next_steps(client: str, root: Path, llm_model: str = DEFAULT_LLM_MODEL) -> l
             f'read -rsp "AID2E API key: " {LLM_API_KEY_ENV}; echo; export {LLM_API_KEY_ENV}',
             f"cd {root} && opencode mcp list   # confirm `aid2e` is connected",
             f"cd {root} && opencode",
-            ("Select Build for sequential AID2E work. The AID2E system prompt "
-             if llm_model == "code-assist-qwen38-strata" else
-             "Select Build and ask normally to use subagents. The AID2E system prompt ")
+            "Select Build and ask normally to use subagents. The AID2E system prompt "
             + "comes from the server chat template or gateway; no launcher or experimental flag is needed.",
             "Build and workers can run commands and pytest in the AID2E Python environment. "
             "Reserve tests/<task>/ for pytest files and fixtures; put example code/configs/docs in examples/<task>/.",
-            ("Strata currently serves one request at a time; validate sequential work before concurrent subagents."
-             if llm_model == "code-assist-qwen38-strata" else
+            ("Concurrent subagents share Strata's serving slots; LiteLLM user/key concurrency limits also apply."
+             if llm_model in STRATA_LLM_MODELS else
              "For concurrent agent requests, have the LiteLLM administrator set your "
              "personal key's max_parallel_requests to 3."),
         ]
@@ -526,7 +526,7 @@ def init_workspace(
         _merge_owned(config, f"provider.{SERVER_NAME}",
                      _opencode_provider(llm_url, llm_model, llm_context, llm_output), managed, config_path)
         _merge_owned(config, "model", f"{SERVER_NAME}/{llm_model}", managed, config_path, on_conflict="keep", warnings=warnings)
-        if llm_model == "code-assist-qwen38-strata":
+        if llm_model in STRATA_LLM_MODELS:
             _merge_owned(config, "small_model", f"{SERVER_NAME}/{llm_model}", managed, config_path,
                          on_conflict="keep", warnings=warnings)
             _merge_owned(config, "compaction.reserved", 4096, managed, config_path,

@@ -153,15 +153,16 @@ def test_profiles_follow_model_class() -> None:
     }
 
 
-def test_strata_opencode_limits_and_auxiliary_model(tmp_path: Path) -> None:
-    init_workspace(tmp_path, client="opencode", llm_model="code-assist-qwen38-strata")
+@pytest.mark.parametrize("llm_model", ["code-assist", "code-assist-qwen38-strata"])
+def test_strata_opencode_limits_and_auxiliary_model(tmp_path: Path, llm_model: str) -> None:
+    init_workspace(tmp_path, client="opencode", llm_model=llm_model)
     config = json.loads((tmp_path / "opencode.json").read_text())
-    model = config["provider"]["aid2e"]["models"]["code-assist-qwen38-strata"]
+    model = config["provider"]["aid2e"]["models"][llm_model]
     assert model["limit"] == {"context": 131072, "output": 8192}
-    assert config["small_model"] == "aid2e/code-assist-qwen38-strata"
+    assert config["small_model"] == f"aid2e/{llm_model}"
     assert config["compaction"]["reserved"] == 4096
     assert config["tools"]["bash"] is False
-    assert init_workspace(tmp_path, client="opencode", llm_model="code-assist-qwen38-strata")["written"] == []
+    assert init_workspace(tmp_path, client="opencode", llm_model=llm_model)["written"] == []
     init_workspace(tmp_path, client="opencode", llm_model="code-assist-100b")
     config = json.loads((tmp_path / "opencode.json").read_text())
     assert "small_model" not in config
@@ -169,12 +170,48 @@ def test_strata_opencode_limits_and_auxiliary_model(tmp_path: Path) -> None:
     assert config["provider"]["aid2e"]["models"]["code-assist-100b"]["limit"]["output"] == 32768
 
 
-def test_cli_explicit_alias_limits(tmp_path: Path) -> None:
-    result = CliRunner().invoke(cli, ["mcp", "init", "--client", "opencode", "--workspace", str(tmp_path),
-                                      "--llm-context", "131072", "--llm-output", "8192"])
+def test_cli_default_alias_limits(tmp_path: Path) -> None:
+    result = CliRunner().invoke(cli, ["mcp", "init", "--client", "opencode", "--workspace", str(tmp_path)])
     assert result.exit_code == 0, result.output
     config = json.loads((tmp_path / "opencode.json").read_text())
+    assert config["model"] == "aid2e/code-assist"
     assert config["provider"]["aid2e"]["models"]["code-assist"]["limit"] == {"context": 131072, "output": 8192}
+    assert config["small_model"] == "aid2e/code-assist"
+    assert config["compaction"]["reserved"] == 4096
+
+
+def test_default_alias_refreshes_old_managed_limits(tmp_path: Path) -> None:
+    init_workspace(tmp_path, client="opencode")
+    config_path = tmp_path / "opencode.json"
+    metadata_path = tmp_path / METADATA_FILE
+    config = json.loads(config_path.read_text())
+    metadata = json.loads(metadata_path.read_text())
+    managed = metadata["clients"]["opencode"]["managed"]
+    provider = config["provider"]["aid2e"]
+    provider["models"]["code-assist"]["limit"] = {"context": 229376, "output": 32768}
+    managed["provider.aid2e"] = provider
+    for key in ("small_model", "compaction.reserved"):
+        managed.pop(key)
+    config.pop("small_model")
+    config.pop("compaction")
+    config_path.write_text(json.dumps(config))
+    metadata_path.write_text(json.dumps(metadata))
+
+    result = init_workspace(tmp_path, client="opencode")
+    updated = json.loads(config_path.read_text())
+    assert not result["warnings"]
+    assert updated["provider"]["aid2e"]["models"]["code-assist"]["limit"] == {"context": 131072, "output": 8192}
+    assert updated["small_model"] == "aid2e/code-assist"
+    assert updated["compaction"]["reserved"] == 4096
+    assert init_workspace(tmp_path, client="opencode")["written"] == []
+
+
+def test_cli_explicit_alias_limits(tmp_path: Path) -> None:
+    result = CliRunner().invoke(cli, ["mcp", "init", "--client", "opencode", "--workspace", str(tmp_path),
+                                      "--llm-context", "65536", "--llm-output", "4096"])
+    assert result.exit_code == 0, result.output
+    config = json.loads((tmp_path / "opencode.json").read_text())
+    assert config["provider"]["aid2e"]["models"]["code-assist"]["limit"] == {"context": 65536, "output": 4096}
 
 
 def test_invalid_llm_limits_leave_workspace_untouched(tmp_path: Path) -> None:

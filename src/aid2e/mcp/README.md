@@ -121,8 +121,8 @@ configuration, with your key in both places:
         "url": "http://127.0.0.1:4001/v1/chat/completions",
         "toolCalling": true,
         "vision": false,
-        "maxInputTokens": 229376,
-        "maxOutputTokens": 32768,
+        "maxInputTokens": 122880,
+        "maxOutputTokens": 8192,
         "modelOptions": { "parallel_tool_calls": false },
         "requestHeaders": {
           "Authorization": "Bearer sk-PASTE-YOUR-PERSONAL-KEY-HERE"
@@ -250,15 +250,15 @@ both.
   root or move files. Workers can run commands and focused tests; the coordinator
   runs final integrated tests.
 
-The AID2E system prompt comes from the deployed server chat template. `init`
+The AID2E system prompt comes from the deployed server chat template or gateway. `init`
 does not add custom agent prompts or instruction files for OpenCode. General
 workers inherit the calling model. Use the normal interactive OpenCode window
 and ask it to use subagents; no launcher or experimental background flag is
 required. The optional background mode is a separate OpenCode feature.
 
-For overlapping agent requests, the administrator should set the personal
-LiteLLM key's `max_parallel_requests` to 3. Existing keys retain their stored
-limit when gateway defaults change. A request limit is not a worker-count limit.
+Concurrent subagents share Strata's serving slots (currently two). LiteLLM
+user/key concurrency limits apply independently; existing keys retain their stored
+limits when gateway defaults change. A request limit is not a worker-count limit.
 
 The endpoint defaults to the AID2E LiteLLM gateway's internal address
 (`http://128.239.58.223:4000/v1`) with model `code-assist`, a gateway alias for
@@ -266,10 +266,13 @@ whichever model is deployed. That address has no outside access, so on your own
 machine pass `--llm-url http://127.0.0.1:4001/v1` and use the
 [SSH tunnel](#connect-to-the-aid2e-hosted-model). Use `--llm-model` to pin one
 model (for example, `--llm-model code-assist-gemma-26b`). The Strata route
-`--llm-model code-assist-qwen38-strata` uses 131072 total context tokens and
-8192 output tokens, with AID2E guidance supplied by the gateway. For an alias
-whose backend changes, override the limits explicitly with
-`--llm-context 131072 --llm-output 8192`. The API key
+`--llm-model code-assist-qwen38-strata` and the default `code-assist` alias use
+131072 total context tokens and 8192 output tokens, matching the promoted Strata
+backend, with AID2E guidance supplied by the gateway. Both use the selected model
+for auxiliary requests and reserve 4096 tokens for compaction. Plain
+`aid2e mcp init --client opencode` configures these settings and refreshes old
+managed settings; user overrides remain protected. If the alias backend changes,
+override its limits with `--llm-context` and `--llm-output`. The API key
 is read from the `AID2E_LLM_API_KEY` environment variable at runtime:
 
 ```bash

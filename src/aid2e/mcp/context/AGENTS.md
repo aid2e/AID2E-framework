@@ -49,6 +49,51 @@ After writing code, call `validate_workspace_file(path)` on each new `.py` file 
 (`.yml`/`.yaml`/`.json`/`.config`/`.params`). It checks syntax and AID2E's configuration schemas. Finish with an
 example config or script that shows how to use the new component, adapted from the closest Reference example.
 
+Reserve `tests/<task>/` for pytest files, conftest.py and test fixtures.
+Put example code, configs, helper scripts, README and results in `examples/<task>/`.
+Keep production code in the requested project layout. File tools create parent
+folders automatically; never create empty files named tests or the task directory.
+
+For full-profile clients, `scaffold_example` supplies tested integration mechanics.
+Read `get_integration_contract` first for canonical runnable config, inline,
+shared-fixture and producer code. `run_local_optimization` returns a record dict,
+not a tuple: use `record["run_id"]` and `record["artifacts"]`. Inline functions
+receive `design_point` and named dependencies in `inputs`. The CLI takes a
+positional config: `aid2e optimize examples/demo/config.yml`.
+Use `preflight_workflow` for one candidate, then `run_optimization` for an isolated
+real-CLI run. `verify_optimization_run` checks software results independently.
+In pytest, share one `aid2e.mcp.verification.run_local_optimization` fixture;
+it isolates work/output under `.aid2e/runs/<run_id>/`. Record actual tensor devices
+using `record_diagnostic`; produce plots and summary from that exact run and
+write their provenance using `write_artifact_provenance`. Call
+`get_verification_report` before reporting completion. Missing or stale evidence
+must remain explicit. Scientific interpretation belongs to the scientist.
+
+Finish source and documentation before final integrated pytest, including the
+entire test directory in `source_paths`. Generate every requested artifact from
+that test invocation's exact run ID, writing a sidecar for each. Call
+`finalize_optimization_run(run_id, expected_trials, artifact_paths,
+min_pareto_points=1, require_model_based=True)` with the original requirements.
+Only `completion_allowed=true` permits completion; core `status=passed` or a
+pytest pass alone does not. The independent acceptance card is saved at
+`.aid2e/runs/<run_id>/acceptance.md`; users can recheck it with
+`aid2e mcp status <run_id> --workspace <workspace>`.
+
+When delegation is requested, assign bounded files/interfaces, at most 12 tool
+calls per worker, and require actual focused checks, changed files and blockers.
+Review implementation workers before assigning independent contract tests.
+Record actual session IDs/call counts and ownership violations. Never infer
+concurrency. After two identical errors, inspect the contract and evidence;
+do not keep repeating the same call or weaken the specification.
+
+In the full MCP profile, `run_workspace_command` executes argument lists using
+the MCP environment, e.g. `["aid2e", "optimize", "--help"]` or
+`["python", "tests/demo/check.py"]`. It adds the workspace to Python's import
+path and uses the MCP interpreter for Python and AID2E. Do not create wrappers
+just to run commands. `run_workspace_tests` defaults to `tests/`. General workers
+can run focused checks; the coordinator must run final integrated tests. If a
+tool is unavailable, return that limitation once instead of inventing tool names.
+
 ## Debugging
 
 When the user reports an error:

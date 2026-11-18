@@ -19,7 +19,7 @@ Files written per client:
 - Claude Code: `.mcp.json` and `.claude/settings.local.json` (pre-approval).
 - Codex CLI: a marked, refreshable block in `.codex/config.toml`.
 - OpenCode: `opencode.json` with the `aid2e` MCP server, the local LiteLLM
-  provider/model, and native tools disabled.
+  provider/model, native file/shell tools disabled, and normal Build subagents.
 - VS Code: `.vscode/mcp.json` (server ID `aid2eLocal`) and a
   `.github/agents/aid2e.agent.md` custom agent restricted to `aid2eLocal/*`.
 
@@ -64,7 +64,7 @@ CLIENT_NAMES = {"claude": "Claude Code", "codex": "Codex", "opencode": "OpenCode
 PROFILES = ("full", "reference")
 
 # The AID2E LiteLLM gateway. `code-assist` is a gateway alias for whichever model
-# is deployed (Qwen 35B/100B or Gemma 26B/31B), so OpenCode keeps working across deployments.
+# is deployed (Qwen, Gemma or Nemotron), so OpenCode keeps working across deployments.
 DEFAULT_LLM_URL = "http://128.239.58.223:4000/v1"
 DEFAULT_LLM_MODEL = "code-assist"
 LLM_API_KEY_ENV = "AID2E_LLM_API_KEY"
@@ -81,7 +81,28 @@ _OPENCODE_NATIVE_TOOLS = (
 _OPENCODE_PLAN_HIDDEN_TOOLS = (
     "create_file_in_workspace", "move_file_in_workspace", "replace_lines_in_workspace", "append_to_file_in_workspace",
     "run_workspace_tests",
+    "run_workspace_command",
+    "run_optimization", "preflight_workflow", "verify_optimization_run", "get_verification_report", "scaffold_example",
+    "finalize_optimization_run",
 )
+# Keep task disabled globally, then enable it only for the Build coordinator.
+# OpenCode's ordinary task tool needs no experimental background-subagent flag.
+# AID2E behavioral instructions remain in the server's chat template, not here.
+_OPENCODE_SUBAGENT_SETTINGS = {
+    "agent.build.tools.task": True,
+    "agent.build.permission.task": {"*": "deny", "general": "allow"},
+    "agent.plan.permission.task": "deny",
+    "agent.general.tools.task": False,
+    f"agent.general.tools.{SERVER_NAME}_run_workspace_tests": True,
+    f"agent.general.tools.{SERVER_NAME}_run_workspace_command": True,
+    **{f"agent.general.tools.{SERVER_NAME}_{tool}": True for tool in (
+        "run_optimization", "preflight_workflow", "verify_optimization_run", "get_verification_report", "scaffold_example",
+        "get_integration_contract", "finalize_optimization_run")},
+    f"agent.general.tools.{SERVER_NAME}_set_workspace_root": False,
+    f"agent.general.tools.{SERVER_NAME}_move_file_in_workspace": False,
+    "agent.general.permission.task": "deny",
+    "subagent_depth": 1,
+}
 _VSCODE_AGENT_FILE = Path(".github") / "agents" / "aid2e.agent.md"
 _VSCODE_AGENT_BODY = """\
 ---
@@ -314,8 +335,18 @@ def _codex_config(path: Path, existing: str, block: str) -> str:
     return candidate
 
 
-def _opencode_provider(llm_url: str, llm_model: str) -> dict:
+def _opencode_provider(llm_url: str, llm_model: str, llm_context: int | None = None,
+                       llm_output: int | None = None) -> dict:
     """OpenAI-compatible provider entry for the AID2E LiteLLM gateway."""
+    limits = ({"context": 131072, "output": 8192}
+              if llm_model == "code-assist-qwen38-strata"
+              else {"context": 229376, "output": 32768})
+    if llm_context is not None:
+        limits["context"] = llm_context
+    if llm_output is not None:
+        limits["output"] = llm_output
+    if limits["context"] <= 0 or not 0 < limits["output"] < limits["context"]:
+        raise ValueError("LLM output tokens must be positive and smaller than the context window")
     return {
         "npm": "@ai-sdk/openai-compatible",
         "name": "AID2E (local LLM)",
@@ -323,7 +354,7 @@ def _opencode_provider(llm_url: str, llm_model: str) -> dict:
         "models": {
             llm_model: {
                 "name": f"AID2E {llm_model}",
-                "limit": {"context": 229376, "output": 32768},
+                "limit": limits,
             }
         },
     }
@@ -349,7 +380,7 @@ def describe_setup(client: str, profile: str) -> str:
     return f"{name}: full AID2E tool suite alongside the client's own tools"
 
 
-def next_steps(client: str, root: Path) -> list[str]:
+def next_steps(client: str, root: Path, llm_model: str = DEFAULT_LLM_MODEL) -> list[str]:
     """Return short instructions for opening the configured client."""
     if client == "claude":
         return [
@@ -368,6 +399,16 @@ def next_steps(client: str, root: Path) -> list[str]:
             f'read -rsp "AID2E API key: " {LLM_API_KEY_ENV}; echo; export {LLM_API_KEY_ENV}',
             f"cd {root} && opencode mcp list   # confirm `aid2e` is connected",
             f"cd {root} && opencode",
+            ("Select Build for sequential AID2E work. The AID2E system prompt "
+             if llm_model == "code-assist-qwen38-strata" else
+             "Select Build and ask normally to use subagents. The AID2E system prompt ")
+            + "comes from the server chat template or gateway; no launcher or experimental flag is needed.",
+            "Build and workers can run commands and pytest in the AID2E Python environment. "
+            "Reserve tests/<task>/ for pytest files and fixtures; put example code/configs/docs in examples/<task>/.",
+            ("Strata currently serves one request at a time; validate sequential work before concurrent subagents."
+             if llm_model == "code-assist-qwen38-strata" else
+             "For concurrent agent requests, have the LiteLLM administrator set your "
+             "personal key's max_parallel_requests to 3."),
         ]
     return [
         f"Open {root} in VS Code and start `{VSCODE_SERVER_NAME}` from the MCP view (or trust it when prompted).",
@@ -411,6 +452,8 @@ def init_workspace(
     profile: str | None = None,
     llm_url: str = DEFAULT_LLM_URL,
     llm_model: str = DEFAULT_LLM_MODEL,
+    llm_context: int | None = None,
+    llm_output: int | None = None,
 ) -> dict:
     """Configure a project-local client workspace for the AID2E MCP server.
 
@@ -425,6 +468,8 @@ def init_workspace(
             disabled for OpenCode/VS Code exactly when the profile is 'full'.
         llm_url: OpenAI-compatible base URL of the AID2E LLM gateway (OpenCode).
         llm_model: Model name served by the gateway (OpenCode).
+        llm_context: Optional total context-token limit, useful for a promoted alias.
+        llm_output: Optional output-token limit within the total context.
 
     Returns:
         Summary with the workspace, profile, written files, warnings, and next steps.
@@ -478,8 +523,17 @@ def init_workspace(
         config = _load_json_object(config_path, existing)
         config.setdefault("$schema", "https://opencode.ai/config.json")
         _merge_owned(config, f"mcp.{SERVER_NAME}", {"type": "local", "command": [command, *args], "enabled": True}, managed, config_path)
-        _merge_owned(config, f"provider.{SERVER_NAME}", _opencode_provider(llm_url, llm_model), managed, config_path)
+        _merge_owned(config, f"provider.{SERVER_NAME}",
+                     _opencode_provider(llm_url, llm_model, llm_context, llm_output), managed, config_path)
         _merge_owned(config, "model", f"{SERVER_NAME}/{llm_model}", managed, config_path, on_conflict="keep", warnings=warnings)
+        if llm_model == "code-assist-qwen38-strata":
+            _merge_owned(config, "small_model", f"{SERVER_NAME}/{llm_model}", managed, config_path,
+                         on_conflict="keep", warnings=warnings)
+            _merge_owned(config, "compaction.reserved", 4096, managed, config_path,
+                         on_conflict="keep", warnings=warnings)
+        else:
+            _drop_owned(config, "small_model", managed)
+            _drop_owned(config, "compaction.reserved", managed)
         restricted_keys = [f"tools.{tool}" for tool in _OPENCODE_NATIVE_TOOLS]
         restricted_keys += [f"agent.plan.tools.{SERVER_NAME}_{tool}" for tool in _OPENCODE_PLAN_HIDDEN_TOOLS]
         for key in restricted_keys:
@@ -487,6 +541,11 @@ def init_workspace(
                 _merge_owned(config, key, False, managed, config_path, on_conflict="keep", warnings=warnings)
             else:
                 _drop_owned(config, key, managed)  # Profile switched to reference: hand the tools back.
+        for key, value in _OPENCODE_SUBAGENT_SETTINGS.items():
+            if restrict_tools:
+                _merge_owned(config, key, value, managed, config_path, on_conflict="keep", warnings=warnings)
+            else:
+                _drop_owned(config, key, managed)
         plans.append((config_path, existing, _dump_json(config)))
     else:
         config_path = root / ".vscode" / "mcp.json"
@@ -572,5 +631,5 @@ def init_workspace(
         "client_config": str(config_path),
         "written": written,
         "warnings": warnings,
-        "next_steps": next_steps(client, root),
+        "next_steps": next_steps(client, root, llm_model),
     }

@@ -153,6 +153,37 @@ def test_profiles_follow_model_class() -> None:
     }
 
 
+def test_strata_opencode_limits_and_auxiliary_model(tmp_path: Path) -> None:
+    init_workspace(tmp_path, client="opencode", llm_model="code-assist-qwen38-strata")
+    config = json.loads((tmp_path / "opencode.json").read_text())
+    model = config["provider"]["aid2e"]["models"]["code-assist-qwen38-strata"]
+    assert model["limit"] == {"context": 131072, "output": 8192}
+    assert config["small_model"] == "aid2e/code-assist-qwen38-strata"
+    assert config["compaction"]["reserved"] == 4096
+    assert config["tools"]["bash"] is False
+    assert init_workspace(tmp_path, client="opencode", llm_model="code-assist-qwen38-strata")["written"] == []
+    init_workspace(tmp_path, client="opencode", llm_model="code-assist-100b")
+    config = json.loads((tmp_path / "opencode.json").read_text())
+    assert "small_model" not in config
+    assert "reserved" not in config.get("compaction", {})
+    assert config["provider"]["aid2e"]["models"]["code-assist-100b"]["limit"]["output"] == 32768
+
+
+def test_cli_explicit_alias_limits(tmp_path: Path) -> None:
+    result = CliRunner().invoke(cli, ["mcp", "init", "--client", "opencode", "--workspace", str(tmp_path),
+                                      "--llm-context", "131072", "--llm-output", "8192"])
+    assert result.exit_code == 0, result.output
+    config = json.loads((tmp_path / "opencode.json").read_text())
+    assert config["provider"]["aid2e"]["models"]["code-assist"]["limit"] == {"context": 131072, "output": 8192}
+
+
+def test_invalid_llm_limits_leave_workspace_untouched(tmp_path: Path) -> None:
+    root = tmp_path / "new-project"
+    with pytest.raises(ValueError, match="output tokens"):
+        init_workspace(root, client="opencode", llm_context=4096, llm_output=8192)
+    assert not root.exists()
+
+
 def test_opencode_init_targets_local_model_with_only_aid2e_tools(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv(LLM_API_KEY_ENV, "sk-secret-should-not-be-written")
     result = init_workspace(tmp_path, client="opencode", llm_url="http://gw:4000/v1", llm_model="code-assist-100b")
@@ -176,7 +207,9 @@ def test_opencode_init_targets_local_model_with_only_aid2e_tools(tmp_path: Path,
         f"aid2e_{tool}": False
         for tool in (
             "create_file_in_workspace", "move_file_in_workspace", "replace_lines_in_workspace", "append_to_file_in_workspace",
-            "run_workspace_tests",
+            "run_workspace_tests", "run_workspace_command",
+            "run_optimization", "preflight_workflow", "verify_optimization_run", "get_verification_report", "scaffold_example",
+            "finalize_optimization_run",
         )
     }
 
@@ -335,6 +368,14 @@ _WRITE_TOOLS = {
     "replace_lines_in_workspace",
     "append_to_file_in_workspace",
     "run_workspace_tests",
+    "run_workspace_command",
+    "run_optimization",
+    "preflight_workflow",
+    "verify_optimization_run",
+    "get_verification_report",
+    "scaffold_example",
+    "get_integration_contract",
+    "finalize_optimization_run",
 }
 _SOURCE_REFERENCE_TOOLS = {
     "get_subsystem_blueprints",
@@ -375,7 +416,7 @@ def test_tool_profiles() -> None:
     assert reference == full - _WRITE_TOOLS
     assert reference == _SOURCE_REFERENCE_TOOLS | {"debug_workspace", "validate_workspace_file"}
     assert full == reference | _WRITE_TOOLS
-    assert len(full) == 20 and len(reference) == 11
+    assert len(full) == 28 and len(reference) == 11
 
 
 def _profile_instructions(profile: str) -> str:

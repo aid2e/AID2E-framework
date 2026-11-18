@@ -3,8 +3,8 @@
 These tools operate only inside the active User Workspace. Write tools refuse
 any path inside the read-only AID2E Reference Source (the installed `aid2e`
 package and its examples), even when the workspace root contains it, unless
-the server operator sets `AID2E_ALLOW_SOURCE_WRITES=1`. `run_workspace_tests`
-executes the user's code with pytest in the server's Python environment.
+the server operator sets `AID2E_ALLOW_SOURCE_WRITES=1`. Execution tools run the
+user's trusted code in the server's Python environment; they are not a sandbox.
 """
 
 from __future__ import annotations
@@ -16,6 +16,7 @@ import subprocess
 import sys
 import threading
 import time
+import uuid
 from pathlib import Path, PurePath
 from typing import Annotated, Callable
 
@@ -56,9 +57,12 @@ def _test_timeout_seconds() -> float:
     return value if value > 0 else _DEFAULT_TEST_TIMEOUT_SECONDS
 
 
-def _test_env() -> dict[str, str]:
-    """Environment for a test run: no bytecode files and capped math threads (operator values win)."""
+def _test_env(workspace_root: Path | None = None) -> dict[str, str]:
+    """Use the server environment, with workspace imports and capped math threads."""
     env = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1"}
+    env["PATH"] = str(Path(sys.executable).parent) + os.pathsep + env.get("PATH", "")
+    if workspace_root is not None:
+        env["PYTHONPATH"] = str(workspace_root) + os.pathsep + env.get("PYTHONPATH", "")
     for name in _TEST_THREAD_ENV:
         env.setdefault(name, _DEFAULT_TEST_THREADS)
     return env
@@ -263,7 +267,7 @@ def register_shared_tools(
         workspace_resolver: Callback for resolving safe workspace paths.
         workspace_root_getter: Callback that returns workspace root.
         workspace_tools: Which tools to register: 'all' (full read/write suite
-            plus `run_workspace_tests`),
+            plus command and pytest execution),
             'validate' (only `validate_workspace_file`, for clients that bring
             their own file tools), or 'none'.
     """
@@ -272,9 +276,9 @@ def register_shared_tools(
     if workspace_tools == "none" or workspace_resolver is None or workspace_root_getter is None:
         return
 
-    # A client that times out does not stop the server-side run; refuse a retry
-    # instead of starting a second pytest that competes for the same CPUs.
-    test_run_lock = threading.Lock()
+    # Coordinator and workers share this server. Prevent overlapping executions,
+    # including retries after a client timeout while the server is still running.
+    execution_lock = threading.Lock()
 
     def _workspace_tool(description: str):
         """Register a workspace tool only for the full suite."""
@@ -698,67 +702,23 @@ def register_shared_tools(
             return f"{msg}\n{syntax_note}"
         return msg
 
-    @_workspace_tool(
-        "User project: run pytest on a test file or folder in the user's project and return the result. "
-        "This executes the user's code. Write a small test for new code, run it, and fix failures before reporting done."
-    )
-    def run_workspace_tests(
-        path: Annotated[str, Field(description="Workspace-relative test file or folder, e.g. 'test_sphere.py'.")] = ".",
-        test_filter: Annotated[str, Field(description="Optional pytest -k expression to select tests.")] = "",
-    ) -> str:
-        """Run pytest on a User Workspace test file or directory.
-
-        Uses the MCP server's Python interpreter (where `aid2e` is installed),
-        runs from the workspace root with no shell and closed stdin, and kills
-        the run, including any workers it started, after `AID2E_TEST_TIMEOUT`
-        seconds (default 50). Math libraries get 4 threads unless the server's
-        environment sets them. Only one run happens at a time.
-
-        Args:
-            path: Workspace-relative test file or directory.
-            test_filter: Optional pytest `-k` expression.
-
-        Returns:
-            Pass/fail status, exit code, duration, and pytest's output without captured
-            stdout/logs (long output keeps its start and end).
-        """
-        try:
-            target = _resolve_tool_path(path)
-        except Exception as exc:
-            return f"error: {exc}"
-
-        if not target.exists():
-            return f"not found: {_display(target)}"
-        if in_reference_source(target, index):
-            return (
-                f"refused: {_display(target)} is in the read-only AID2E Reference Source. "
-                "Run tests written in the User Workspace."
-            )
-
-        # Captured stdout/logs and warning summaries are dropped: AID2E's executor logs
-        # ~10 kB per run, which pushed the failing `E` lines out of the returned output.
-        command = [
-            sys.executable, "-m", "pytest", str(target),
-            "-q", "--maxfail=3", "--tb=short", "--no-header", "--color=no", "-p", "no:cacheprovider",
-            "--show-capture=no", "--disable-warnings",
-        ]
-        if test_filter.strip():
-            command += ["-k", test_filter.strip()]
+    def _run_workspace_process(command: list[str], cwd: Path, label: str, extra_env: dict | None = None) -> str:
+        """Execute one bounded process tree, shared by coordinator and worker tools."""
         timeout = _test_timeout_seconds()
-
-        if not test_run_lock.acquire(blocking=False):
+        context = f"Python: {sys.executable}\nCWD: {cwd}"
+        if not execution_lock.acquire(blocking=False):
             return (
-                "busy: an earlier run_workspace_tests call is still running and will stop within "
-                f"{timeout:.0f}s. Do not start another run yet; tell the user the result is pending, "
-                "or make the test smaller before running it again."
+                "busy: another workspace command or test is running and will stop within "
+                f"{timeout:.0f}s. Wait for its result before submitting another execution; "
+                "do not retry in a loop."
             )
         try:
             started = time.monotonic()
             # stdin must not be inherited: over stdio it carries the MCP protocol.
             proc = subprocess.Popen(
                 command,
-                cwd=workspace_root_getter(),
-                env=_test_env(),
+                cwd=cwd,
+                env={**_test_env(workspace_root_getter()), **(extra_env or {})},
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
@@ -771,22 +731,115 @@ def register_shared_tools(
                 raw, _ = proc.communicate()
                 output = _clip(raw.decode("utf-8", errors="replace"))
                 return (
-                    f"pytest TIMED OUT after {timeout:.0f}s and was stopped: {_display(target)}. "
-                    "The code was not verified. Make the test smaller or faster (fewer trials or "
-                    "evaluations), or tell the user it timed out.\n\n" + output
+                    f"{label} TIMED OUT after {timeout:.0f}s and was stopped. "
+                    "The code was not verified. Report the timeout; preserve the requested "
+                    "trial budget and assertions.\n" + context + "\n\n" + output
                 )
             elapsed = time.monotonic() - started
+        except (OSError, ValueError) as exc:
+            return f"{label} ERROR: {exc}\n{context}"
         finally:
-            test_run_lock.release()
+            execution_lock.release()
         output = raw.decode("utf-8", errors="replace")
 
-        if proc.returncode != 0 and "No module named pytest" in output:
+        if label == "pytest" and proc.returncode != 0 and "No module named pytest" in output:
             return (
                 f"error: pytest is not installed for the MCP server's Python ({sys.executable}). "
                 "Ask the user to run `python -m pip install pytest` in that environment."
             )
-        status = _PYTEST_STATUS.get(proc.returncode, "ERROR")
-        return f"pytest {status} (exit {proc.returncode}, {elapsed:.1f}s): {_display(target)}\n\n{_clip(output)}"
+        status = (
+            _PYTEST_STATUS.get(proc.returncode, "ERROR") if label == "pytest"
+            else "PASSED" if proc.returncode == 0 else "FAILED"
+        )
+        return f"{label} {status} (exit {proc.returncode}, {elapsed:.1f}s)\n{context}\n\n{_clip(output)}"
+
+    @_workspace_tool(
+        "User project: execute a command now and return its exit code and output. Available to Build and workers. "
+        "Pass an argument list, e.g. ['python', '-c', 'import sys; print(sys.executable)'], "
+        "['python', 'examples/demo/check.py']. Use run_optimization for managed optimization runs. "
+        "python, pytest and aid2e use the MCP Python environment; workspace imports work automatically. "
+        "No shell syntax. Do not create runner files just to execute a command."
+    )
+    def run_workspace_command(
+        command: Annotated[list[str], Field(description="Executable and separate arguments; no shell string or pipes.")],
+        directory: Annotated[str, Field(description="Working directory inside the workspace; default is the workspace root.")] = ".",
+    ) -> str:
+        """Run trusted workspace code, with the same timeout and process cleanup as pytest.
+
+        Python aliases use sys.executable. The aid2e alias invokes its real Click
+        entry point with that interpreter; it does not depend on PATH or an
+        unsupported `python -m aid2e`. Other executables use the server's PATH.
+        This executes user code and is not an operating-system sandbox.
+        """
+        if not command or not command[0].strip():
+            return "error: pass a nonempty argument list, e.g. ['aid2e', 'optimize', '--help']."
+        try:
+            cwd = _resolve_tool_path(directory)
+        except Exception as exc:
+            return f"error: {exc}"
+        if not cwd.is_dir():
+            return f"not a directory: {_display(cwd)}"
+        if in_reference_source(cwd, index):
+            return "refused: execution directory is in the read-only AID2E Reference Source."
+        aliases = {
+            "python": [sys.executable],
+            "python3": [sys.executable],
+            "pytest": [sys.executable, "-m", "pytest"],
+            "aid2e": [sys.executable, "-c", "from aid2e.cli import cli; cli(prog_name='aid2e')"],
+        }
+        resolved = aliases.get(command[0], [command[0]]) + command[1:]
+        return _run_workspace_process(resolved, cwd, "command")
+
+    @_workspace_tool(
+        "User project: execute pytest in the MCP Python environment; available to Build and workers. "
+        "Reserve tests/<task>/ for pytest files and fixtures. Example code/configs belong in examples/<task>/. "
+        "The default path is tests/. Workers run focused checks; the coordinator runs final integrated tests."
+    )
+    def run_workspace_tests(
+        path: Annotated[str, Field(description="Workspace-relative test file or folder, e.g. 'tests/demo/test_sphere.py'.")] = "tests",
+        test_filter: Annotated[str, Field(description="Optional pytest -k expression to select tests.")] = "",
+    ) -> str:
+        """Run pytest from the workspace root using the MCP server's interpreter.
+
+        Workspace imports and the interpreter's bin directory are added to the
+        subprocess environment. Commands and tests share one execution slot.
+        AID2E_TEST_TIMEOUT (default 50 seconds) bounds the entire process tree.
+        Math libraries get four threads unless the operator sets them.
+        """
+        try:
+            target = _resolve_tool_path(path)
+        except Exception as exc:
+            return f"error: {exc}"
+        if not target.exists():
+            return f"not found: {_display(target)}"
+        if in_reference_source(target, index):
+            return (
+                f"refused: {_display(target)} is in the read-only AID2E Reference Source. "
+                "Run tests written in the User Workspace."
+            )
+        # Keep failure lines visible even when the executor emits many kB of logs.
+        command = [
+            sys.executable, "-m", "pytest", str(target),
+            "-q", "--maxfail=3", "--tb=short", "--no-header", "--color=no", "-p", "no:cacheprovider",
+            "--show-capture=no", "--disable-warnings",
+        ]
+        if test_filter.strip():
+            command += ["-k", test_filter.strip()]
+        from .verification import save_pytest_evidence
+        execution_id = uuid.uuid4().hex
+        started = time.time()
+        result = _run_workspace_process(command, workspace_root_getter(), "pytest", {"AID2E_PYTEST_EXECUTION_ID": execution_id})
+        if not result.startswith("busy:"):
+            runs = save_pytest_evidence(workspace_root_getter(), target, result, started, execution_id)
+            result += f"\nPytest execution ID: {execution_id}"
+            if runs:
+                result += "\nAID2E acceptance: NOT FINALIZED. A pytest pass is not full acceptance; use finalize_optimization_run."
+                result += "\nManaged run IDs created by this pytest invocation: " + ", ".join(runs)
+        return result
+
+    if workspace_tools == "all":
+        from .verification_tools import register_verification_tools
+        register_verification_tools(_workspace_tool, _resolve_tool_path, workspace_root_getter, _run_workspace_process)
 
     @mcp.tool(
         description="User project: validate a .py file (syntax) or an AID2E config (.yml/.yaml/.json/.config/.params) "

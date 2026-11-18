@@ -5,8 +5,7 @@ AID2E framework, and safe tools for building AID2E extensions in your own
 project. It has two strictly separated tool groups:
 
 - **Source Reference tools (read-only):** inspect the installed `aid2e`
-  package and its `examples/`. The AID2E source can never be modified through
-  the server.
+  package and its `examples/`. File tools refuse changes to that source.
 - **Workspace tools:** read, create, edit, and validate files in your project.
 
 To use the AID2E-hosted model from your own machine, follow
@@ -243,16 +242,34 @@ both.
 - the `aid2e` MCP server (full profile);
 - an `aid2e` provider for an OpenAI-compatible endpoint, set as the default
   model;
-- OpenCode's built-in tools disabled, so the model sees only AID2E tools;
-- the AID2E write tools and `run_workspace_tests` hidden in OpenCode's Plan
-  agent, so planning stays read-only.
+- OpenCode's native file/shell tools disabled, with the normal `task` tool
+  enabled only for Build to delegate to `general` subagents;
+- the AID2E write tools, `run_workspace_tests` and `run_workspace_command` hidden in OpenCode's Plan
+  agent, so planning stays read-only and cannot delegate;
+- one-level delegation, with workers unable to delegate, change the workspace
+  root or move files. Workers can run commands and focused tests; the coordinator
+  runs final integrated tests.
+
+The AID2E system prompt comes from the deployed server chat template. `init`
+does not add custom agent prompts or instruction files for OpenCode. General
+workers inherit the calling model. Use the normal interactive OpenCode window
+and ask it to use subagents; no launcher or experimental background flag is
+required. The optional background mode is a separate OpenCode feature.
+
+For overlapping agent requests, the administrator should set the personal
+LiteLLM key's `max_parallel_requests` to 3. Existing keys retain their stored
+limit when gateway defaults change. A request limit is not a worker-count limit.
 
 The endpoint defaults to the AID2E LiteLLM gateway's internal address
 (`http://128.239.58.223:4000/v1`) with model `code-assist`, a gateway alias for
 whichever model is deployed. That address has no outside access, so on your own
 machine pass `--llm-url http://127.0.0.1:4001/v1` and use the
 [SSH tunnel](#connect-to-the-aid2e-hosted-model). Use `--llm-model` to pin one
-model (for example, `--llm-model code-assist-gemma-26b`). The API key
+model (for example, `--llm-model code-assist-gemma-26b`). The Strata route
+`--llm-model code-assist-qwen38-strata` uses 131072 total context tokens and
+8192 output tokens, with AID2E guidance supplied by the gateway. For an alias
+whose backend changes, override the limits explicitly with
+`--llm-context 131072 --llm-output 8192`. The API key
 is read from the `AID2E_LLM_API_KEY` environment variable at runtime:
 
 ```bash
@@ -299,7 +316,7 @@ with the longer AID2E guide. An existing file is never modified.
 
 | Tool | Description |
 | --- | --- |
-| `debug_workspace` | Shows the active workspace root and the read-only AID2E source paths. |
+| `debug_workspace` | Shows the workspace, Python interpreter/version, environment bin directory, test directory and read-only AID2E source paths. |
 | `set_workspace_root` | Sets the workspace root to a project directory you supply. |
 | `list_workspace_files` | Lists files and folders in your project, filtered by a glob pattern. |
 | `search_workspace` | Searches your project files for text or a regex (`file:line` matches). |
@@ -309,11 +326,76 @@ with the longer AID2E guide. An existing file is never modified.
 | `replace_lines_in_workspace` | Replaces an inclusive 1-indexed line range and checks Python syntax. The caller passes the range's current text as `old_content`; if it doesn't match (for example, line numbers shifted by an earlier edit), nothing is changed. |
 | `append_to_file_in_workspace` | Appends a chunk to an existing file, for building large files incrementally. |
 | `validate_workspace_file` | Validates a `.py` file (syntax) or an AID2E config (`.yml`/`.yaml`/`.json`/`.config`/`.params`) against AID2E's schemas. A valid config also gets a `WARNING` for each objective plan whose later steps lack `depends_on`: AID2E orders such steps by string hash, so they can run out of listed order from one run to the next. It also warns about unknown keys in workflows, branches, stages and jobs, and about workflows with nothing to run: AID2E ignores these silently, so a misplaced `stages` block means no job runs. |
-| `run_workspace_tests` | Runs `pytest` on a test file or folder in your project and returns the result (`full` profile only). |
+| `run_workspace_command` | Executes an argument list in the MCP environment, e.g. `["aid2e", "optimize", "examples/demo/config.yml"]` or `["python", "examples/demo/check.py"]`; returns exit code, duration, interpreter, CWD and output (`full` only). |
+| `run_workspace_tests` | Runs `pytest` in the MCP Python environment, defaulting to `tests/`; workers can run focused checks and the coordinator runs final integrated tests (`full` only). |
 
-Workspace tools return paths relative to your project.
+File tools return paths relative to your project; execution results include the
+absolute Python interpreter and working directory for diagnosis.
 
-**The AID2E source is protected in code, not just by instructions:**
+Reserve `tests/<task>/` for pytest files, conftest.py and test fixtures.
+Put example evaluator code, configuration, scripts, README and results under
+`examples/<task>/`. Runtime output/work data belongs in isolated managed run
+folders (`.aid2e/runs/<run_id>/`) or pytest temporary directories. File tools
+create parent directories; use `__init__.py` for importable example packages.
+
+Managed execution tools (`full` profile):
+
+| Tool | Purpose |
+|---|---|
+| `scaffold_example(name)` | Runnable generic four-step combined-objective example, isolated CLI fixture and provenance-aware plotting; preserves existing files. |
+| `preflight_workflow(config)` | Validate and execute one default candidate; returns named step input/return keys and errors. Does not run optimization. |
+| `run_optimization(config)` | Run the real CLI with unique work/output directories, source/framework hashes, exact artifact paths and independent checks. |
+| `verify_optimization_run(run_id, requirements)` | Check execution/source freshness, trial budget, bounds, constraints, finite objectives, Ax generation metadata and exact sampled Pareto membership/dominance. |
+| `get_verification_report(run_id, requirements, artifact_paths)` | Recheck evidence, associated pytest and registered derived artifact provenance before reporting completion. |
+| `get_integration_contract()` | Canonical runnable config, inline, shared-fixture and producer patterns; bounded worker instructions. |
+| `finalize_optimization_run(run_id, expected_trials, artifact_paths, ...)` | Mandatory artifact/pytest source coverage checks; independent acceptance status and Markdown card. |
+
+Read the integration contract before writing code. Finalize the exact final
+pytest-created run and require `completion_allowed=true` before declaring done.
+Users can recheck independently with `aid2e mcp status RUN_ID --workspace PATH`;
+nonzero exit means not accepted. Core verification and pytest passes alone are
+not full acceptance. The finalizer does not create provenance for existing files
+or generate scientific plots. The full profile now exposes 28 tools; reference
+remains 11. Refresh managed client permissions and restart MCP to load new tools.
+
+`requirements` accepts `expected_trials`, `min_pareto_points`,
+`require_model_based`, `require_device`, and `require_artifacts`. Unknown fields are rejected.
+The configured budget remains authoritative; an extra requirement cannot reduce it.
+All executing tools share the existing execution slot and timeout.
+Plan hides these tools; Build and general workers have access in the full profile.
+
+For pytest fixtures call `aid2e.mcp.verification.run_local_optimization` once
+and share the returned record. When invoked through `run_workspace_tests`, its
+run is associated with that exact pytest execution. An unrelated pytest pass
+cannot verify an earlier managed run. Agent-written tests remain separate from
+the installed result checker. Source/test changes invalidate their old evidence.
+
+Use `record_diagnostic(output_dir, "reconstruction_device", str(tensor.device))`
+at the measured operation. Diagnostic values are evaluator-supplied evidence;
+GPU availability is not a device measurement. Missing records remain explicit.
+Use `write_artifact_provenance(workspace, run_id, artifact)` when producing each
+plot/summary, then supply those workspace-relative paths in `artifact_paths`.
+Sidecars bind producer-declared provenance and file hashes; they do not prove
+that arbitrary plotting code faithfully represents its source data.
+
+The adapter changes only output/work locations in a temporary sibling config,
+retaining original relative-path semantics and requested trial settings. It
+preserves the original config, effective config and hashes in the run record.
+Track additional dynamic imports/assets using `source_paths`. A sibling config
+left by a timed-out child is cleaned by the tool. Execution is trusted workspace
+code, not a sandbox. Records are not tamper-proof against arbitrary commands.
+The checker establishes software properties, not scientific validity.
+
+`run_workspace_command` takes separate arguments, not a shell string. `python`
+and `python3` use the MCP interpreter; `pytest` uses its pytest module; `aid2e`
+invokes the real CLI entry point with that same interpreter. Neither
+`python -m aid2e` nor `python -m aid2e.cli` is supported by the current framework.
+No wrapper file is needed to run a command or inspect CLI help. The command's
+`directory` defaults to the workspace root and must stay inside the workspace.
+The workspace is added to `PYTHONPATH` for nested script/CLI imports, and the
+interpreter's bin directory is prepended to `PATH` for child processes.
+
+**File tools protect the AID2E source in code:**
 
 - The write tools refuse any path inside the installed `aid2e` package or its
   examples, even when your workspace folder contains them.
@@ -323,24 +405,27 @@ Workspace tools return paths relative to your project.
   editable AID2E checkout can start the server with
   `AID2E_ALLOW_SOURCE_WRITES=1` in its environment.
 
-**`run_workspace_tests` executes your project's code** as you, with the MCP
-server's Python (the environment where `aid2e` is installed; it needs
-`pytest`). It runs from the workspace root with no shell and closed stdin,
-refuses test paths inside the AID2E source, and stops the run, including any
-worker processes it started, after 50 seconds. The default is below the
+**Both execution tools run your trusted project's code** as you, with the MCP
+server's Python environment. Pytest needs `pytest` installed. Tests run from the
+workspace root; commands can select a workspace subdirectory. Both use no shell
+and closed stdin, refuse execution/test directories inside the AID2E source,
+and stop the run, including any worker processes it started, after 50 seconds.
+The default is below the
 ~60-second request timeout of MCP clients such as OpenCode, so the assistant
 sees a timeout result instead of a client error. Set `AID2E_TEST_TIMEOUT`
-(seconds) in the server's environment to change the limit. Only one test run
-happens at a time. Unless the server's environment sets them,
+(seconds) in the server's environment to change the limit for both tools. Only
+one command or test runs at a time across the coordinator and workers sharing
+that MCP server. A concurrent call returns `busy` instead of starting more work;
+coordinate the next execution after the current result. Unless the server's environment sets them,
 `OMP_NUM_THREADS`, `MKL_NUM_THREADS` and `OPENBLAS_NUM_THREADS` are set to 4:
 on a 64-core node, a 6-trial Ax test took 36 s with torch's default threads
-and 5 s with 4. The result leaves out captured stdout, logs and warning
+and 5 s with 4. The pytest result leaves out captured stdout, logs and warning
 summaries, and long output keeps its start and end: AID2E's executor logs
 about 10 kB per run, which used to push the failing `E` lines out of what the
-assistant saw. The tests can do
-anything your code can, such as writing output files, so review what the
-assistant writes. The `reference` profile does not include this tool; Claude
-Code and Codex run tests with their own tools.
+assistant saw. Execution runs with your account's permissions and is not an OS
+sandbox; the source-write guards above apply to file tools, not arbitrary Python
+code. The `reference` profile does not include either execution tool; Claude
+Code and Codex run commands and tests with their own tools.
 
 ## Running the server directly
 
@@ -384,3 +469,10 @@ next to the model picker), and disable the built-in tools.
 | `debug_workspace` shows `UNSET` | The server was started without `--workspace`. Re-run `init`, or pass `--workspace`. |
 | A write is refused as "read-only AID2E Reference Source" | Working as intended: write your code in your project, not in the AID2E package. |
 | `init` refuses to change an entry | You added or edited an `aid2e` entry yourself. Rename or remove it, then re-run `init`. |
+
+Automatic trial-budget/generation checks currently cover fresh Ax runs with
+Sobol/uniform initialization and ModularBoTorch generation. Center initialization
+is reported as unsupported. For other optimizer families, provide an explicit
+`expected_trials`; generation metadata is checked only where supported. Warm-start
+trial accounting requires separate review. Missing required derived artifacts
+produce an incomplete overall report when `require_artifacts` is true.

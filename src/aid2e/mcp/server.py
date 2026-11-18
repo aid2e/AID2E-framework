@@ -16,6 +16,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 import re
+import sys
 
 import click
 
@@ -47,11 +48,28 @@ _FULL_INSTRUCTIONS = (
     "search_repository, grep_framework_source) verify AID2E classes, contracts, "
     "registries, and examples before you propose or write code; the AID2E source "
     "cannot be modified. Workspace tools (*_in_workspace, validate_workspace_file) "
-    "read and write the user's project. run_workspace_tests runs pytest in the user's "
-    "project: after writing code, write a small pytest test for it, run it, and fix "
+    "read and write the user's project. run_workspace_command executes commands and Python "
+    "scripts immediately using the MCP Python environment, workspace imports and workspace CWD. "
+    "Use argument lists such as ['aid2e', 'optimize', '--help'] or ['python', '-c', 'print(1)']; "
+    "do not create wrapper scripts merely to execute commands. Build and general workers can "
+    "run commands and pytest; workers run focused checks and the coordinator runs final integrated tests. "
+    "Reserve tests/<task>/ for pytest files and fixtures. Put example code, configs, scripts, README and results "
+    "under examples/<task>/; keep production code in the requested project layout. "
+    "Read get_integration_contract before implementation: it gives runnable config, inline, fixture and producer APIs. "
+    "Use scaffold_example for verified integration mechanics, preflight_workflow for one candidate, "
+    "and run_optimization for isolated real-CLI optimizations. verify_optimization_run independently checks "
+    "saved results; get_verification_report rechecks freshness before reporting completion. "
+    "For pytest fixtures use aid2e.mcp.verification.run_local_optimization once, sharing its run across assertions. "
+    "Record str(tensor.device) with record_diagnostic at reconstruction; availability is not a device measurement. "
+    "Finish source/docs before integrated pytest; include the entire test directory in source_paths. "
+    "Use that invocation's exact run ID for all artifacts and call finalize_optimization_run with every artifact path. "
+    "Only completion_allowed=true permits a completion claim; acceptance_status overrides core status and prose. "
+    "After two identical errors inspect the contract rather than repeating the same call or weakening requirements. "
+    "Creating a file there creates its parent directories; never create a file named tests. "
+    "run_workspace_tests defaults to tests/: after writing code, write a small pytest test there, run it, and fix "
     "failures before reporting done. Files and functions the user names are in "
     "the workspace: read them directly with read_file_in_workspace. Use "
-    "debug_workspace only if a workspace path fails or the root is unknown. "
+    "debug_workspace if a workspace path fails, the root is unknown, or runtime details are needed. "
     "If asked to modify AID2E itself, say the AID2E source is read-only and offer to "
     "implement the change in the user's project instead (for example a subclass or a new module). "
     "Pass the file as `path`; pass `overwrite` as a separate Boolean argument."
@@ -199,7 +217,7 @@ _INDEX = RepositoryIndex(root=_source_root())
 
 
 def debug_workspace() -> dict[str, str]:
-    """Return workspace status, CWD, and AID2E reference source root."""
+    """Return workspace, Python runtime and AID2E reference source details."""
     try:
         workspace = str(_workspace_root())
     except ValueError as exc:
@@ -209,6 +227,10 @@ def debug_workspace() -> dict[str, str]:
         "workspace": workspace,
         "source": str(_INDEX.package_root),
         "examples": str(_INDEX.package_examples),
+        "python": sys.executable,
+        "python_version": sys.version.split()[0],
+        "environment_bin": str(Path(sys.executable).parent),
+        "tests_directory": "tests/",
     }
 
 
@@ -285,8 +307,8 @@ def register_tools(profile: str = "full") -> None:
         return
 
     mcp.tool(
-        description="User project: show the active User Workspace root and the read-only AID2E source paths. "
-        "Use only if a workspace path fails or the root is unknown."
+        description="User project: show the active workspace, Python interpreter, environment bin directory, "
+        "test directory and read-only AID2E source paths. Use for path or execution-environment questions."
     )(debug_workspace)
     if profile == "full":
         mcp.tool(

@@ -85,6 +85,34 @@ def mcp(ctx: click.Context, sse: bool, workspace: str | None = None, tools: str 
     ctx.invoke(mcp_command, sse=sse, workspace=workspace, tools=tools)
 
 
+@mcp.command(name="status")
+@click.argument("run_id")
+@click.option("--workspace", type=click.Path(exists=True, file_okay=False, path_type=Path), required=True)
+@click.option("--json", "as_json", is_flag=True, help="Print the current machine-readable acceptance report.")
+def mcp_status(run_id: str, workspace: Path, as_json: bool) -> None:
+    """Recheck an exact run independently of the model. Nonzero exit means not accepted."""
+    import json
+    from aid2e.mcp.verification import finalize_run, read_json, run_directory
+    try:
+        folder = run_directory(workspace, run_id)
+        specification = folder / "finalization.json"
+        previous = specification if specification.is_file() else folder / "report.json"
+        requirements = read_json(previous).get("requirements", {}) if previous.is_file() else {}
+        if not requirements:
+            record = read_json(folder / "record.json")
+            requirements = {"expected_trials": record.get("expected", {}).get("trials"), "require_model_based": True}
+        report = finalize_run(workspace, run_id, requirements)
+    except (OSError, ValueError, TypeError, KeyError) as exc:
+        raise click.ClickException(str(exc)) from exc
+    if as_json:
+        click.echo(json.dumps(report, indent=2))
+    else:
+        click.echo(Path(report["acceptance_path"]).read_text())
+        click.echo(report["next_action"])
+    if not report["completion_allowed"]:
+        raise click.exceptions.Exit(1)
+
+
 @mcp.command(name="init")
 @click.option(
     "--client",
@@ -121,6 +149,10 @@ def mcp(ctx: click.Context, sse: bool, workspace: str | None = None, tools: str 
     default=None,
     help="Model served by the gateway (OpenCode; default code-assist, which follows the deployed model).",
 )
+@click.option("--llm-context", type=click.IntRange(min=1), default=None,
+              help="Total context tokens for the OpenCode model, including output.")
+@click.option("--llm-output", type=click.IntRange(min=1), default=None,
+              help="Maximum output tokens within the OpenCode context window.")
 def mcp_init(
     client: str,
     workspace: str | None,
@@ -128,6 +160,8 @@ def mcp_init(
     profile: str | None,
     llm_url: str | None,
     llm_model: str | None,
+    llm_context: int | None,
+    llm_output: int | None,
 ) -> None:
     """Configure a project-local client workspace for the AID2E MCP server.
 
@@ -139,8 +173,8 @@ def mcp_init(
     """
     from aid2e.mcp.client_setup import DEFAULT_LLM_MODEL, DEFAULT_LLM_URL, init_workspace
 
-    if client != "opencode" and (llm_url or llm_model):
-        click.secho("Warning: --llm-url/--llm-model only apply to --client opencode; ignoring them.", fg="yellow", err=True)
+    if client != "opencode" and (llm_url or llm_model or llm_context or llm_output):
+        click.secho("Warning: --llm-url/--llm-model/--llm-context/--llm-output only apply to --client opencode; ignoring them.", fg="yellow", err=True)
     try:
         result = init_workspace(
             workspace,
@@ -149,6 +183,8 @@ def mcp_init(
             profile=profile,
             llm_url=llm_url or DEFAULT_LLM_URL,
             llm_model=llm_model or DEFAULT_LLM_MODEL,
+            llm_context=llm_context,
+            llm_output=llm_output,
         )
     except (OSError, ValueError) as exc:
         raise click.ClickException(f"Workspace init failed: {exc}") from exc

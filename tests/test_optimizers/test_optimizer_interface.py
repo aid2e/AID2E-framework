@@ -428,6 +428,7 @@ class TestAxOptimizer(AbstractOptimizerTestSuite):
         for index, point in enumerate(candidates, start=2):
             optimizer.update_with_results(index, point, {'loss': point['x'] ** 2 + point['y']}, uncertainties={'loss': 0.1})
         paths = optimizer.save_optimization_results(tmp_path)
+        assert paths['ax_client_snapshot'] == tmp_path / 'ax_snapshot.json'
         with paths['ax_model'].open('rb') as handle:
             actual = pickle.load(handle).predict(features)
         np.testing.assert_allclose(actual[0]['loss'], expected[0]['loss'])

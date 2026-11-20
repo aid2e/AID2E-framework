@@ -212,20 +212,7 @@ class AxOptimizer(BaseOptimizer):
         output_dir = Path(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        parameters = "-".join(sorted(self.experiment.search_space.parameters))
-        objectives = []
-        for name in sorted(self.objective_names):
-            direction = getattr(
-                self.objective_directions.get(name, "minimize"),
-                "value",
-                self.objective_directions.get(name, "minimize"),
-            )
-            short_direction = "max" if str(direction).lower() == "maximize" else "min"
-            objectives.append(f"{name}-{short_direction}")
-
-        snapshot_path = output_dir / (
-            f"ax_snapshot__params-{parameters}"
-            f"__objectives-{'-'.join(objectives)}.json")
+        snapshot_path = output_dir / "ax_snapshot.json"
 
         for trial in self.get_trials():
             ax_trial = self.experiment.trials.get(trial.index)

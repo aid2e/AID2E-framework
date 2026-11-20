@@ -44,7 +44,7 @@ class AxOptimizerConfig(BaseModel):
         >>> config = AxOptimizerConfig(
         ...     initialization_strategy="sobol",
         ...     generator="BOTORCH_MODULAR",
-        ...     warm_start_path="previous_run/ax_snapshot__params-x-y__objectives-loss-min.json",
+        ...     warm_start_path="previous_run/ax_snapshot.json",
         ...     generator_kwargs={"fit_out_of_design": False},
         ...     generator_gen_kwargs={"model_gen_options": {"acqf_optimizer_kwargs": {"num_restarts": 8}}},
         ...     n_initial_samples=12,

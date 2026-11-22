@@ -158,7 +158,7 @@ def test_strata_opencode_limits_and_auxiliary_model(tmp_path: Path, llm_model: s
     init_workspace(tmp_path, client="opencode", llm_model=llm_model)
     config = json.loads((tmp_path / "opencode.json").read_text())
     model = config["provider"]["aid2e"]["models"][llm_model]
-    assert model["limit"] == {"context": 131072, "output": 8192}
+    assert model["limit"] == {"context": 262144, "output": 8192}
     assert config["small_model"] == f"aid2e/{llm_model}"
     assert config["compaction"]["reserved"] == 4096
     assert config["tools"]["bash"] is False
@@ -175,12 +175,13 @@ def test_cli_default_alias_limits(tmp_path: Path) -> None:
     assert result.exit_code == 0, result.output
     config = json.loads((tmp_path / "opencode.json").read_text())
     assert config["model"] == "aid2e/code-assist"
-    assert config["provider"]["aid2e"]["models"]["code-assist"]["limit"] == {"context": 131072, "output": 8192}
+    assert config["provider"]["aid2e"]["models"]["code-assist"]["limit"] == {"context": 262144, "output": 8192}
     assert config["small_model"] == "aid2e/code-assist"
     assert config["compaction"]["reserved"] == 4096
 
 
-def test_default_alias_refreshes_old_managed_limits(tmp_path: Path) -> None:
+@pytest.mark.parametrize("old_context,old_output", [(229376, 32768), (131072, 8192)])
+def test_default_alias_refreshes_old_managed_limits(tmp_path: Path, old_context: int, old_output: int) -> None:
     init_workspace(tmp_path, client="opencode")
     config_path = tmp_path / "opencode.json"
     metadata_path = tmp_path / METADATA_FILE
@@ -188,7 +189,7 @@ def test_default_alias_refreshes_old_managed_limits(tmp_path: Path) -> None:
     metadata = json.loads(metadata_path.read_text())
     managed = metadata["clients"]["opencode"]["managed"]
     provider = config["provider"]["aid2e"]
-    provider["models"]["code-assist"]["limit"] = {"context": 229376, "output": 32768}
+    provider["models"]["code-assist"]["limit"] = {"context": old_context, "output": old_output}
     managed["provider.aid2e"] = provider
     for key in ("small_model", "compaction.reserved"):
         managed.pop(key)
@@ -200,7 +201,7 @@ def test_default_alias_refreshes_old_managed_limits(tmp_path: Path) -> None:
     result = init_workspace(tmp_path, client="opencode")
     updated = json.loads(config_path.read_text())
     assert not result["warnings"]
-    assert updated["provider"]["aid2e"]["models"]["code-assist"]["limit"] == {"context": 131072, "output": 8192}
+    assert updated["provider"]["aid2e"]["models"]["code-assist"]["limit"] == {"context": 262144, "output": 8192}
     assert updated["small_model"] == "aid2e/code-assist"
     assert updated["compaction"]["reserved"] == 4096
     assert init_workspace(tmp_path, client="opencode")["written"] == []

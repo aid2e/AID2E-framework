@@ -121,7 +121,7 @@ configuration, with your key in both places:
         "url": "http://127.0.0.1:4001/v1/chat/completions",
         "toolCalling": true,
         "vision": false,
-        "maxInputTokens": 122880,
+        "maxInputTokens": 253952,
         "maxOutputTokens": 8192,
         "modelOptions": { "parallel_tool_calls": false },
         "requestHeaders": {
@@ -267,7 +267,7 @@ machine pass `--llm-url http://127.0.0.1:4001/v1` and use the
 [SSH tunnel](#connect-to-the-aid2e-hosted-model). Use `--llm-model` to pin one
 model (for example, `--llm-model code-assist-gemma-26b`). The Strata route
 `--llm-model code-assist-qwen38-strata` and the default `code-assist` alias use
-131072 total context tokens and 8192 output tokens, matching the promoted Strata
+262144 total context tokens and 8192 output tokens, matching the promoted Strata
 backend, with AID2E guidance supplied by the gateway. Both use the selected model
 for auxiliary requests and reserve 4096 tokens for compaction. Plain
 `aid2e mcp init --client opencode` configures these settings and refreshes old

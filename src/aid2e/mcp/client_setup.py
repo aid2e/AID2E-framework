@@ -340,7 +340,7 @@ def _codex_config(path: Path, existing: str, block: str) -> str:
 def _opencode_provider(llm_url: str, llm_model: str, llm_context: int | None = None,
                        llm_output: int | None = None) -> dict:
     """OpenAI-compatible provider entry for the AID2E LiteLLM gateway."""
-    limits = ({"context": 131072, "output": 8192}
+    limits = ({"context": 262144, "output": 8192}
               if llm_model in STRATA_LLM_MODELS
               else {"context": 229376, "output": 32768})
     if llm_context is not None:

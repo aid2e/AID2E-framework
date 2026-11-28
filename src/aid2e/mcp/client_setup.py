@@ -342,19 +342,20 @@ def _codex_config(path: Path, existing: str, block: str) -> str:
 def _opencode_provider(llm_url: str, llm_model: str, llm_context: int | None = None,
                        llm_output: int | None = None) -> dict:
     """OpenAI-compatible provider entry for the AID2E LiteLLM gateway."""
-    limits = ({"context": 262144, "output": 8192}
-              if llm_model in GATEWAY_MODELS
-              else {"context": 229376, "output": 32768})
+    models = {
+        model: {
+            "name": label,
+            "limit": {"context": 262144, "output": 32768 if model == "glm-5.3-flash" else 8192},
+        }
+        for model, label in GATEWAY_MODELS.items()
+    } if llm_model in GATEWAY_MODELS else {}
+    limits = models[llm_model]["limit"].copy() if models else {"context": 229376, "output": 32768}
     if llm_context is not None:
         limits["context"] = llm_context
     if llm_output is not None:
         limits["output"] = llm_output
     if limits["context"] <= 0 or not 0 < limits["output"] < limits["context"]:
         raise ValueError("LLM output tokens must be positive and smaller than the context window")
-    models = {
-        model: {"name": label, "limit": {"context": 262144, "output": 8192}}
-        for model, label in GATEWAY_MODELS.items()
-    } if llm_model in GATEWAY_MODELS else {}
     models[llm_model] = {"name": GATEWAY_MODELS.get(llm_model, f"AID2E {llm_model}"), "limit": limits}
     return {
         "npm": "@ai-sdk/openai-compatible",

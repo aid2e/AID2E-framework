@@ -153,12 +153,12 @@ def test_profiles_follow_model_class() -> None:
     }
 
 
-@pytest.mark.parametrize("llm_model", ["qwen-3.8-flash-next", "glm-5.3-flash"])
-def test_named_opencode_limits_and_auxiliary_model(tmp_path: Path, llm_model: str) -> None:
+@pytest.mark.parametrize("llm_model,output", [("qwen-3.8-flash-next", 8192), ("glm-5.3-flash", 32768)])
+def test_named_opencode_limits_and_auxiliary_model(tmp_path: Path, llm_model: str, output: int) -> None:
     init_workspace(tmp_path, client="opencode", llm_model=llm_model)
     config = json.loads((tmp_path / "opencode.json").read_text())
     model = config["provider"]["aid2e"]["models"][llm_model]
-    assert model["limit"] == {"context": 262144, "output": 8192}
+    assert model["limit"] == {"context": 262144, "output": output}
     assert config["small_model"] == f"aid2e/{llm_model}"
     assert config["compaction"]["reserved"] == 4096
     assert config["tools"]["bash"] is False
@@ -177,7 +177,7 @@ def test_cli_default_model_lists_named_routes(tmp_path: Path) -> None:
     assert config["model"] == "aid2e/qwen-3.8-flash-next"
     assert config["provider"]["aid2e"]["models"] == {
         "qwen-3.8-flash-next": {"name": "Qwen 3.8 Flash-Next", "limit": {"context": 262144, "output": 8192}},
-        "glm-5.3-flash": {"name": "GLM 5.3 Flash", "limit": {"context": 262144, "output": 8192}},
+        "glm-5.3-flash": {"name": "GLM 5.3 Flash", "limit": {"context": 262144, "output": 32768}},
         "MiniMax-M3.1-Flash": {"name": "MiniMax-M3.1-Flash", "limit": {"context": 262144, "output": 8192}},
     }
     assert config["small_model"] == "aid2e/qwen-3.8-flash-next"
@@ -216,7 +216,7 @@ def test_cli_explicit_alias_limits(tmp_path: Path) -> None:
     config = json.loads((tmp_path / "opencode.json").read_text())
     models = config["provider"]["aid2e"]["models"]
     assert models["qwen-3.8-flash-next"]["limit"] == {"context": 65536, "output": 4096}
-    assert models["glm-5.3-flash"]["limit"] == {"context": 262144, "output": 8192}
+    assert models["glm-5.3-flash"]["limit"] == {"context": 262144, "output": 32768}
 
 
 def test_invalid_llm_limits_leave_workspace_untouched(tmp_path: Path) -> None:

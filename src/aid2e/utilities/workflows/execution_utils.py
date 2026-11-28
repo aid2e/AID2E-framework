@@ -16,6 +16,10 @@ from pathlib import Path
 from typing import Dict, List, Tuple
 
 
+class InvalidDesignError(ValueError):
+    """An evaluated design is invalid and may receive configured penalties."""
+
+
 def build_objective_call(
     command: List[str],
     params_file: Path,

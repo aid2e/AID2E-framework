@@ -1,5 +1,6 @@
 #include <random>
 #include <vector>
+#include <string>
 #include <numeric>
 #include <cmath>
 #include "podio/ROOTReader.h"
@@ -17,11 +18,11 @@ struct EventData {
   bool   detected;                // nPhotons > 5
 };
 
-// loop over all events in the file, storing needed dRICH information
-std::vector<EventData> readEventData(const char* infile, int radiator) {
+// Pool all reconstruction chunks for one particle before bootstrapping.
+std::vector<EventData> readEventData(const std::vector<std::string>& infiles, int radiator) {
   std::vector<EventData> events;
   podio::ROOTReader reader;
-  reader.openFile(infile);
+  reader.openFiles(infiles);
   int nev = reader.getEntries("events");
   events.reserve(nev);
   
@@ -172,8 +173,8 @@ std::tuple<double,double,double,double> bootstrapStats(const std::vector<EventDa
 }
 
 
-void dRICHAna_bootstrap(const char* infile_pi,
-		       const char* infile_K,
+void dRICHAna_bootstrap(const std::vector<std::string>& infiles_pi,
+		       const std::vector<std::string>& infiles_K,
 		       const char* outname,
 		       int radiator,
 		       int sampleSize = 1000,
@@ -181,8 +182,8 @@ void dRICHAna_bootstrap(const char* infile_pi,
 		       )
 {
   
-  auto events_pi = readEventData(infile_pi, radiator);
-  auto events_K  = readEventData(infile_K,  radiator);
+  auto events_pi = readEventData(infiles_pi, radiator);
+  auto events_K  = readEventData(infiles_K,  radiator);
   
   std::cout << "N ev pi: " << events_pi.size() << " K: " << events_K.size() << std::endl;
   if (sampleSize > static_cast<int>(events_pi.size())) {
@@ -209,15 +210,20 @@ void dRICHAna_bootstrap(const char* infile_pi,
 }
 
 int main(int argc, char* argv[]) {
-  if (argc < 7) {
-    std::cout << "usage: dRICHAna_bootstrap [file, pi] [file, K] [output file name] [radiator: 0 - aerogel, 1 - gas] [N samples (optional)] [N bootstraps] \n";
+  if (argc < 7 || (argc - 5) % 2 != 0) {
+    std::cout << "usage: dRICHAna_bootstrap pi.root K.root [pi2.root K2.root ...] output.txt radiator samples bootstraps\n";
     return 1;
   }
   
-  int rad         = std::stoi(argv[4]);
-  int nsamples    = std::stoi(argv[5]);
-  int nbootstraps = std::stoi(argv[6]);
+  std::vector<std::string> infiles_pi, infiles_K;
+  for (int i = 1; i < argc - 4; i += 2) {
+    infiles_pi.emplace_back(argv[i]);
+    infiles_K.emplace_back(argv[i + 1]);
+  }
+  int rad         = std::stoi(argv[argc - 3]);
+  int nsamples    = std::stoi(argv[argc - 2]);
+  int nbootstraps = std::stoi(argv[argc - 1]);
 
-  dRICHAna_bootstrap(argv[1], argv[2], argv[3], rad, nsamples, nbootstraps);
+  dRICHAna_bootstrap(infiles_pi, infiles_K, argv[argc - 4], rad, nsamples, nbootstraps);
   return 0;
 }

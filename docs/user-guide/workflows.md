@@ -33,9 +33,9 @@ The job `payload.evaluator_type` selects the execution engine. When it is omitte
 
 ### Job Factories
 
-A stage can execute its declared jobs directly or expand the first job as a template through `job_factory`. The current executor implements two factory types: `range` and `payloads`. Other names described by the model are not implemented and raise `ValueError`.
+A stage can execute its declared jobs directly or expand the first job as a template through `job_factory`. Alternatively, each job can declare its own `job_factory`; all expanded jobs run in the same stage. Use either stage-level or job-level factories, not both. The current executor implements two factory types: `range` and `payloads`. Other names described by the model are not implemented and raise `ValueError`.
 
-The `range` factory creates `n` deep copies of the first job. Each copy is named `<template_name>_<index>` and receives `job_index` in its payload:
+The `range` factory creates `n` deep copies of its template job. Each copy is named `<template_name>_<index>` and receives `job_index` in its payload:
 
 ```yaml
 job_factory:
@@ -53,7 +53,7 @@ job_factory:
     from: "workflow_utils:simulation_payloads"
 ```
 
-Because expansion deep-copies the template job, stack layer definitions are preserved for every generated job. Additional jobs declared after the first template are not expanded when a factory is present.
+Each payload can supply `job_name`; otherwise, the generated name is `<template-name>_<index>`. Because expansion deep-copies the template job, stack layer definitions are preserved for every generated job. Additional jobs declared after the first template are not expanded when a stage-level factory is present.
 
 ### Callable Entrypoints
 
@@ -399,4 +399,4 @@ Workflow checkpoints record stage and job completion or failure. See [run record
 
 The executor requires every declared objective. Missing metrics, invalid JSON, non-numeric values, nonzero job return codes, and failed scheduler stages are workflow errors. Direct objective collection currently visits XCom values in insertion order, so repeated objective keys can overwrite earlier values rather than raising an error; workflows with multiple producers should use an explicit aggregation plan.
 
-Workflow errors propagate to the optimization loop. The problem's `evaluation_config.trial_failure_policy` then determines whether the optimizer marks the trial as failed or completes it with configured `penalty_objectives`. `max_failed_trials` limits tolerated failed evaluations. The default policy is `fail`, the default `max_failed_trials` is `0`, and the `penalty` policy requires a configured value for every declared objective. Scheduler retry and timeout limitations are documented in the [scheduler guide](schedulers.md#parallelism-and-failure-behavior).
+Workflow errors propagate to the optimization loop. The problem's `evaluation_config.trial_failure_policy` determines whether explicitly invalid designs are marked failed or given configured `penalty_objectives`; execution errors are marked failed without penalties. `max_failed_trials` limits tolerated failed evaluations. The default policy is `fail`, the default `max_failed_trials` is `0`, and the `penalty` policy requires a configured value for every declared objective. Scheduler retry and timeout limitations are documented in the [scheduler guide](schedulers.md#parallelism-and-failure-behavior).

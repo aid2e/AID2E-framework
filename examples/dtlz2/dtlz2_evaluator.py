@@ -13,12 +13,22 @@ from typing import TYPE_CHECKING, Any, Dict, List
 if TYPE_CHECKING:
     from aid2e.utilities.workflows import JobContext
 
+def dtlz2_objectives(x: List[float], n_objectives: int = 2) -> Dict[str, float]:
+    """Compute DTLZ2 objectives using all design variables."""
+    if not 2 <= n_objectives <= len(x):
+        raise ValueError("DTLZ2 requires 2 <= n_objectives <= number of variables")
+    g = sum((value - 0.5) ** 2 for value in x[n_objectives - 1:])
+    objectives = {}
+    for index in range(n_objectives):
+        value = (1 + g) * math.prod(math.cos(v * math.pi / 2) for v in x[:n_objectives - index - 1])
+        if index > 0:
+            value *= math.sin(x[n_objectives - index - 1] * math.pi / 2)
+        objectives[f"f{index + 1}"] = float(value)
+    return objectives
+
 def dtlz2_both_objectives(x: List[float]) -> Dict[str, float]:
     """Compute both DTLZ2 objectives in one function."""
-    g = sum((value - 0.5) ** 2 for value in x[1:])
-    f1 = (1 + g) * math.cos(x[0] * math.pi / 2)
-    f2 = (1 + g) * math.sin(x[0] * math.pi / 2)
-    return {"f1": float(f1), "f2": float(f2)}
+    return dtlz2_objectives(x)
 
 def dtlz2_f1_only(x: List[float]) -> float:
     """Compute only f1 objective of DTLZ2."""
@@ -46,10 +56,12 @@ def design_vector(design_point: Dict[str, Any], prefix: str = "DTLZ2_variables."
 def objective_payload(
     *,
     design_point: Dict[str, Any],
+    problem_config=None,
     **kwargs,
 ) -> Dict[str, float]:
     """Compute DTLZ2 objectives for the config-driven objective plan."""
-    return dtlz2_both_objectives(design_vector(design_point))
+    n_objectives = len(problem_config.objectives) if problem_config is not None else 2
+    return dtlz2_objectives(design_vector(design_point), n_objectives)
 
 
 def prepare_objective_inputs(*, design_point: Dict[str, Any], **kwargs) -> Dict[str, List[float]]:
@@ -116,6 +128,7 @@ def main() -> int:
     for index in range(2, 11):
         parser.add_argument(f"--x{index}", type=float)
     parser.add_argument("--output", "--output_file", type=Path, required=True)
+    parser.add_argument("--n-objectives", type=int, default=2)
     parser.add_argument("--label", type=str, default="slurm-dtlz2")
     parser.add_argument("--sleep-sec", type=float, default=0.0)
     parser.add_argument("--repeat", type=int, default=2)
@@ -137,7 +150,7 @@ def main() -> int:
         if args.sleep_sec > 0:
             time.sleep(args.sleep_sec)
 
-    payload = dtlz2_both_objectives(values)
+    payload = dtlz2_objectives(values, args.n_objectives)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(payload, indent=2), encoding="utf-8")
     print(json.dumps(payload, indent=2), flush=True)

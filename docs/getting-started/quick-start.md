@@ -49,4 +49,4 @@ examples/dtlz2/configurations/output/ax_joblib/<run-id>/
 
 The primary outputs are `optimization_results.json` and `pareto_front.json`.
 
-See the [CLI guide](../user-guide/cli.md) for configuration inspection, workflow selection, output overrides, logging, and other commands.
+See the [CLI guide](../user-guide/cli.md) for configuration inspection, workflow selection, logging, and other commands.

@@ -1,5 +1,9 @@
 """Tests for epic stack utilities."""
 
+import subprocess
+
+import pytest
+
 from aid2e.utilities.epic_utils.epic_stack import (
     EpicGeoLayer,
     EpicSimLayer,
@@ -44,7 +48,8 @@ def _make_epic_stack_payload() -> dict:
     }
 
 
-def test_epic_geo_layer():
+@pytest.mark.parametrize("summary,command_status,expected", [("0", 0, 0), ("2", 0, 9), ("0 found", 0, 0), ("2 found", 0, 9), ("", 0, 1), ("2", 1, 1)])
+def test_epic_geo_layer(tmp_path, summary, command_status, expected):
     """EpicGeoLayer functionality"""
     payload  = _make_epic_stack_payload()
     geolayer = EpicGeoLayer()
@@ -55,9 +60,11 @@ def test_epic_geo_layer():
     )
     assert command.startswith(
         "checkOverlaps --tolerance 0.01 -c ./epic/my_epic.xml"
-        " >& overlap_output.log\ngrep"
+        " >& overlap_output.log || exit 1\ngrep"
     )
-    assert ":[[:space:]]*0[[:space:]]+found" in command
+    assert ":[[:space:]]*0([[:space:]]|$)" in command
+    stub = f"checkOverlaps() {{ echo 'Number of illegal overlaps/extrusions : {summary}'; return {command_status}; }}; "
+    assert subprocess.run(["bash", "-c", stub + command], cwd=tmp_path).returncode == expected
 
 
 def test_epic_sim_layer():
@@ -84,8 +91,11 @@ def test_epic_rec_layer():
     assert command == "eicrecon -Pnthreads=8 -Pjana:global_loglevel=debug -Ppodio:output_file=rec_output.edm4eic.root sim_output.edm4hep.root"
 
 
-def test_epic_stack():
+def test_epic_stack(tmp_path, monkeypatch):
     """Validate EpicStack functionality"""
+    from aid2e.utilities.configurations.experimental_stack_config import StackLayerConfig
+    from aid2e.utilities.workflows.execution_engine import JobContext, WorkflowSharedContext
+
     payload = _make_epic_stack_payload()
     epstack = EpicStack()
     assert isinstance(epstack, EpicStack)
@@ -109,6 +119,14 @@ def test_epic_stack():
         payload["rec_output"],
         payload["rec_args"]
     )
-    assert ":[[:space:]]*0[[:space:]]+found" in geocomm
+    assert ":[[:space:]]*0([[:space:]]|$)" in geocomm
     assert simcomm == "npsim --compactFile $DETECTOR_PATH/$DETECTOR_CONFIG.xml --numberOfEvents 100 --skipNEvents 10 --enableG4GPS -G --steeringFile steering_input.py -I hepmc_input.hepmc -I hepmc_tree_input.hepmc3.root --macroFile macro_input.mac --outputFile sim_output.edm4hep.root"
     assert reccomm == "eicrecon -Pnthreads=8 -Pjana:global_loglevel=debug -Ppodio:output_file=rec_output.edm4eic.root sim_output.edm4hep.root"
+
+    monkeypatch.setenv("EPIC_CONFIG", "test")
+    workflow = WorkflowSharedContext("test", parameters={"prepared_geometry_dir": str(tmp_path)})
+    for layer in ("geo", "rec"):
+        context = JobContext(task_id=layer, job_id=layer, stage_id="test", workflow_id="test", workflow_context=workflow)
+        config = StackLayerConfig(layer=layer, inputs=["input"], outputs=["output"])
+        epstack.make_driver_script(str(tmp_path / f"{layer}.sh"), [config], context=context)
+        assert context.payload.get("invalid_design_exit_codes", []) == ([9] if layer == "geo" else [])

@@ -276,8 +276,9 @@ default) or `aid2e/glm-5.3-flash`. The generated config also includes
 
 Pass the bare LiteLLM ID to `init`. For example, use
 `--llm-model glm-5.3-flash` to set the default and auxiliary model. The named
-routes have 262,144 total context tokens, 8,192 output tokens, and a 4,096-token
-compaction reserve in the generated config. Use
+routes in the generated config have 262,144 total context tokens and a
+4,096-token compaction reserve. GLM 5.3 Flash has a 32,768-token output limit.
+Qwen 3.8 Flash-Next and MiniMax M3.1 Flash each have an 8,192-token output limit. Use
 `--llm-context` and `--llm-output` to override the configured default model's limits.
 Rerunning `aid2e mcp init --client opencode` refreshes managed settings and
 preserves user overrides.

@@ -2,6 +2,62 @@
 import re
 
 
+def verification_contract() -> dict:
+    """Public interfaces for producing and checking evidence for one managed run."""
+    return {
+        "pytest_fixture": (
+            "from aid2e.mcp.verification import run_local_optimization\n"
+            "record = run_local_optimization(str(root), 'examples/demo/config.yml', ['tests/demo'])\n"
+            "run_id = record['run_id']\n"
+            "results = json.loads(Path(record['artifacts']['optimization_results.json']).read_text())\n"
+            "front = json.loads(Path(record['artifacts']['pareto_front.json']).read_text())"
+        ),
+        "results": {
+            "optimization_results.json": "Object with a trials array.",
+            "pareto_front.json": "Array of sampled non-dominated trial records.",
+            "trial_fields": ["trial_index", "design_parameters", "objectives", "metadata.ax_node_name"],
+        },
+        "cli_output": (
+            "When a test explicitly requires CLI output under pytest tmp_path, run "
+            "aid2e optimize CONFIG --output TMP_PATH --run-id cli and read TMP_PATH/cli/optimization_results.json. "
+            "Keep the requested trial budget and assert its generation phases. "
+            "Use the managed fixture for evidence linked to MCP acceptance."
+        ),
+        "device": (
+            "In reconstruction, import record_diagnostic from aid2e.mcp.verification and call "
+            "record_diagnostic(output_dir, 'reconstruction_device', str(tensor.device)) on the tensor used. "
+            "Each trial then has diagnostics/reconstruction_device.json with name and value fields."
+        ),
+        "verification_requirements_example": {
+            "expected_trials": 12,
+            "min_pareto_points": 3,
+            "require_model_based": True,
+            "require_device": True,
+            "require_artifacts": True,
+        },
+        "workflow": [
+            "Finish source, tests, artifact producers and README before final pytest. "
+            "Pass the whole test directory and any dynamic dependencies in source_paths.",
+            "Run run_workspace_tests on the whole test directory. Use the run_id printed under "
+            "'Managed run IDs created by this pytest invocation'. Keep one shared fixture for the acceptance run. "
+            "A pytest execution ID is a different identifier.",
+            "Call get_verification_report(run_id, requirements) to inspect checks, pytest and derived_artifacts. "
+            "If changes made the run stale, rerun integrated pytest and use the new run ID.",
+            "Build every requested plot or summary from record['artifacts'] for that same run. After writing "
+            "each file, the producer calls write_artifact_provenance(str(root), run_id, str(path)) "
+            "from aid2e.mcp.verification to create its matching .provenance.json sidecar.",
+            "Call finalize_optimization_run with run_id, expected_trials, artifact_paths, min_pareto_points, "
+            "require_model_based and require_device as applicable. Use JSON numbers and booleans. "
+            "Report completion only when completion_allowed is true.",
+        ],
+        "tool_roles": {
+            "verify_optimization_run": "Independent saved-result checks. Each check has status and detail.",
+            "get_verification_report": "Current result, pytest and artifact evidence for the same run.",
+            "finalize_optimization_run": "Strict acceptance including pytest source coverage and producer provenance.",
+        },
+    }
+
+
 def integration_contract() -> dict:
     """Canonical runnable interfaces, shared with the actual example generator."""
     files = scaffold_files("demo")
@@ -17,6 +73,7 @@ def integration_contract() -> dict:
         "cli": "aid2e optimize examples/demo/config.yml  # positional config; no --config or --params",
         "requirements_example": {"expected_trials": 12, "min_pareto_points": 3, "require_model_based": True},
         "typing": "Use JSON numbers and booleans, e.g. 12 and true, not strings '12' or 'true'.",
+        "verification_details": "Call get_verification_contract for evidence schemas and exact run selection.",
         "config": files["examples/demo/config.yml"],
         "evaluator": files["examples/demo/evaluator.py"],
         "pytest": files["tests/demo/test_example.py"],

@@ -153,8 +153,8 @@ def test_profiles_follow_model_class() -> None:
     }
 
 
-@pytest.mark.parametrize("llm_model", ["code-assist", "code-assist-qwen38-strata"])
-def test_strata_opencode_limits_and_auxiliary_model(tmp_path: Path, llm_model: str) -> None:
+@pytest.mark.parametrize("llm_model", ["qwen-3.8-flash-next", "glm-5.3-flash"])
+def test_named_opencode_limits_and_auxiliary_model(tmp_path: Path, llm_model: str) -> None:
     init_workspace(tmp_path, client="opencode", llm_model=llm_model)
     config = json.loads((tmp_path / "opencode.json").read_text())
     model = config["provider"]["aid2e"]["models"][llm_model]
@@ -170,19 +170,23 @@ def test_strata_opencode_limits_and_auxiliary_model(tmp_path: Path, llm_model: s
     assert config["provider"]["aid2e"]["models"]["code-assist-100b"]["limit"]["output"] == 32768
 
 
-def test_cli_default_alias_limits(tmp_path: Path) -> None:
+def test_cli_default_model_lists_named_routes(tmp_path: Path) -> None:
     result = CliRunner().invoke(cli, ["mcp", "init", "--client", "opencode", "--workspace", str(tmp_path)])
     assert result.exit_code == 0, result.output
     config = json.loads((tmp_path / "opencode.json").read_text())
-    assert config["model"] == "aid2e/code-assist"
-    assert config["provider"]["aid2e"]["models"]["code-assist"]["limit"] == {"context": 262144, "output": 8192}
-    assert config["small_model"] == "aid2e/code-assist"
+    assert config["model"] == "aid2e/qwen-3.8-flash-next"
+    assert config["provider"]["aid2e"]["models"] == {
+        "qwen-3.8-flash-next": {"name": "Qwen 3.8 Flash-Next", "limit": {"context": 262144, "output": 8192}},
+        "glm-5.3-flash": {"name": "GLM 5.3 Flash", "limit": {"context": 262144, "output": 8192}},
+        "MiniMax-M3.1-Flash": {"name": "MiniMax-M3.1-Flash", "limit": {"context": 262144, "output": 8192}},
+    }
+    assert config["small_model"] == "aid2e/qwen-3.8-flash-next"
     assert config["compaction"]["reserved"] == 4096
 
 
 @pytest.mark.parametrize("old_context,old_output", [(229376, 32768), (131072, 8192)])
 def test_default_alias_refreshes_old_managed_limits(tmp_path: Path, old_context: int, old_output: int) -> None:
-    init_workspace(tmp_path, client="opencode")
+    init_workspace(tmp_path, client="opencode", llm_model="code-assist")
     config_path = tmp_path / "opencode.json"
     metadata_path = tmp_path / METADATA_FILE
     config = json.loads(config_path.read_text())
@@ -191,18 +195,16 @@ def test_default_alias_refreshes_old_managed_limits(tmp_path: Path, old_context:
     provider = config["provider"]["aid2e"]
     provider["models"]["code-assist"]["limit"] = {"context": old_context, "output": old_output}
     managed["provider.aid2e"] = provider
-    for key in ("small_model", "compaction.reserved"):
-        managed.pop(key)
-    config.pop("small_model")
-    config.pop("compaction")
+    config["small_model"] = managed["small_model"] = "aid2e/code-assist"
     config_path.write_text(json.dumps(config))
     metadata_path.write_text(json.dumps(metadata))
 
     result = init_workspace(tmp_path, client="opencode")
     updated = json.loads(config_path.read_text())
     assert not result["warnings"]
-    assert updated["provider"]["aid2e"]["models"]["code-assist"]["limit"] == {"context": 262144, "output": 8192}
-    assert updated["small_model"] == "aid2e/code-assist"
+    assert "code-assist" not in updated["provider"]["aid2e"]["models"]
+    assert updated["provider"]["aid2e"]["models"]["qwen-3.8-flash-next"]["limit"] == {"context": 262144, "output": 8192}
+    assert updated["model"] == updated["small_model"] == "aid2e/qwen-3.8-flash-next"
     assert updated["compaction"]["reserved"] == 4096
     assert init_workspace(tmp_path, client="opencode")["written"] == []
 
@@ -212,7 +214,9 @@ def test_cli_explicit_alias_limits(tmp_path: Path) -> None:
                                       "--llm-context", "65536", "--llm-output", "4096"])
     assert result.exit_code == 0, result.output
     config = json.loads((tmp_path / "opencode.json").read_text())
-    assert config["provider"]["aid2e"]["models"]["code-assist"]["limit"] == {"context": 65536, "output": 4096}
+    models = config["provider"]["aid2e"]["models"]
+    assert models["qwen-3.8-flash-next"]["limit"] == {"context": 65536, "output": 4096}
+    assert models["glm-5.3-flash"]["limit"] == {"context": 262144, "output": 8192}
 
 
 def test_invalid_llm_limits_leave_workspace_untouched(tmp_path: Path) -> None:
@@ -416,6 +420,7 @@ _WRITE_TOOLS = {
     "finalize_optimization_run",
 }
 _SOURCE_REFERENCE_TOOLS = {
+    "get_verification_contract",
     "get_subsystem_blueprints",
     "search_repository",
     "grep_framework_source",
@@ -454,7 +459,7 @@ def test_tool_profiles() -> None:
     assert reference == full - _WRITE_TOOLS
     assert reference == _SOURCE_REFERENCE_TOOLS | {"debug_workspace", "validate_workspace_file"}
     assert full == reference | _WRITE_TOOLS
-    assert len(full) == 28 and len(reference) == 11
+    assert len(full) == 29 and len(reference) == 12
 
 
 def _profile_instructions(profile: str) -> str:

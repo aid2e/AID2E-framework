@@ -468,10 +468,18 @@ def publish_acceptance(root: Path, report: dict) -> dict:
     report = {"acceptance_status": status, "completion_allowed": status == "passed", **report}
     # Never retain a previous verdict supplied in a report being republished.
     report.update(acceptance_status=status, completion_allowed=status == "passed")
+    report["failed_checks"] = [name for name, check in report["checks"].items() if check["status"] == "failed"]
+    if status == "not_finalized":
+        report["next_action"] = "Call finalize_optimization_run with this run ID and every required artifact path."
+    elif status != "passed" and not report.get("next_action"):
+        report["next_action"] = (
+            "Review failed_checks, pytest and derived_artifacts. "
+            "Use get_verification_contract to obtain missing evidence for this run or replace stale evidence."
+        )
     folder = run_directory(root, report["run_id"])
     card = folder / "acceptance.md"
     report["acceptance_path"] = str(card)
-    failures = [name for name, check in report["checks"].items() if check["status"] == "failed"]
+    failures = report["failed_checks"]
     card.write_text(
         f"# AID2E acceptance: {status.upper()}\n\n"
         f"Run: `{report['run_id']}`\n\n"

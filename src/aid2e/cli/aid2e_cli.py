@@ -147,7 +147,7 @@ def mcp_status(run_id: str, workspace: Path, as_json: bool) -> None:
 @click.option(
     "--llm-model",
     default=None,
-    help="Model served by the gateway (OpenCode; default code-assist, which follows the deployed model).",
+    help="Default gateway model in OpenCode (qwen-3.8-flash-next, glm-5.3-flash, or MiniMax-M3.1-Flash).",
 )
 @click.option("--llm-context", type=click.IntRange(min=1), default=None,
               help="Total context tokens for the OpenCode model, including output.")

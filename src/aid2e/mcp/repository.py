@@ -15,6 +15,11 @@ from pathlib import Path
 from .models import ComponentBlueprint, RepositoryInfo, SearchResult
 from .parser import RepositoryParser
 
+MCP_IMPLEMENTATION_GUIDANCE = (
+    "MCP implementation source is unavailable through AID2E file tools. "
+    "Use get_verification_contract for supported verification and evidence APIs."
+)
+
 _SKIP_DIRS = {
     ".git",
     ".hg",
@@ -350,6 +355,14 @@ class RepositoryIndex:
 
         return None, None
 
+    def is_mcp_implementation(self, path: Path) -> bool:
+        """Identify MCP code by its resolved location, including file aliases."""
+        target = path.resolve()
+        return (
+            target.suffix.lower() in {".py", ".pyi", ".pyc", ".pyo"}
+            and target.is_relative_to((self.package_root / "mcp").resolve())
+        )
+
     def get_symbol_source(self, symbol: str) -> str | None:
         """Return source text (with file and line metadata) for an indexed symbol.
 
@@ -362,6 +375,9 @@ class RepositoryIndex:
         qualname, obj = self.resolve_indexed_symbol(symbol)
         if obj is None or obj.location is None:
             return None
+
+        if self.is_mcp_implementation(obj.location.path):
+            return MCP_IMPLEMENTATION_GUIDANCE
 
         lines = obj.location.path.read_text(encoding="utf-8", errors="replace").splitlines()
         start = max(1, obj.location.lineno)
@@ -422,6 +438,8 @@ class RepositoryIndex:
                 if any(part.startswith(".") or part in _SKIP_DIRS for part in path.parts):
                     continue
                 if path.suffix.lower() in {".pyc", ".pyo", ".so", ".png", ".jpg", ".jpeg", ".gif", ".pdf"}:
+                    continue
+                if self.is_mcp_implementation(path):
                     continue
                 seen_files.add(path)
                 try:

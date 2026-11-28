@@ -22,9 +22,10 @@ python -m pip install "aid2e[mcp]"
 
 ## Connect to the AID2E-hosted model
 
-These steps connect a client on your own machine to the `code-assist` model
-through an SSH tunnel. The model runs on the cluster. The AID2E tools run on
-your machine and work on your local files.
+These steps connect a client on your own machine to the AID2E LiteLLM gateway
+through an SSH tunnel. The default model is **Qwen 3.8 Flash-Next**
+(`qwen-3.8-flash-next`). The AID2E tools run on your machine and work on your
+local files.
 
 ```text
 your client -> 127.0.0.1:4001 -> SSH tunnel -> SciClone 127.0.0.1:4000 -> LiteLLM gateway -> model
@@ -71,12 +72,17 @@ The key lasts only for that terminal, so repeat this step in each new one.
 ### 3. Check the connection
 
 ```bash
+curl -sS http://127.0.0.1:4001/v1/models \
+  -H "Authorization: Bearer $AID2E_LLM_API_KEY"
+
 curl -sS http://127.0.0.1:4001/v1/chat/completions \
   -H "Authorization: Bearer $AID2E_LLM_API_KEY" \
   -H "Content-Type: application/json" \
-  -d '{"model": "code-assist", "messages": [{"role": "user", "content": "Reply with pong."}], "max_tokens": 200}'
+  -d '{"model": "qwen-3.8-flash-next", "messages": [{"role": "user", "content": "Reply with pong."}], "max_tokens": 200}'
 ```
 
+A `/v1/models` response lists the model IDs available to your API key. If your
+key has access to a different model, use its exact ID in the test request.
 A JSON response with a `choices` field means the tunnel, your key and the model
 all work. Otherwise, see [Connection problems](#connection-problems).
 
@@ -116,8 +122,8 @@ configuration, with your key in both places:
     "apiType": "chat-completions",
     "models": [
       {
-        "id": "code-assist",
-        "name": "AID2E Code Assist",
+        "id": "qwen-3.8-flash-next",
+        "name": "AID2E Qwen 3.8 Flash-Next",
         "url": "http://127.0.0.1:4001/v1/chat/completions",
         "toolCalling": true,
         "vision": false,
@@ -133,10 +139,12 @@ configuration, with your key in both places:
 ]
 ```
 
-This file holds your key, so keep it private. Then open the project, start
-`aid2eLocal` from the MCP view, and choose the **AID2E** agent and **AID2E Code
-Assist** in Chat. If you use VS Code in WSL or over Remote-SSH, run the tunnel
-in that same environment.
+This file holds your key, so keep it private. Open the project, start
+`aid2eLocal` from the MCP view, and choose the **AID2E** agent and
+**AID2E Qwen 3.8 Flash-Next** in Chat. To add another model or update an entry
+using the old `code-assist` alias, set `id` to the exact ID from `/v1/models`.
+If you use VS Code in WSL or over Remote-SSH, run the tunnel in that same
+environment.
 
 ### Connection problems
 
@@ -146,7 +154,7 @@ in that same environment.
 | `channel ... open failed: connect failed` in the tunnel terminal, or an empty reply from `curl` | The tunnel is up, but the gateway connection on SciClone is down. Email the administrator. |
 | `Address already in use` when opening the tunnel | Port 4001 is taken on your machine. Use another port, such as `-L 4002:127.0.0.1:4000`. Then use that port in step 3, and in `--llm-url` or `url`. Re-running `init` updates the URL. |
 | `401` or `Authentication Error` | Your key is wrong or isn't set in this terminal. Repeat step 2. |
-| `model ... is not available` or `key not allowed to access model` | Your key doesn't include `code-assist`. Email the administrator. |
+| `model ... is not available` or `key not allowed to access model` | Compare the requested ID with `/v1/models` for your key. Contact the administrator if you need access to another model. |
 | OpenCode can't reach the model, but step 3 works | The project's `opencode.json` has a different URL, or `AID2E_LLM_API_KEY` isn't exported in this terminal. Re-run `init`, then repeat step 2. |
 | Long pauses | The model is shared and generates about 25 tokens per second, so long answers take a while. |
 
@@ -164,23 +172,22 @@ while true; do
 done
 ```
 
-- **Forward the service, not a vLLM pod.** LiteLLM checks each person's key and
-  records their usage. The vLLM pods do neither, and they don't know the
-  `code-assist` alias.
+- **Forward the LiteLLM service.** It resolves gateway model IDs, checks each
+  person's key, and records usage.
 - **Use the same host for the port-forward and the tunnel.** `kubectl` listens
   only on that host's `127.0.0.1`, so a tunnel to another login node can't reach
   it.
 - **Keep the loop.** A port-forward exits when its LiteLLM pod restarts, which
   every deploy does.
 
-Create keys as described in `LITELLM-100B.md`, and include `code-assist` in
-their `models`.
+Create keys as described in `LITELLM-100B.md` and include the permitted gateway
+IDs, such as `qwen-3.8-flash-next`, in each key's `models`.
 
 ## Which tools each client gets
 
 | Model behind the client | Clients | Tool profile | Client's built-in tools |
 | --- | --- | --- | --- |
-| Small local model (e.g. AID2E `code-assist-*`) | VS Code Chat, OpenCode | `full`: Source Reference + Workspace read/write/validate | Disabled |
+| AID2E Code Assist (e.g. Qwen 3.8 Flash-Next) | VS Code Chat, OpenCode | `full`: Source Reference + Workspace read/write/validate | Disabled |
 | Strong hosted agent | Claude Code, Codex | `reference`: Source Reference + `validate_workspace_file` | Kept |
 
 Small models get confused by large or overlapping tool lists, so they see only
@@ -256,24 +263,28 @@ workers inherit the calling model. Use the normal interactive OpenCode window
 and ask it to use subagents; no launcher or experimental background flag is
 required. The optional background mode is a separate OpenCode feature.
 
-Concurrent subagents share Strata's serving slots (currently two). LiteLLM
+Concurrent subagents share the selected backend's serving slots. LiteLLM
 user/key concurrency limits apply independently; existing keys retain their stored
 limits when gateway defaults change. A request limit is not a worker-count limit.
 
 The endpoint defaults to the AID2E LiteLLM gateway's internal address
-(`http://128.239.58.223:4000/v1`) with model `code-assist`, a gateway alias for
-whichever model is deployed. That address has no outside access, so on your own
-machine pass `--llm-url http://127.0.0.1:4001/v1` and use the
-[SSH tunnel](#connect-to-the-aid2e-hosted-model). Use `--llm-model` to pin one
-model (for example, `--llm-model code-assist-gemma-26b`). The Strata route
-`--llm-model code-assist-qwen38-strata` and the default `code-assist` alias use
-262144 total context tokens and 8192 output tokens, matching the promoted Strata
-backend, with AID2E guidance supplied by the gateway. Both use the selected model
-for auxiliary requests and reserve 4096 tokens for compaction. Plain
-`aid2e mcp init --client opencode` configures these settings and refreshes old
-managed settings; user overrides remain protected. If the alias backend changes,
-override its limits with `--llm-context` and `--llm-output`. The API key
-is read from the `AID2E_LLM_API_KEY` environment variable at runtime:
+(`http://128.239.58.223:4000/v1`). OpenCode prefixes the LiteLLM ID with
+`aid2e/` in its model selector. Select `aid2e/qwen-3.8-flash-next` (the
+default) or `aid2e/glm-5.3-flash`. The generated config also includes
+`aid2e/MiniMax-M3.1-Flash`; use it when `/v1/models` lists
+`MiniMax-M3.1-Flash` for your key.
+
+Pass the bare LiteLLM ID to `init`. For example, use
+`--llm-model glm-5.3-flash` to set the default and auxiliary model. The named
+routes have 262,144 total context tokens, 8,192 output tokens, and a 4,096-token
+compaction reserve in the generated config. Use
+`--llm-context` and `--llm-output` to override the configured default model's limits.
+Rerunning `aid2e mcp init --client opencode` refreshes managed settings and
+preserves user overrides.
+
+From outside the internal network, use the [SSH tunnel](#connect-to-the-aid2e-hosted-model)
+and pass `--llm-url http://127.0.0.1:4001/v1`. OpenCode reads the gateway API key
+from `AID2E_LLM_API_KEY` at runtime.
 
 ```bash
 export AID2E_LLM_API_KEY=...        # never written to disk by init
@@ -355,11 +366,13 @@ Managed execution tools (`full` profile):
 
 Read the integration contract before writing code. Finalize the exact final
 pytest-created run and require `completion_allowed=true` before declaring done.
+Both profiles provide `get_verification_contract()` for public verification APIs,
+result schemas, and recovery steps. AID2E file tools omit MCP implementation files.
 Users can recheck independently with `aid2e mcp status RUN_ID --workspace PATH`;
 nonzero exit means not accepted. Core verification and pytest passes alone are
 not full acceptance. The finalizer does not create provenance for existing files
-or generate scientific plots. The full profile now exposes 28 tools; reference
-remains 11. Refresh managed client permissions and restart MCP to load new tools.
+or generate scientific plots. Refresh managed client permissions and restart MCP
+to load new tools.
 
 `requirements` accepts `expected_trials`, `min_pareto_points`,
 `require_model_based`, `require_device`, and `require_artifacts`. Unknown fields are rejected.

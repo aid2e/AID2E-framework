@@ -55,6 +55,8 @@ Keep production code in the requested project layout. File tools create parent
 folders automatically; never create empty files named tests or the task directory.
 
 For full-profile clients, `scaffold_example` supplies tested integration mechanics.
+Use `get_verification_contract` for the verification APIs and evidence schemas.
+Skip MCP implementation files when using MCP, shell, Python introspection, or native client file tools.
 Read `get_integration_contract` first for canonical runnable config, inline,
 shared-fixture and producer code. `run_local_optimization` returns a record dict,
 not a tuple: use `record["run_id"]` and `record["artifacts"]`. Inline functions

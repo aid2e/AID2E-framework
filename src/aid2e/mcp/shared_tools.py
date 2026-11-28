@@ -22,7 +22,7 @@ from typing import Annotated, Callable
 
 from pydantic import Field
 
-from .repository import RepositoryIndex, _SKIP_DIRS
+from .repository import MCP_IMPLEMENTATION_GUIDANCE, RepositoryIndex, _SKIP_DIRS
 from .utils import check_python_syntax, format_numbered_lines
 
 ALLOW_SOURCE_WRITES_ENV = "AID2E_ALLOW_SOURCE_WRITES"
@@ -322,6 +322,8 @@ def register_shared_tools(
         target = workspace_resolver(raw)
         if write:
             _check_writable(target)
+        elif index.is_mcp_implementation(target):
+            raise PermissionError(MCP_IMPLEMENTATION_GUIDANCE)
         return target
 
     @_workspace_tool("User project: list files and folders in the user's project. Start non-recursive; narrow `directory` before recursing.")
@@ -428,6 +430,8 @@ def register_shared_tools(
                 continue
             if path.suffix.lower() in {".pyc", ".pyo", ".so", ".png", ".jpg", ".jpeg", ".gif", ".pdf"}:
                 continue
+            if index.is_mcp_implementation(path):
+                continue
             try:
                 if path.stat().st_size > 2_000_000:
                     continue
@@ -445,7 +449,7 @@ def register_shared_tools(
             return f"No matches in the first {_MAX_WORKSPACE_SCAN} entries. Narrow `directory` or `file_pattern`."
         if not hits:
             try:
-                is_file = workspace_resolver(needle).is_file()
+                is_file = _resolve_tool_path(needle).is_file()
             except Exception:
                 is_file = False
             if is_file:

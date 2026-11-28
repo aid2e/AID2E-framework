@@ -63,12 +63,14 @@ CLIENTS = tuple(CLIENT_PROFILES)
 CLIENT_NAMES = {"claude": "Claude Code", "codex": "Codex", "opencode": "OpenCode", "vscode": "VS Code"}
 PROFILES = ("full", "reference")
 
-# The AID2E LiteLLM gateway. `code-assist` is a gateway alias for whichever model
-# is deployed. Its client defaults match the promoted Strata Qwen backend;
-# deployments with different limits can use --llm-context/--llm-output.
+# AID2E LiteLLM model IDs and picker labels.
 DEFAULT_LLM_URL = "http://128.239.58.223:4000/v1"
-DEFAULT_LLM_MODEL = "code-assist"
-STRATA_LLM_MODELS = (DEFAULT_LLM_MODEL, "code-assist-qwen38-strata")
+DEFAULT_LLM_MODEL = "qwen-3.8-flash-next"
+GATEWAY_MODELS = {
+    DEFAULT_LLM_MODEL: "Qwen 3.8 Flash-Next",
+    "glm-5.3-flash": "GLM 5.3 Flash",
+    "MiniMax-M3.1-Flash": "MiniMax-M3.1-Flash",
+}
 LLM_API_KEY_ENV = "AID2E_LLM_API_KEY"
 
 _INSTRUCTION_FILES = {"claude": "CLAUDE.md", "codex": "AGENTS.md"}
@@ -99,7 +101,7 @@ _OPENCODE_SUBAGENT_SETTINGS = {
     f"agent.general.tools.{SERVER_NAME}_run_workspace_command": True,
     **{f"agent.general.tools.{SERVER_NAME}_{tool}": True for tool in (
         "run_optimization", "preflight_workflow", "verify_optimization_run", "get_verification_report", "scaffold_example",
-        "get_integration_contract", "finalize_optimization_run")},
+        "get_integration_contract", "get_verification_contract", "finalize_optimization_run")},
     f"agent.general.tools.{SERVER_NAME}_set_workspace_root": False,
     f"agent.general.tools.{SERVER_NAME}_move_file_in_workspace": False,
     "agent.general.permission.task": "deny",
@@ -341,7 +343,7 @@ def _opencode_provider(llm_url: str, llm_model: str, llm_context: int | None = N
                        llm_output: int | None = None) -> dict:
     """OpenAI-compatible provider entry for the AID2E LiteLLM gateway."""
     limits = ({"context": 262144, "output": 8192}
-              if llm_model in STRATA_LLM_MODELS
+              if llm_model in GATEWAY_MODELS
               else {"context": 229376, "output": 32768})
     if llm_context is not None:
         limits["context"] = llm_context
@@ -349,16 +351,16 @@ def _opencode_provider(llm_url: str, llm_model: str, llm_context: int | None = N
         limits["output"] = llm_output
     if limits["context"] <= 0 or not 0 < limits["output"] < limits["context"]:
         raise ValueError("LLM output tokens must be positive and smaller than the context window")
+    models = {
+        model: {"name": label, "limit": {"context": 262144, "output": 8192}}
+        for model, label in GATEWAY_MODELS.items()
+    } if llm_model in GATEWAY_MODELS else {}
+    models[llm_model] = {"name": GATEWAY_MODELS.get(llm_model, f"AID2E {llm_model}"), "limit": limits}
     return {
         "npm": "@ai-sdk/openai-compatible",
         "name": "AID2E (local LLM)",
         "options": {"baseURL": llm_url, "apiKey": f"{{env:{LLM_API_KEY_ENV}}}"},
-        "models": {
-            llm_model: {
-                "name": f"AID2E {llm_model}",
-                "limit": limits,
-            }
-        },
+        "models": models,
     }
 
 
@@ -405,8 +407,8 @@ def next_steps(client: str, root: Path, llm_model: str = DEFAULT_LLM_MODEL) -> l
             + "comes from the server chat template or gateway; no launcher or experimental flag is needed.",
             "Build and workers can run commands and pytest in the AID2E Python environment. "
             "Reserve tests/<task>/ for pytest files and fixtures; put example code/configs/docs in examples/<task>/.",
-            ("Concurrent subagents share Strata's serving slots; LiteLLM user/key concurrency limits also apply."
-             if llm_model in STRATA_LLM_MODELS else
+            ("Concurrent subagents share the selected backend's serving slots. LiteLLM user/key concurrency limits also apply."
+             if llm_model in GATEWAY_MODELS else
              "For concurrent agent requests, have the LiteLLM administrator set your "
              "personal key's max_parallel_requests to 3."),
         ]
@@ -526,7 +528,7 @@ def init_workspace(
         _merge_owned(config, f"provider.{SERVER_NAME}",
                      _opencode_provider(llm_url, llm_model, llm_context, llm_output), managed, config_path)
         _merge_owned(config, "model", f"{SERVER_NAME}/{llm_model}", managed, config_path, on_conflict="keep", warnings=warnings)
-        if llm_model in STRATA_LLM_MODELS:
+        if llm_model in GATEWAY_MODELS:
             _merge_owned(config, "small_model", f"{SERVER_NAME}/{llm_model}", managed, config_path,
                          on_conflict="keep", warnings=warnings)
             _merge_owned(config, "compaction.reserved", 4096, managed, config_path,

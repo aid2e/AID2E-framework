@@ -392,7 +392,43 @@ def _build_source_guard_harness(tmp_path: Path):
         return target
 
     register_shared_tools(dummy, index, workspace_resolver=resolver, workspace_root_getter=lambda: ws)
+    register_planner_tools(dummy, index)
+    register_coder_tools(dummy, index)
     return dummy.tools, ws, package, examples
+
+
+def test_mcp_implementation_reads_redirect_to_verification_contract(tmp_path: Path) -> None:
+    tools, ws, package, _ = _build_source_guard_harness(tmp_path)
+    mcp_source = package / "mcp"
+    mcp_source.mkdir()
+    implementation = mcp_source / "verification.py"
+    implementation.write_text("def verify_run():\n    return 'internal_sentinel'\n", encoding="utf-8")
+    (mcp_source / "README.md").write_text("Public documentation", encoding="utf-8")
+    (ws / "alias.py").symlink_to(implementation)
+
+    for tool, arg in [
+        ("read_framework_file", "mcp/verification.py"),
+        ("read_framework_file", str(implementation)),
+        ("read_framework_file", "alias.py"),
+        ("read_example_file", "mcp/verification.py"),
+        ("get_symbol_source", "aid2e.mcp.verification.verify_run"),
+        ("read_file_in_workspace", "alias.py"),
+        ("validate_workspace_file", "vendor/aid2e/mcp/verification.py"),
+    ]:
+        result = tools[tool](arg)
+        assert "get_verification_contract" in result, (tool, result)
+        assert "internal_sentinel" not in result
+    assert "No AID2E source matches" in tools["grep_framework_source"]("internal_sentinel")
+    assert "No matches found" in tools["search_workspace"]("internal_sentinel")
+    listing = tools["list_files_in_framework_subdirectory"]("mcp")
+    assert "README.md" in listing
+    assert "verification.py" not in listing
+    assert "Public documentation" in tools["read_framework_file"]("mcp/README.md")
+
+    contract = tools["get_verification_contract"]()
+    assert "run_local_optimization" in contract["pytest_fixture"]
+    assert "pareto_front.json" in contract["results"]
+    assert "finalize_optimization_run" in contract["tool_roles"]
 
 
 def test_replace_lines_refuses_stale_line_numbers(tmp_path: Path) -> None:

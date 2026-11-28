@@ -10,7 +10,8 @@ from typing import Annotated
 
 from pydantic import Field
 
-from .repository import RepositoryIndex, _SKIP_DIRS
+from .repository import MCP_IMPLEMENTATION_GUIDANCE, RepositoryIndex, _SKIP_DIRS
+from .scaffolding import verification_contract
 
 _REFERENCE_CHUNK_LINES = 80
 _REFERENCE_CHUNK_CHARS = 12000
@@ -53,6 +54,11 @@ def _format_reference_chunk(content: str, display: str, start_line: int, end_lin
 
 
 def register_planner_tools(mcp, index: RepositoryIndex) -> None:
+    @mcp.tool(description="Get the public AID2E verification contract: pytest fixture and run ID, "
+                          "result schemas, device evidence, producer sidecars, and final acceptance.")
+    def get_verification_contract() -> dict:
+        return verification_contract()
+
     """Register planner MCP tools for Reference Source exploration.
 
     Args:
@@ -140,6 +146,8 @@ def register_planner_tools(mcp, index: RepositoryIndex) -> None:
         target = index.resolve_reference_file(raw)
         if target is None or not target.exists() or not target.is_file():
             return f"Not found in AID2E reference source: {raw}"
+        if index.is_mcp_implementation(target):
+            return MCP_IMPLEMENTATION_GUIDANCE
 
         content = target.read_text(encoding="utf-8", errors="replace")
         display = index.display_path(target)
@@ -184,6 +192,8 @@ def register_planner_tools(mcp, index: RepositoryIndex) -> None:
             else:
                 return f"Not found in examples: {raw}"
 
+        if index.is_mcp_implementation(candidate):
+            return MCP_IMPLEMENTATION_GUIDANCE
         content = candidate.read_text(encoding="utf-8", errors="replace")
         display = index.display_path(candidate)
         return _format_reference_chunk(content, display, start_line, end_line)
@@ -215,7 +225,9 @@ def register_planner_tools(mcp, index: RepositoryIndex) -> None:
         files = [
             f
             for f in sorted(target_dir.rglob(pattern))
-            if f.is_file() and not any(part.startswith(".") or part in _SKIP_DIRS for part in f.parts)
+            if f.is_file()
+            and not any(part.startswith(".") or part in _SKIP_DIRS for part in f.parts)
+            and not index.is_mcp_implementation(f)
         ]
         if not files:
             return f"No files found in '{subsystem or 'aid2e'}' matching pattern '{pattern}'."
